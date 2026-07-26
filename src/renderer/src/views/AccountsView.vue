@@ -131,16 +131,17 @@ function gridItemKey(item: GridItem): string {
 
 const gridRef = ref<{ scrollToTop: () => void } | null>(null)
 
-// 换筛选条件 / 换排序后回到顶部，否则可能停在一片空白的位置
-watch(
-  () => [
-    accountsStore.filter.search,
-    activeFilterCount.value,
-    sortKey.value,
-    sorted.value.length
-  ],
-  () => gridRef.value?.scrollToTop()
-)
+/**
+ * 回到顶部的触发条件：筛选条件（含搜索词）或排序方式变化。
+ *
+ * 这里必须用「值快照」而不是把 sorted.length 之类的派生值塞进 watch 源：
+ * 自动刷新会整体替换账号数据，派生的计算属性随之重算，
+ * 只要 watch 源是每次新建的对象/数组，回调就会被触发，
+ * 表现就是滚动中莫名跳回顶部。
+ */
+const scrollResetKey = computed(() => JSON.stringify([accountsStore.filter, sortKey.value]))
+
+watch(scrollResetKey, () => gridRef.value?.scrollToTop())
 
 /** 账号上千时用 Set 做包含判断，别用 includes 扫数组 */
 const selectedIdSet = computed(() => new Set(accountsStore.selectedIds))

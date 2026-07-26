@@ -632,6 +632,17 @@ function previewOf(list: Account[]): string {
 /* 统计卡 */
 .stat-card {
   cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+/*
+ * hoverable 默认阴影偏重，压淡一档，改用一层很浅的主题色底做可点击反馈。
+ * color-mix 让底色随主题色变化，不写死某个具体颜色。
+ */
+.stat-card:hover {
+  box-shadow: var(--kal-hover-shadow);
+  border-color: color-mix(in srgb, var(--kal-primary) 32%, var(--kal-border));
+  background: color-mix(in srgb, var(--kal-primary) 8%, var(--kal-card-bg));
 }
 
 .stat-row {
@@ -706,8 +717,9 @@ function previewOf(list: Account[]): string {
   margin-bottom: 0;
 }
 
+/* 原来写死了默认紫，换主题色后对不上，改成跟随主题色 */
 .warn-row:hover {
-  background: rgba(124, 58, 237, 0.1);
+  background: color-mix(in srgb, var(--kal-primary) 12%, var(--kal-code-bg));
 }
 
 .warn-count {

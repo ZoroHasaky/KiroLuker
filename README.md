@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.0-6c5ce7" alt="version">
+  <img src="https://img.shields.io/badge/version-1.0.1-6c5ce7" alt="version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="platform">
   <img src="https://img.shields.io/badge/Vue-3-42b883" alt="vue">
@@ -176,13 +176,13 @@ src/
 
 ---
 
-## � 更新日志
+## 🔖 更新日志
 
-各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.0.0。
+各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.0.1。
 
 ---
 
-## �💬 交流群
+## 💬 交流群
 
 <p align="center">
   <img src="docs/qq-group.jpg" width="260" alt="QQ 交流群">

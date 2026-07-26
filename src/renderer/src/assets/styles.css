@@ -143,10 +143,12 @@ body {
   justify-content: flex-start;
 }
 
-/* 通用卡片网格 */
+/* 通用卡片网格。
+   用 auto-fit 而非 auto-fill：宽屏下多余的空轨道会被折叠，
+   现有卡片拉伸铺满整行，不会在右侧留一段空白 */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 14px;
 }
 
@@ -198,6 +200,8 @@ body {
   --kal-block-bg: rgba(0, 0, 0, 0.025);
   /* 分段用量条未点亮的竖条底色 */
   --kal-bar-off: rgba(0, 0, 0, 0.1);
+  /* 可点击卡片的悬停阴影，比 ant 默认的更淡 */
+  --kal-hover-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
   --kal-primary: #7c3aed;
 }
 
@@ -210,6 +214,7 @@ body {
   --kal-code-bg: rgba(255, 255, 255, 0.06);
   --kal-block-bg: rgba(255, 255, 255, 0.04);
   --kal-bar-off: rgba(255, 255, 255, 0.12);
+  --kal-hover-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
   color-scheme: dark;
 }
 

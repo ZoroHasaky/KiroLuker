@@ -3,6 +3,30 @@
 本文件记录 Kiro Manager Lite 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.1] - 2026-07-26
+
+界面细节与交互优化，无功能变更。
+
+### 优化
+
+- 主页四张统计卡片悬停时改为浅主题色底 + 主题色描边，替换原先偏重的阴影反馈，
+  底色用 `color-mix` 与卡片底色混合，深浅模式与自定义主题色都能自然跟随
+- 「需要关注」列表项的悬停底色原先写死为默认紫，换主题色后与其它区域不一致，现已跟随主题色
+- 统计卡片网格由 `auto-fill` 改为 `auto-fit`，宽屏下卡片拉伸铺满整行，不再于右侧留出空轨道
+- 抽出 `--kal-hover-shadow` 变量统一可点击卡片的悬停阴影，深浅模式各一档
+
+### 修复
+
+- 账户管理页滚动时偶发跳回顶部：回到顶部的 `watch` 源是每次求值都新建的数组，
+  且依赖了排序结果长度，自动刷新替换账号数据后计算属性重算即触发回顶。
+  改为「筛选条件 + 排序方式」的值快照，只有条件真正变化才回到顶部
+- 同时修正一处判断口径：筛选条件数量不变但内容变化时（如从「只看正常」切到「只看异常」）
+  原先不会回顶，现已正确触发
+
+### 文档
+
+- 修正 README 中「更新日志」「交流群」两处标题的乱码字符
+
 ## [1.0.0] - 2026-07-26
 
 首个正式版本。基于 [Kiro-account-manager](https://github.com/chaogei/Kiro-account-manager)（AGPL-3.0）的接口实现，
@@ -71,4 +95,5 @@
 - Enterprise SSO 回调服务器仅监听 `127.0.0.1` 随机端口，授权完成即关闭，state 与 PKCE 全程校验
 - 外部链接只放行 http/https，统一交给系统浏览器打开
 
+[1.0.1]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.1
 [1.0.0]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.0
