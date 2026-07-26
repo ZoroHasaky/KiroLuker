@@ -1,0 +1,116 @@
+import { contextBridge, ipcRenderer, clipboard } from 'electron'
+import { createHash } from 'crypto'
+
+/**
+ * 统一包装 ipcRenderer.invoke：主进程抛出的异常会让 invoke 变成 rejected promise，
+ * 渲染层若没逐个 try/catch 就会冒出 "Uncaught (in promise)"。
+ * 这里把所有失败都收敛成和主进程一致的 { success: false, error } 结构。
+ */
+async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
+  try {
+    return await ipcRenderer.invoke(channel, ...args)
+  } catch (e) {
+    const raw = e instanceof Error ? e.message : String(e)
+    // 主进程版本比界面旧时会缺少新通道，给出可操作的提示而不是原始报错
+    const error = raw.includes('No handler registered')
+      ? `当前运行的主进程没有 ${channel} 这个能力，请完全退出并重新启动应用后再试`
+      : raw.replace(/^Error invoking remote method '[^']+':\s*/, '')
+    return { success: false, error }
+  }
+}
+
+/**
+ * 订阅主进程推送，返回取消订阅的函数。
+ * 组件卸载时必须调用它摘掉监听，否则热更新与反复开关弹窗会不断累积监听器。
+ */
+function subscribe<T>(channel: string, handler: (payload: T) => void): () => void {
+  const listener = (_e: unknown, payload: T): void => handler(payload)
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
+}
+
+const api = {
+  /** 同步 md5，供邮箱打码使用（在 preload 内直接算，不走 IPC） */
+  md5: (text: string) => createHash('md5').update(text).digest('hex'),
+
+  // 数据
+  loadAccounts: () => invoke('accounts:load'),
+  saveAccounts: (data: unknown) => invoke('accounts:save', data),
+
+  // 账号操作
+  verifyCredentials: (input: unknown) => invoke('accounts:verify', input),
+  refreshAccountToken: (account: unknown) => invoke('accounts:refresh-token', account),
+  checkAccountStatus: (account: unknown) => invoke('accounts:check-status', account),
+
+  // 积分变化日志
+  getUsageHistory: (accountId: string) => invoke('usage:history', accountId),
+  recordUsagePoint: (accountId: string, usage: unknown) =>
+    invoke('usage:record', accountId, usage),
+  clearUsageHistory: (accountId: string) => invoke('usage:clear-history', accountId),
+
+  // Kiro IDE
+  readLocalKiroCredentials: () => invoke('kiro:read-local-credentials'),
+  getActiveKiroToken: () => invoke('kiro:get-active-token'),
+  switchAccount: (input: unknown) => invoke('kiro:switch', input),
+  isKiroIdeRunning: () => invoke('kiro:ide-running'),
+  restartKiroIde: () => invoke('kiro:restart-ide'),
+  logoutKiro: () => invoke('kiro:logout'),
+
+  // 账号测活
+  listKiroModels: (input: unknown) => invoke('kiro:list-models', input),
+  chatTest: (requestId: string, input: unknown) => invoke('kiro:chat-test', requestId, input),
+  cancelChatTest: (requestId: string) => invoke('kiro:chat-cancel', requestId),
+  onChatChunk: (handler: (payload: { requestId: string; delta: string }) => void) =>
+    subscribe('kiro:chat-chunk', handler),
+
+  // 在线登录
+  startBuilderIdLogin: (region?: string, privateMode?: boolean) =>
+    invoke('login:start-builder-id', region, privateMode),
+  pollBuilderIdLogin: () => invoke('login:poll-builder-id'),
+  startSocialLogin: (provider: 'Google' | 'Github', privateMode?: boolean) =>
+    invoke('login:start-social', provider, privateMode),
+  completeSocialLogin: (code: string, state: string) =>
+    invoke('login:complete-social', code, state),
+  startEnterpriseLogin: (startUrl: string, region?: string, privateMode?: boolean) =>
+    invoke('login:start-enterprise', startUrl, region, privateMode),
+  pollEnterpriseLogin: () => invoke('login:poll-enterprise'),
+  cancelLogin: () => invoke('login:cancel'),
+  onSocialCallback: (handler: (payload: unknown) => void) =>
+    subscribe('login:social-callback', handler),
+
+  // 文件
+  exportToFile: (content: string, filename: string) =>
+    invoke('file:export', content, filename),
+  importFromFile: () => invoke('file:import'),
+  writeClipboard: (text: string) => clipboard.writeText(text),
+
+  // 设置 / 应用
+  getSettings: () => invoke('settings:get'),
+  saveSettings: (patch: unknown) => invoke('settings:save', patch),
+  getAppInfo: () => invoke('app:info'),
+  openExternal: (url: string, privateMode?: boolean) =>
+    invoke('app:open-external', url, privateMode),
+  showPath: (target: 'store' | 'backup') => invoke('app:show-path', target),
+
+  // 托盘
+  syncTray: (snapshot: unknown) => invoke('tray:sync', snapshot),
+  onTrayAction: (handler: (action: string) => void) => subscribe('tray:action', handler),
+
+  // kiro-manager-lite:// 协议唤起时的路由跳转
+  onAppNavigate: (handler: (target: string) => void) => subscribe('app:navigate', handler),
+
+  // 托盘「退出程序」触发的退出确认
+  quitApp: () => invoke('app:quit'),
+  onConfirmQuit: (handler: () => void) => subscribe('app:confirm-quit', () => handler())
+}
+
+if (process.contextIsolated) {
+  try {
+    contextBridge.exposeInMainWorld('api', api)
+  } catch (error) {
+    console.error(error)
+  }
+} else {
+  // @ts-ignore contextIsolation 关闭时的回退
+  window.api = api
+}

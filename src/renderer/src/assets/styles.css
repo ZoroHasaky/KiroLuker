@@ -1,0 +1,219 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', sans-serif;
+  overflow: hidden;
+}
+
+/* 主壳布局 */
+.app-shell {
+  display: flex;
+  height: 100%;
+}
+
+.app-sidebar {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  /* 折叠动画期间内容可能比容器宽，裁掉避免溢出到内容区 */
+  overflow: hidden;
+  border-right: 1px solid var(--kal-border);
+  background: var(--kal-sidebar-bg);
+  transition: width 0.18s ease;
+}
+
+/* 折叠态：图标居中，去掉左右留白 */
+.app-sidebar.collapsed .sidebar-brand {
+  justify-content: center;
+  padding: 0;
+}
+
+.app-sidebar.collapsed .ant-menu-inline-collapsed {
+  width: 100%;
+}
+
+/*
+ * 折叠态只剩图标：直接用 flex 居中，并清掉 antd 给图标留的右边距，
+ * 否则「图标 + 隐藏文字的间距」会被算进内容宽度，图标整体偏左。
+ */
+.app-sidebar.collapsed .ant-menu-inline-collapsed .ant-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.app-sidebar.collapsed .ant-menu-inline-collapsed .ant-menu-item .ant-menu-item-icon,
+.app-sidebar.collapsed .ant-menu-inline-collapsed .ant-menu-item .anticon {
+  margin-inline-end: 0;
+}
+
+.app-sidebar.collapsed .ant-menu-inline-collapsed .ant-menu-title-content {
+  display: none;
+}
+
+/*
+ * 底部按钮：折叠态改成固定 40px 宽的方形按钮并由 flex 居中，
+ * 不再铺满整行，避免 antd 的左右内边距把图标推偏。
+ */
+.app-sidebar.collapsed .sidebar-footer {
+  align-items: center;
+}
+
+.app-sidebar.collapsed .sidebar-footer .footer-btn {
+  width: 40px;
+  padding-inline: 0;
+  justify-content: center;
+}
+
+.app-sidebar.collapsed .sidebar-footer .footer-btn .ant-btn-icon,
+.app-sidebar.collapsed .sidebar-footer .footer-btn > .anticon {
+  margin-inline-end: 0;
+}
+
+.app-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--kal-body-bg);
+}
+
+.app-titlebar {
+  height: 44px;
+  flex: 0 0 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--kal-border);
+}
+
+.app-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px 24px 28px;
+}
+
+/* 侧栏 */
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  /* 只剩 logo，展开与折叠都居中 */
+  justify-content: center;
+  height: 60px;
+  padding: 0 16px;
+  overflow: hidden;
+}
+
+.sidebar-brand .brand-logo {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.sidebar-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 10px;
+  border-top: 1px solid var(--kal-border);
+}
+
+/* 展开态左对齐，折叠态在下面的 .collapsed 规则里改为居中 */
+.sidebar-footer .footer-btn {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+/* 通用卡片网格 */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.muted {
+  color: var(--kal-muted);
+}
+
+.mono {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.token-box {
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--kal-code-bg);
+  max-height: 96px;
+  overflow: auto;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+/* 主题变量 */
+:root {
+  --kal-border: rgba(5, 5, 5, 0.08);
+  --kal-sidebar-bg: #ffffff;
+  --kal-body-bg: #f5f6fa;
+  --kal-card-bg: #ffffff;
+  --kal-muted: rgba(0, 0, 0, 0.45);
+  --kal-code-bg: rgba(0, 0, 0, 0.04);
+  /* 卡片内区块的差异化底色 */
+  --kal-block-bg: rgba(0, 0, 0, 0.025);
+  /* 分段用量条未点亮的竖条底色 */
+  --kal-bar-off: rgba(0, 0, 0, 0.1);
+  --kal-primary: #7c3aed;
+}
+
+.dark {
+  --kal-border: rgba(255, 255, 255, 0.1);
+  --kal-sidebar-bg: #16181d;
+  --kal-body-bg: #101216;
+  --kal-card-bg: #1a1d23;
+  --kal-muted: rgba(255, 255, 255, 0.45);
+  --kal-code-bg: rgba(255, 255, 255, 0.06);
+  --kal-block-bg: rgba(255, 255, 255, 0.04);
+  --kal-bar-off: rgba(255, 255, 255, 0.12);
+  color-scheme: dark;
+}
+
+.dark body {
+  background: #101216;
+  color: rgba(255, 255, 255, 0.85);
+}

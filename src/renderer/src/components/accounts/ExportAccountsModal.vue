@@ -1,0 +1,226 @@
+<script setup lang="ts">
+import { computed, ref, watch, type Component } from 'vue'
+import { message } from 'ant-design-vue'
+import {
+  CodeOutlined,
+  CopyOutlined,
+  DownloadOutlined,
+  FileOutlined,
+  FileTextOutlined,
+  KeyOutlined,
+  SnippetsOutlined,
+  TableOutlined
+} from '@ant-design/icons-vue'
+import { useAccountsStore } from '@/stores/accounts'
+import { useSettingsStore } from '@/stores/settings'
+import { EXPORT_EXTENSION, buildExportContent, type ExportFormat } from '@/utils/transfer'
+import { copyText } from '@/utils/ui'
+
+const props = defineProps<{ open: boolean }>()
+const emit = defineEmits<{ 'update:open': [boolean] }>()
+
+const accountsStore = useAccountsStore()
+const settingsStore = useSettingsStore()
+
+const format = ref<ExportFormat>('json')
+const includeCredentials = ref(true)
+
+/** 导出始终针对全部账号，不再提供范围选择 */
+const targets = computed(() => accountsStore.accounts)
+
+const formats = computed<{ value: ExportFormat; label: string; icon: Component; desc: string }[]>(() => [
+  { value: 'json', label: 'JSON', icon: FileOutlined, desc: '完整数据，可用于导入' },
+  { value: 'oidc', label: 'OIDC JSON', icon: CodeOutlined, desc: 'OIDC 精简 JSON，可粘贴到批量添加' },
+  { value: 'kami', label: '卡密', icon: KeyOutlined, desc: '邮箱----密码----Token----ID----Secret' },
+  {
+    value: 'txt',
+    label: 'TXT',
+    icon: FileTextOutlined,
+    desc: includeCredentials.value ? '可导入格式：邮箱,Token,昵称,登录方式' : '纯文本摘要，每个账号一段'
+  },
+  {
+    value: 'csv',
+    label: 'CSV',
+    icon: TableOutlined,
+    desc: includeCredentials.value ? '可导入格式，Excel 兼容' : 'Excel 兼容的用量摘要'
+  },
+  {
+    value: 'clipboard',
+    label: '剪贴板',
+    icon: SnippetsOutlined,
+    desc: includeCredentials.value ? '可导入格式：邮箱,Token' : '复制账号摘要到剪贴板'
+  }
+])
+
+/** oidc / kami 固定携带凭证，其余格式可选 */
+const supportsCredentialToggle = computed(
+  () => format.value !== 'oidc' && format.value !== 'kami'
+)
+
+const effectiveCredentials = computed(() =>
+  supportsCredentialToggle.value ? includeCredentials.value : true
+)
+
+/** 剪贴板本身就是复制，不需要额外的复制按钮 */
+const showCopyButton = computed(() => format.value !== 'clipboard')
+
+watch(
+  () => props.open,
+  (open) => {
+    if (open) {
+      format.value = 'json'
+      includeCredentials.value = true
+    }
+  }
+)
+
+function content(): string {
+  return buildExportContent(format.value, targets.value, {
+    includeCredentials: effectiveCredentials.value,
+    appVersion: settingsStore.appInfo?.version ?? '1.0.0'
+  })
+}
+
+function close(): void {
+  emit('update:open', false)
+}
+
+function copy(): void {
+  if (targets.value.length === 0) return void message.warning('没有可导出的账号')
+  copyText(content(), `已复制 ${targets.value.length} 个账号到剪贴板`)
+  close()
+}
+
+async function saveFile(): Promise<void> {
+  if (targets.value.length === 0) return void message.warning('没有可导出的账号')
+  const filename = `kiro-accounts-${new Date().toISOString().slice(0, 10)}.${EXPORT_EXTENSION[format.value]}`
+  const res = await window.api.exportToFile(content(), filename)
+  if (!res.success) return void message.error(res.error || '导出失败')
+  if (!res.data?.saved) return
+  message.success(`已导出 ${targets.value.length} 个账号`)
+  close()
+}
+
+function submit(): void {
+  if (format.value === 'clipboard') return copy()
+  void saveFile()
+}
+</script>
+
+<template>
+  <a-modal :open="props.open" width="560px" :footer="null" @cancel="close">
+    <template #title>
+      <span class="export-title">
+        <DownloadOutlined />
+        导出账号
+        <a-tag style="margin: 0">全部 {{ targets.length }} 个</a-tag>
+      </span>
+    </template>
+
+    <div class="format-grid">
+      <button
+        v-for="item in formats"
+        :key="item.value"
+        class="format-card"
+        :class="{ selected: format === item.value }"
+        @click="format = item.value"
+      >
+        <span class="format-head">
+          <component :is="item.icon" />
+          {{ item.label }}
+        </span>
+        <span class="format-desc muted">{{ item.desc }}</span>
+      </button>
+    </div>
+
+    <div v-if="supportsCredentialToggle" class="credential-box">
+      <a-checkbox v-model:checked="includeCredentials">
+        <span class="credential-title">包含凭证信息</span>
+        <div class="muted" style="font-size: 12px">
+          包含 Token 等敏感数据，可用于完整导入
+        </div>
+      </a-checkbox>
+    </div>
+    <div v-else class="credential-box muted" style="font-size: 12px">
+      该格式固定包含 Token 等凭证，导出后请妥善保管，不要上传到公开位置。
+    </div>
+
+    <a-space style="width: 100%; justify-content: flex-end; margin-top: 16px">
+      <a-button @click="close">取消</a-button>
+      <a-button v-if="showCopyButton" @click="copy">
+        <template #icon><CopyOutlined /></template>
+        复制到剪贴板
+      </a-button>
+      <a-button type="primary" @click="submit">
+        <template #icon>
+          <SnippetsOutlined v-if="format === 'clipboard'" />
+          <DownloadOutlined v-else />
+        </template>
+        {{ format === 'clipboard' ? '复制到剪贴板' : '导出' }}
+      </a-button>
+    </a-space>
+  </a-modal>
+</template>
+
+<style scoped>
+.export-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.format-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.format-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 10px;
+  border: 2px solid var(--kal-border);
+  background: transparent;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.format-card:hover {
+  border-color: var(--kal-primary);
+}
+
+.format-card.selected {
+  border-color: var(--kal-primary);
+  background: var(--kal-block-bg);
+}
+
+.format-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.format-card.selected .format-head {
+  color: var(--kal-primary);
+}
+
+.format-desc {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.credential-box {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--kal-block-bg);
+}
+
+.credential-title {
+  font-weight: 600;
+}
+</style>

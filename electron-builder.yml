@@ -1,0 +1,74 @@
+appId: dev.kiro.account.lite
+productName: Kiro Manager Lite
+directories:
+  buildResources: build
+# 自定义 URL Scheme：kiro-manager-lite:// 与短别名 kml:// 快捷唤起应用
+protocols:
+  - name: Kiro Manager Lite
+    schemes:
+      - kiro-manager-lite
+      - kml
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - '!{.eslintrc,.prettierrc,.prettierignore,.editorconfig}'
+  # README 用的截图与设计源文件不进安装包
+  - '!docs'
+  - '!sourcefile'
+  - '!*.md'
+asarUnpack:
+  - resources/**
+# 产物统一命名：${name}-${version}-${平台}-${arch}.${ext}，避免默认名里带空格
+mac:
+  target:
+    # Apple Silicon 与 Intel 各出一份 dmg；zip 用于后续做自动更新
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+    - target: zip
+      arch:
+        - arm64
+        - x64
+  artifactName: ${name}-${version}-mac-${arch}.${ext}
+  category: public.app-category.developer-tools
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  notarize: false
+dmg:
+  # 拖拽安装的经典布局：左边 App，右边 Applications
+  contents:
+    - x: 140
+      y: 200
+      type: file
+    - x: 400
+      y: 200
+      type: link
+      path: /Applications
+win:
+  # nsis 产出的就是 .exe 安装包。
+  # 只出 x64：原生依赖 cbor-extract 的预编译产物没有 win32-arm64，
+  # 打 arm64 会退回 node-gyp 源码编译，在非 Windows 机器上必然失败。
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${name}-${version}-win-${arch}-setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Kiro Manager Lite
+  deleteAppDataOnUninstall: false
+linux:
+  # 同上：linux-arm64 的预编译包本机没装，交叉编译会挂，只出 x64
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  artifactName: ${name}-${version}-linux-${arch}.${ext}
+  category: Development

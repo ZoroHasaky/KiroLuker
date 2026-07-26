@@ -1,0 +1,7 @@
+node_modules
+dist
+dist-node
+dist-web
+out
+.DS_Store
+*.log

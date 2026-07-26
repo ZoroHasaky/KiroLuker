@@ -1,0 +1,439 @@
+// 账户业务逻辑：凭证校验、状态/积分刷新、Token 刷新、切号
+import {
+  getUsageAndLimits,
+  getUserInfo,
+  isAuthScopeError,
+  isBannedError,
+  listAvailableProfiles,
+  parseUsageResponse,
+  refreshTokenByMethod,
+  type TokenRefreshResult
+} from './kiroApi'
+import { errorMessage } from '../shared/errors'
+import {
+  arnForApiCall,
+  profileArnCandidates,
+  readKiroAuthToken,
+  resolveProfileArn,
+  writeKiroAuthToken
+} from './kiroAuth'
+import { sleep } from './utils'
+import { DEFAULT_REGION } from '../shared/regions'
+import type {
+  Account,
+  AccountSnapshot,
+  AuthMethod,
+  IdpType,
+  RefreshTokenResult,
+  SwitchAccountInput,
+  SwitchAccountResult,
+  VerifyCredentialsInput
+} from '../shared/types'
+
+/** 接口没给 expiresIn 时的兜底有效期（秒） */
+const DEFAULT_EXPIRES_IN = 3600
+
+/** 写盘用的过期时间：从当前时刻推 expiresIn 秒 */
+function expiresAtIso(expiresIn: number): string {
+  return new Date(Date.now() + expiresIn * 1000).toISOString()
+}
+
+/** 封禁错误带 isBanned 标记向上抛，IPC 层据此回传 banned 字段 */
+function bannedError(message: string): Error & { isBanned?: boolean } {
+  const error = new Error(message) as Error & { isBanned?: boolean }
+  error.isBanned = true
+  return error
+}
+
+/** 记录最近一次通过本应用切换到 IDE 的账号，用于判断"是否为 IDE 当前激活账号" */
+let lastSwitchedAccountId: string | null = null
+
+export function setLastSwitchedAccountId(id: string | null): void {
+  lastSwitchedAccountId = id
+}
+
+/** CBOR/REST 接口的 Idp 头取值 */
+function resolveIdp(provider?: string, authMethod?: string, fallback?: string): string {
+  if (authMethod === 'social') return provider || fallback || 'Google'
+  return provider || fallback || 'BuilderId'
+}
+
+function inferAuthMethod(provider?: IdpType, explicit?: AuthMethod): AuthMethod {
+  if (explicit) return explicit
+  return provider === 'Github' || provider === 'Google' ? 'social' : 'IdC'
+}
+
+/**
+ * 网络类错误（超时、连接重置、5xx）值得重试；
+ * 授权类错误（401/403/scope）重试也是同样结果，不浪费时间。
+ */
+function isRetryableError(msg: string): boolean {
+  if (isAuthScopeError(msg) || isBannedError(msg)) return false
+  return /timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket|network|fetch failed|aborted|50\d/i.test(
+    msg
+  )
+}
+
+/** 刷新所需的凭证字段，各调用点的可选值在这里统一兜底 */
+interface RefreshCredentials {
+  refreshToken: string
+  clientId?: string
+  clientSecret?: string
+  region?: string
+  authMethod?: AuthMethod | string
+}
+
+/**
+ * 校验刷新凭证是否齐全。
+ * @param oidcError IdC 账号缺少 clientId / clientSecret 时的错误文案
+ */
+function assertRefreshCredentials(cred: RefreshCredentials, oidcError: string): void {
+  if (!cred.refreshToken) throw new Error('缺少 Refresh Token')
+  if (cred.authMethod !== 'social' && (!cred.clientId || !cred.clientSecret)) {
+    throw new Error(oidcError)
+  }
+}
+
+/** 对易受网络波动影响的调用做有限重试，间隔递增 */
+async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn()
+    } catch (e) {
+      lastError = e
+      const msg = errorMessage(e)
+      if (i === attempts - 1 || !isRetryableError(msg)) break
+      console.warn(`[AccountService] ${label} 第 ${i + 1} 次失败，准备重试：${msg}`)
+      await sleep(600 * (i + 1))
+    }
+  }
+  throw lastError
+}
+
+/** 发起一次 token 刷新，补齐可选参数的兜底值 */
+function refreshWithCredentials(cred: RefreshCredentials): Promise<TokenRefreshResult> {
+  return refreshTokenByMethod(
+    cred.refreshToken,
+    cred.clientId || '',
+    cred.clientSecret || '',
+    cred.region || DEFAULT_REGION,
+    cred.authMethod
+  )
+}
+
+/**
+ * 带重试的 token 刷新，失败抛错。
+ * @param fallbackError 接口没给出失败原因时的兜底文案
+ */
+async function refreshWithRetry(
+  label: string,
+  cred: RefreshCredentials,
+  fallbackError: string
+): Promise<TokenRefreshResult & { accessToken: string }> {
+  return withRetry(label, async () => {
+    const res = await refreshWithCredentials(cred)
+    if (!res.success || !res.accessToken) throw new Error(res.error || fallbackError)
+    // 收窄类型：上面已确保 accessToken 一定存在
+    return { ...res, accessToken: res.accessToken }
+  })
+}
+
+// ============ 校验凭证（添加账号用）============
+
+export async function verifyCredentials(input: VerifyCredentialsInput): Promise<AccountSnapshot> {
+  const { refreshToken, clientId = '', clientSecret = '', region = DEFAULT_REGION } = input
+  const provider = input.provider || 'BuilderId'
+  const authMethod = inferAuthMethod(provider, input.authMethod)
+  const cred = { refreshToken, clientId, clientSecret, region, authMethod }
+
+  assertRefreshCredentials(cred, 'IdC 账号需要同时提供 Client ID 与 Client Secret')
+
+  const refreshed = await refreshWithCredentials(cred)
+  if (!refreshed.success || !refreshed.accessToken) {
+    throw new Error(`Token 刷新失败：${refreshed.error || '未知错误'}`)
+  }
+
+  const idp = resolveIdp(provider, authMethod)
+  const usage = await getUsageAndLimits(refreshed.accessToken, idp, undefined, region)
+  const parsed = parseUsageResponse(usage)
+
+  return {
+    email: parsed.email || '',
+    userId: parsed.userId,
+    idp,
+    accessToken: refreshed.accessToken,
+    refreshToken: refreshed.refreshToken || refreshToken,
+    expiresIn: refreshed.expiresIn ?? DEFAULT_EXPIRES_IN,
+    subscription: parsed.subscription,
+    usage: parsed.usage
+  }
+}
+
+// ============ 刷新状态 / 积分 ============
+
+/**
+ * 查询账号最新的订阅、用量与积分。
+ * accessToken 过期（401）时会用 refreshToken 自动续一次并重试。
+ */
+export async function checkAccountStatus(account: Account): Promise<AccountSnapshot> {
+  const { accessToken, refreshToken, clientId, clientSecret, region, authMethod, provider } =
+    account.credentials
+  const idp = resolveIdp(provider, authMethod, account.idp)
+
+  if (!accessToken && !refreshToken) throw new Error('账号缺少凭证')
+
+  const query = async (token: string): Promise<AccountSnapshot> => {
+    const [userInfo, usage] = await Promise.all([
+      getUserInfo(token, idp).catch((err: Error) => {
+        // 封禁错误必须向上抛，其它错误容忍（CBOR 门户对 IdC 常返回 401）
+        if (isBannedError(err.message)) throw err
+        return undefined
+      }),
+      // 批量刷新时并发较高，网络抖动很常见，带上有限重试减少「刷新失败」
+      withRetry('查询用量', () =>
+        getUsageAndLimits(token, idp, account.profileArn || account.credentials.profileArn, region)
+      )
+    ])
+    const parsed = parseUsageResponse(usage)
+    return {
+      email: parsed.email || userInfo?.email || account.email,
+      userId: parsed.userId || userInfo?.userId,
+      idp: userInfo?.idp || idp,
+      subscription: parsed.subscription,
+      usage: parsed.usage
+    }
+  }
+
+  try {
+    if (!accessToken) throw new Error('HTTP 401: missing access token')
+    return await query(accessToken)
+  } catch (error) {
+    const msg = errorMessage(error)
+    if (isBannedError(msg)) throw bannedError(msg)
+
+    const canRefresh = !!refreshToken && (authMethod === 'social' || (!!clientId && !!clientSecret))
+    if (!msg.includes('401') || !canRefresh) throw error
+
+    const refreshed = await refreshWithCredentials({
+      refreshToken,
+      clientId,
+      clientSecret,
+      region,
+      authMethod
+    })
+    if (!refreshed.success || !refreshed.accessToken) {
+      throw new Error(`Token 过期且刷新失败：${refreshed.error || '未知错误'}`)
+    }
+
+    const snapshot = await query(refreshed.accessToken)
+    return {
+      ...snapshot,
+      accessToken: refreshed.accessToken,
+      refreshToken: refreshed.refreshToken,
+      expiresIn: refreshed.expiresIn ?? DEFAULT_EXPIRES_IN
+    }
+  }
+}
+
+// ============ 刷新 Token ============
+
+/**
+ * 刷新账号 accessToken。
+ * 仅当该账号确实是 Kiro IDE 当前激活账号时才回写磁盘 token 文件，
+ * 否则会把 IDE 正在用的账号覆盖掉。
+ */
+export async function refreshAccountToken(account: Account): Promise<RefreshTokenResult> {
+  const { refreshToken, clientId, clientSecret, region, authMethod, provider, startUrl } =
+    account.credentials
+
+  const cred = { refreshToken, clientId, clientSecret, region, authMethod }
+  assertRefreshCredentials(cred, '缺少 OIDC 刷新凭证（clientId / clientSecret）')
+
+  // 网络类失败重试几次；invalid_grant 之类的凭证问题不重试，避免白等
+  const result = await refreshWithRetry('刷新 Token', cred, 'Token 刷新失败')
+
+  const accessToken = result.accessToken
+  const newRefreshToken = result.refreshToken || refreshToken
+  const expiresIn = result.expiresIn ?? DEFAULT_EXPIRES_IN
+
+  let syncedToIde = false
+  let syncSkipReason: string | undefined
+  try {
+    const disk = await readKiroAuthToken()
+    const matchByRefresh = !!disk && disk.refreshToken === refreshToken
+    const matchBySwitch = lastSwitchedAccountId === account.id
+    if (matchByRefresh || matchBySwitch) {
+      await writeKiroAuthToken({
+        accessToken,
+        refreshToken: newRefreshToken,
+        expiresAtIso: expiresAtIso(expiresIn),
+        authMethod: authMethod === 'social' ? 'social' : 'IdC',
+        provider: provider || (disk?.provider as IdpType) || account.idp || 'BuilderId',
+        region: region || disk?.region,
+        startUrl,
+        clientId,
+        clientSecret,
+        /*
+         * 优先沿用磁盘上已有的 profileArn：切号时那个值是逐个实测过的，
+         * 这里再走一遍 resolveProfileArn 会把它覆盖成占位符，
+         * IDE 下一次调用用量接口就可能变成 Invalid token。
+         */
+        profileArn:
+          account.profileArn ||
+          account.credentials.profileArn ||
+          disk?.profileArn ||
+          (authMethod === 'social'
+            ? resolveProfileArn({ authMethod, provider: provider || account.idp, region })
+            : undefined)
+      })
+      lastSwitchedAccountId = account.id
+      syncedToIde = true
+    } else {
+      syncSkipReason = disk
+        ? '该账号不是 Kiro IDE 当前激活账号，已跳过磁盘同步'
+        : '本地未找到 kiro-auth-token.json（IDE 未登录），已跳过磁盘同步'
+    }
+  } catch (e) {
+    syncSkipReason = `磁盘同步失败：${errorMessage(e)}`
+  }
+
+  return { accessToken, refreshToken: newRefreshToken, expiresIn, syncedToIde, syncSkipReason }
+}
+
+// ============ 切号 ============
+
+/**
+ * 把账号写入 Kiro IDE 的凭证文件。
+ *
+ * 关键点，逐条都对应过实际会踩的坑：
+ *  1. 写盘前强制 refresh：OIDC 的 refreshToken 是轮换式的，只更新 accessToken 的话
+ *     IDE 一小时后会拿作废的旧 refreshToken 去刷新并被强制登出。refresh 失败直接中止。
+ *  2. profileArn 逐个试：写错 ARN 是 IDE 报 “Unable to fetch account usage data:
+ *     Invalid token / User is not authorized” 的主因。Enterprise 要用自己 profile 的
+ *     真实 ARN，BuilderId 则不该带 ARN。这里先实测再落盘。
+ *  3. 清理陈旧客户端注册文件：上一个账号留下的 {hash}.json 会让 IDE 用错
+ *     clientId/secret 去刷新，失败后同样把用户登出。
+ *  4. 写完再用同一个 accessToken 实测一次用量接口，把结论回传界面，
+ *     不再是「写完就算成功」。
+ */
+export async function switchAccount(input: SwitchAccountInput): Promise<SwitchAccountResult> {
+  const {
+    refreshToken,
+    clientId = '',
+    clientSecret = '',
+    region = DEFAULT_REGION,
+    startUrl,
+    provider = 'BuilderId',
+    profileArn
+  } = input
+  const authMethod = inferAuthMethod(provider, input.authMethod)
+  const idp = resolveIdp(provider, authMethod)
+  const notes: string[] = []
+
+  let accessToken = input.accessToken
+  let finalRefreshToken = refreshToken
+  let expiresIn = DEFAULT_EXPIRES_IN
+
+  if (refreshToken) {
+    /*
+     * refresh 是切号的必要前置，网络抖动导致的失败重试几次通常就能过；
+     * 但要注意 refreshToken 是轮换式的：一旦服务端已经受理并轮换，
+     * 重试用的还是旧 token 就会拿到 invalid_grant，这类错误不重试。
+     */
+    const refreshed = await refreshWithRetry(
+      '切号前刷新 Token',
+      { refreshToken, clientId, clientSecret, region, authMethod },
+      '未知错误'
+    )
+      .then((r) => ({ ok: true as const, value: r }))
+      .catch((e) => ({ ok: false as const, error: errorMessage(e) }))
+
+    if (!refreshed.ok) {
+      throw new Error(
+        `刷新 Token 失败，已中止切换以避免 Kiro IDE 被强制登出。原因：${refreshed.error || '未知错误'}`
+      )
+    }
+    accessToken = refreshed.value.accessToken
+    finalRefreshToken = refreshed.value.refreshToken || refreshToken
+    expiresIn = refreshed.value.expiresIn ?? DEFAULT_EXPIRES_IN
+  }
+
+  // Enterprise 账号先问一次真实 profile，拿到就不用猜了
+  let knownArn = profileArn
+  if (provider === 'Enterprise' && !knownArn) {
+    const [firstArn] = await listAvailableProfiles(accessToken, region).catch(() => [])
+    if (firstArn) {
+      knownArn = firstArn
+      notes.push(`已获取企业账号的真实 profileArn：${firstArn}`)
+    }
+  }
+
+  // 逐个候选做实测，第一个能调通用量接口的就是要写盘的那个
+  const candidates = profileArnCandidates({ profileArn: knownArn, authMethod, provider, region })
+  /*
+   * 用对象而不是裸字符串记录结果：候选里的 undefined 表示「确定不写 ARN」，
+   * 和「还没测出可用候选」是两种含义，混在一起会把实测通过的「不写」
+   * 又覆盖成占位符 ARN，IDE 下一次调用用量接口就报 Invalid token。
+   */
+  let chosen: { arn?: string } | null = null
+  let verifyError: string | undefined
+
+  for (const candidate of candidates) {
+    try {
+      // 网络波动不该让整轮校验失败，这里带有限重试
+      await withRetry('校验 profileArn', () =>
+        getUsageAndLimits(accessToken, idp, arnForApiCall(candidate), region)
+      )
+      chosen = { arn: candidate }
+      verifyError = undefined
+      break
+    } catch (error) {
+      const msg = errorMessage(error)
+      verifyError = msg || '用量接口没有返回可识别的结果'
+      if (isBannedError(msg)) throw bannedError(msg)
+      // 只有授权维度的错误才值得换 ARN 再试，网络问题换了也一样
+      if (!isAuthScopeError(msg)) break
+      notes.push(`profileArn ${candidate ?? '(不写)'} 校验失败，换下一个候选`)
+    }
+  }
+
+  const verified = chosen !== null
+  // 全部候选都没通过时仍然写盘：多数情况是网络波动，IDE 自己也会重试
+  const arnToWrite = verified
+    ? chosen?.arn
+    : resolveProfileArn({ profileArn: knownArn, authMethod, provider, region })
+  if (!verified) {
+    notes.push(`未能实测通过，按默认规则写入 profileArn：${arnToWrite ?? '(不写)'}`)
+  }
+
+  const { tokenPath, clientRegPath, prunedRegistrations } = await writeKiroAuthToken({
+    accessToken,
+    refreshToken: finalRefreshToken,
+    expiresAtIso: expiresAtIso(expiresIn),
+    authMethod,
+    provider,
+    region,
+    startUrl,
+    clientId,
+    clientSecret,
+    profileArn: arnToWrite,
+    pruneStaleRegistrations: true
+  })
+  if (prunedRegistrations) {
+    notes.push(`清理了 ${prunedRegistrations} 个陈旧的客户端注册文件`)
+  }
+
+  lastSwitchedAccountId = input.accountId
+  return {
+    accessToken,
+    refreshToken: finalRefreshToken,
+    expiresIn,
+    tokenPath,
+    clientRegPath,
+    profileArn: arnToWrite,
+    verified,
+    verifyError: verified ? undefined : verifyError || '用量接口没有返回可识别的结果',
+    notes
+  }
+}

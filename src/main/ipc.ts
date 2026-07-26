@@ -1,0 +1,323 @@
+import { BrowserWindow, dialog, ipcMain, shell, app, type IpcMainInvokeEvent } from 'electron'
+import { readFile, writeFile } from 'fs/promises'
+import {
+  checkAccountStatus,
+  refreshAccountToken,
+  setLastSwitchedAccountId,
+  switchAccount,
+  verifyCredentials
+} from './accountService'
+import { clearKiroSsoCache, readKiroAuthToken, readLocalKiroCredentials } from './kiroAuth'
+import { isKiroRunning, restartKiroIde } from './kiroProcess'
+import { listKiroModels, streamKiroChat } from './kiroChat'
+import {
+  cancelLogin,
+  completeSocialLogin,
+  pollBuilderIdLogin,
+  pollEnterpriseLogin,
+  startBuilderIdLogin,
+  startEnterpriseLogin,
+  startSocialLogin
+} from './onlineLogin'
+import { isHttpUrl, openUrl } from './browser'
+import { setTraySnapshot, setTrayEnabled } from './tray'
+import {
+  clearProactiveRenewal,
+  scheduleForActiveAccount,
+  scheduleProactiveRenewal
+} from './proactiveRenewal'
+import { setUsageApiType } from './kiroApi'
+import { setProxyConfig } from './net'
+import { errorMessage } from '../shared/errors'
+import {
+  getAccountData,
+  getBackupDir,
+  getSettings,
+  getStorePath,
+  setAccountData,
+  setSettings
+} from './store'
+import {
+  appendUsagePoint,
+  clearUsageHistory,
+  getUsageHistory,
+  pruneUsageHistory
+} from './usageHistory'
+import { DEFAULT_REGION } from '../shared/regions'
+import type {
+  Account,
+  AccountStoreData,
+  AccountUsage,
+  AppSettings,
+  ChatTestInput,
+  IpcResult,
+  SwitchAccountInput,
+  TraySnapshot,
+  VerifyCredentialsInput
+} from '../shared/types'
+
+function ok<T>(data?: T): IpcResult<T> {
+  return { success: true, data }
+}
+
+function fail(error: unknown): IpcResult<never> {
+  return { success: false, error: errorMessage(error) }
+}
+
+/**
+ * 注册 IPC 通道：统一把未捕获异常收敛成 { success: false, error }，
+ * 各 handler 只负责返回结果，不再逐个写 try/catch。
+ */
+function handle(
+  channel: string,
+  handler: (event: IpcMainInvokeEvent, ...args: never[]) => unknown
+): void {
+  ipcMain.handle(channel, async (event, ...args) => {
+    try {
+      return await handler(event, ...(args as never[]))
+    } catch (e) {
+      return fail(e)
+    }
+  })
+}
+
+/** 把设置里与主进程相关的部分同步下去 */
+export function applyRuntimeSettings(settings: AppSettings): void {
+  setUsageApiType(settings.usageApiType)
+  setProxyConfig(settings.proxyEnabled, settings.proxyUrl)
+}
+
+export function registerIpc(getWindow: () => BrowserWindow | null): void {
+  // ============ 数据持久化 ============
+  handle('accounts:load', () => ok(getAccountData()))
+
+  handle('accounts:save', async (_e, data: AccountStoreData) => {
+    await setAccountData(data)
+    // 账号被删掉后它的积分日志就没人看了，顺手清掉
+    pruneUsageHistory((data.accounts ?? []).map((a) => a.id))
+    return ok()
+  })
+
+  // ============ 积分变化日志 ============
+  handle('usage:history', (_e, accountId: string) => ok(getUsageHistory(accountId)))
+
+  handle('usage:record', (_e, accountId: string, usage: AccountUsage) =>
+    ok({ recorded: appendUsagePoint(accountId, usage) })
+  )
+
+  handle('usage:clear-history', (_e, accountId: string) =>
+    ok({ cleared: clearUsageHistory(accountId) })
+  )
+
+  // ============ 账号操作 ============
+  handle('accounts:verify', async (_e, input: VerifyCredentialsInput) =>
+    ok(await verifyCredentials(input))
+  )
+
+  handle('accounts:refresh-token', async (_e, account: Account) => {
+    const result = await refreshAccountToken(account)
+    // 刷新的正是 IDE 当前激活账号时，基于新 expiresAt 重排主动续期
+    if (result.syncedToIde) {
+      scheduleProactiveRenewal(account.id, Date.now() + result.expiresIn * 1000)
+    }
+    return ok(result)
+  })
+
+  // 封禁需要额外回传 banned 标记，单独注册以保留该字段
+  ipcMain.handle('accounts:check-status', async (_e, account: Account) => {
+    try {
+      return ok(await checkAccountStatus(account))
+    } catch (e) {
+      const banned = (e as { isBanned?: boolean }).isBanned === true
+      return { ...fail(e), banned }
+    }
+  })
+
+  // ============ Kiro IDE 交互 ============
+  handle('kiro:read-local-credentials', async () => {
+    const result = await readLocalKiroCredentials()
+    if ('error' in result) return fail(result.error)
+    return ok(result)
+  })
+
+  handle('kiro:get-active-token', async () => {
+    const token = await readKiroAuthToken()
+    if (!token) return fail('本地没有 Kiro 登录状态')
+    return ok({
+      refreshToken: token.refreshToken,
+      accessToken: token.accessToken,
+      expiresAt: token.expiresAt,
+      authMethod: token.authMethod,
+      provider: token.provider
+    })
+  })
+
+  handle('kiro:switch', async (_e, input: SwitchAccountInput) => {
+    const result = await switchAccount(input)
+    // 新账号成为 IDE 激活账号，按其 token expiresAt 重排主动续期
+    scheduleProactiveRenewal(input.accountId, Date.now() + result.expiresIn * 1000)
+    return ok(result)
+  })
+
+  handle('kiro:logout', async () => {
+    setLastSwitchedAccountId(null)
+    clearProactiveRenewal('logout ide')
+    return ok({ deleted: await clearKiroSsoCache() })
+  })
+
+  handle('kiro:ide-running', async () => ok({ running: await isKiroRunning() }))
+
+  handle('kiro:restart-ide', async () => ok(await restartKiroIde()))
+
+  // ============ 账号测活（真实对话）============
+
+  handle('kiro:list-models', async (_e, input: Parameters<typeof listKiroModels>[0]) =>
+    ok(await listKiroModels(input))
+  )
+
+  // 一个请求一个 AbortController，取消按钮据此中断读流
+  const chatAborters = new Map<string, AbortController>()
+
+  handle('kiro:chat-test', async (event, requestId: string, input: ChatTestInput) => {
+    const controller = new AbortController()
+    chatAborters.set(requestId, controller)
+    try {
+      const result = await streamKiroChat(
+        input,
+        {
+          onDelta: (delta) => {
+            // 渲染进程可能已经关闭弹窗，发送前确认还活着
+            if (!event.sender.isDestroyed()) {
+              event.sender.send('kiro:chat-chunk', { requestId, delta })
+            }
+          }
+        },
+        controller.signal
+      )
+      return ok(result)
+    } finally {
+      chatAborters.delete(requestId)
+    }
+  })
+
+  handle('kiro:chat-cancel', (_e, requestId: string) => {
+    chatAborters.get(requestId)?.abort(new Error('用户取消'))
+    return ok()
+  })
+
+  // ============ 在线登录 ============
+  handle('login:start-builder-id', async (_e, region?: string, privateMode?: boolean) =>
+    ok(await startBuilderIdLogin(region || DEFAULT_REGION, privateMode))
+  )
+
+  handle('login:poll-builder-id', async () => ok(await pollBuilderIdLogin()))
+
+  handle('login:start-social', async (_e, provider: 'Google' | 'Github', privateMode?: boolean) =>
+    ok(await startSocialLogin(provider, privateMode))
+  )
+
+  handle('login:complete-social', async (_e, code: string, state: string) =>
+    ok(await completeSocialLogin(code, state))
+  )
+
+  handle(
+    'login:start-enterprise',
+    async (_e, startUrl: string, region?: string, privateMode?: boolean) =>
+      ok(await startEnterpriseLogin(startUrl, region || DEFAULT_REGION, privateMode))
+  )
+
+  handle('login:poll-enterprise', async () => ok(await pollEnterpriseLogin()))
+
+  handle('login:cancel', () => {
+    cancelLogin()
+    return ok()
+  })
+
+  // ============ 文件导入导出 ============
+  handle('file:export', async (_e, content: string, filename: string) => {
+    const result = await dialog.showSaveDialog(getWindow()!, {
+      title: '导出账号数据',
+      defaultPath: filename,
+      filters: [
+        { name: 'JSON', extensions: ['json'] },
+        { name: '文本', extensions: ['txt'] },
+        { name: 'CSV', extensions: ['csv'] },
+        { name: '全部文件', extensions: ['*'] }
+      ]
+    })
+    if (result.canceled || !result.filePath) return ok({ saved: false })
+    await writeFile(result.filePath, content, 'utf-8')
+    return ok({ saved: true, path: result.filePath })
+  })
+
+  handle('file:import', async () => {
+    const result = await dialog.showOpenDialog(getWindow()!, {
+      title: '导入账号数据',
+      properties: ['openFile'],
+      filters: [
+        { name: '支持的格式', extensions: ['json', 'txt', 'csv'] },
+        { name: '全部文件', extensions: ['*'] }
+      ]
+    })
+    if (result.canceled || result.filePaths.length === 0) return ok(null)
+    const filePath = result.filePaths[0]
+    const content = await readFile(filePath, 'utf-8')
+    return ok({ content, format: filePath.split('.').pop()?.toLowerCase() || 'json', path: filePath })
+  })
+
+  // ============ 设置 ============
+  handle('settings:get', () => {
+    const settings = getSettings()
+    applyRuntimeSettings(settings)
+    return ok(settings)
+  })
+
+  handle('settings:save', (_e, patch: Partial<AppSettings>) => {
+    const merged = setSettings(patch)
+    applyRuntimeSettings(merged)
+    // 托盘开关变化时动态启用 / 关闭托盘图标
+    if (patch.trayEnabled !== undefined) setTrayEnabled(patch.trayEnabled)
+    // 主动续期开关变化时立即生效：开启则按当前激活账号调度，关闭则清除
+    if (patch.proactiveRenewalEnabled !== undefined) {
+      if (patch.proactiveRenewalEnabled) scheduleForActiveAccount()
+      else clearProactiveRenewal('disabled by user')
+    }
+    return ok(merged)
+  })
+
+  // ============ 应用 ============
+  handle('app:info', () =>
+    ok({
+      version: app.getVersion(),
+      electron: process.versions.electron,
+      chrome: process.versions.chrome,
+      node: process.versions.node,
+      platform: process.platform,
+      storePath: getStorePath(),
+      backupDir: getBackupDir()
+    })
+  )
+
+  handle('app:open-external', async (_e, url: string, privateMode?: boolean) => {
+    // 只放行 http(s)，避免被诱导打开本地程序或自定义协议
+    if (!isHttpUrl(url)) return fail(new Error('仅支持 http/https 链接'))
+    return ok(await openUrl(url, privateMode))
+  })
+
+  handle('tray:sync', (_e, data: TraySnapshot) => {
+    setTraySnapshot(data)
+    return ok()
+  })
+
+  handle('app:show-path', (_e, target: 'store' | 'backup') => {
+    shell.openPath(target === 'store' ? app.getPath('userData') : getBackupDir())
+    return ok()
+  })
+
+  // 渲染进程确认退出后真正退出。before-quit 会先置位退出标记，
+  // 所以窗口 close 监听里的「最小化到托盘」不会把这次退出拦下来
+  handle('app:quit', () => {
+    app.quit()
+    return ok()
+  })
+}
