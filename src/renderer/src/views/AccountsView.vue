@@ -528,7 +528,7 @@ function logoutIde(account?: Account): void {
 
     <AddAccountModal v-model:open="addOpen" />
     <ImportAccountsModal v-model:open="importOpen" />
-    <ExportAccountsModal v-model:open="exportOpen" />
+    <ExportAccountsModal v-model:open="exportOpen" :selected-ids="accountsStore.selectedIds" />
     <EditAccountModal :account="editTarget" @close="editTarget = null" />
     <AccountDetailDrawer :account="detailTarget" @close="detailTarget = null" />
     <AccountTestModal :account="testTarget" @close="testTarget = null" />

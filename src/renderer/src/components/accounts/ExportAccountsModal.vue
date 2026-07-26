@@ -13,10 +13,14 @@ import {
 } from '@ant-design/icons-vue'
 import { useAccountsStore } from '@/stores/accounts'
 import { useSettingsStore } from '@/stores/settings'
-import { EXPORT_EXTENSION, buildExportContent, type ExportFormat } from '@/utils/transfer'
+import { buildExportContent, exportFilename, type ExportFormat } from '@/utils/transfer'
 import { copyText } from '@/utils/ui'
 
-const props = defineProps<{ open: boolean }>()
+/**
+ * selectedIds 为调用方当前勾选的账号，不传（如设置页入口）则只能导出全部。
+ * scopeLocked 用于详情抽屉这类只导出指定账号的入口，不给切换到全部的机会。
+ */
+const props = defineProps<{ open: boolean; selectedIds?: string[]; scopeLocked?: boolean }>()
 const emit = defineEmits<{ 'update:open': [boolean] }>()
 
 const accountsStore = useAccountsStore()
@@ -24,9 +28,27 @@ const settingsStore = useSettingsStore()
 
 const format = ref<ExportFormat>('json')
 const includeCredentials = ref(true)
+const scope = ref<'selected' | 'all'>('all')
 
-/** 导出始终针对全部账号，不再提供范围选择 */
-const targets = computed(() => accountsStore.accounts)
+/** 勾选集合，账号上千时用 Set 过滤 */
+const selectedSet = computed(() => new Set(props.selectedIds ?? []))
+
+/** 勾选可能包含已被删除的 id，按现有账号过滤后才是真实可导出数量 */
+const selectedCount = computed(
+  () => accountsStore.accounts.filter((a) => selectedSet.value.has(a.id)).length
+)
+
+/** 范围被锁定：只导出传入的账号，标题只做展示 */
+const lockScope = computed(() => !!props.scopeLocked && selectedCount.value > 0)
+
+/** 有勾选且未锁定时才给出「已选 / 全部」切换 */
+const canScope = computed(() => !lockScope.value && selectedCount.value > 0)
+
+const targets = computed(() =>
+  lockScope.value || (canScope.value && scope.value === 'selected')
+    ? accountsStore.accounts.filter((a) => selectedSet.value.has(a.id))
+    : accountsStore.accounts
+)
 
 const formats = computed<{ value: ExportFormat; label: string; icon: Component; desc: string }[]>(() => [
   { value: 'json', label: 'JSON', icon: FileOutlined, desc: '完整数据，可用于导入' },
@@ -70,6 +92,8 @@ watch(
     if (open) {
       format.value = 'json'
       includeCredentials.value = true
+      // 有勾选就默认只导出勾选的账号，避免误导出全部
+      scope.value = selectedCount.value > 0 ? 'selected' : 'all'
     }
   }
 )
@@ -93,7 +117,7 @@ function copy(): void {
 
 async function saveFile(): Promise<void> {
   if (targets.value.length === 0) return void message.warning('没有可导出的账号')
-  const filename = `kiro-accounts-${new Date().toISOString().slice(0, 10)}.${EXPORT_EXTENSION[format.value]}`
+  const filename = exportFilename(format.value, targets.value)
   const res = await window.api.exportToFile(content(), filename)
   if (!res.success) return void message.error(res.error || '导出失败')
   if (!res.data?.saved) return
@@ -113,7 +137,12 @@ function submit(): void {
       <span class="export-title">
         <DownloadOutlined />
         导出账号
-        <a-tag style="margin: 0">全部 {{ targets.length }} 个</a-tag>
+        <a-radio-group v-if="canScope" v-model:value="scope" size="small" button-style="solid">
+          <a-radio-button value="selected">已选 {{ selectedCount }} 个</a-radio-button>
+          <a-radio-button value="all">全部 {{ accountsStore.accounts.length }} 个</a-radio-button>
+        </a-radio-group>
+        <a-tag v-else-if="lockScope" style="margin: 0">当前账号 {{ targets.length }} 个</a-tag>
+        <a-tag v-else style="margin: 0">全部 {{ targets.length }} 个</a-tag>
       </span>
     </template>
 

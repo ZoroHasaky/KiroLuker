@@ -301,3 +301,34 @@ export const EXPORT_EXTENSION: Record<ExportFormat, string> = {
   txt: 'txt',
   clipboard: 'txt'
 }
+
+/** 本地时间的紧凑时间戳：20260726-201330，精确到秒避免同一天多次导出重名 */
+function exportStamp(date = new Date()): string {
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  const ymd = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`
+  const hms = `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+  return `${ymd}-${hms}`
+}
+
+/** 账号名转文件名片段：只留字母数字与 . _ -，其余折成单个短横 */
+function safeNamePart(value: string): string {
+  const cleaned = value
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return cleaned.slice(0, 40)
+}
+
+/**
+ * 导出文件名。
+ * 单个账号带上账号名便于辨认，多个账号用统一前缀，末尾一律带时间戳。
+ */
+export function exportFilename(format: ExportFormat, accounts: Account[]): string {
+  const ext = EXPORT_EXTENSION[format]
+  if (accounts.length === 1) {
+    const account = accounts[0]
+    const name = safeNamePart(account.nickname || account.email.split('@')[0])
+    if (name) return `kiro-account-${name}-${exportStamp()}.${ext}`
+  }
+  return `kiro-accounts-${exportStamp()}.${ext}`
+}

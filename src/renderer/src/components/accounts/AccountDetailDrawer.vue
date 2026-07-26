@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { message } from 'ant-design-vue'
-import { CopyOutlined, EyeInvisibleOutlined, EyeOutlined } from '@ant-design/icons-vue'
+import {
+  CopyOutlined,
+  DownloadOutlined,
+  EyeInvisibleOutlined,
+  EyeOutlined
+} from '@ant-design/icons-vue'
+import ExportAccountsModal from '@/components/accounts/ExportAccountsModal.vue'
 import { useAccountsStore } from '@/stores/accounts'
 import { useSettingsStore } from '@/stores/settings'
 import {
@@ -27,6 +33,7 @@ const settingsStore = useSettingsStore()
 
 const showSecrets = ref(false)
 const busy = ref(false)
+const exportOpen = ref(false)
 
 // 列表里的行对象在 store 更新后会被替换，这里始终取最新副本
 const account = computed(() =>
@@ -106,6 +113,10 @@ async function act(kind: 'refresh' | 'check' | 'switch'): Promise<void> {
         <a-button type="primary" :loading="busy" @click="act('switch')">切换到此账号</a-button>
         <a-button :loading="busy" @click="act('refresh')">刷新密钥</a-button>
         <a-button :loading="busy" @click="act('check')">刷新用量</a-button>
+        <a-button @click="exportOpen = true">
+          <template #icon><DownloadOutlined /></template>
+          导出
+        </a-button>
       </a-space>
 
       <a-alert
@@ -230,6 +241,13 @@ async function act(kind: 'refresh' | 'check' | 'switch'): Promise<void> {
           <div class="token-box mono">{{ mask(field.value) }}</div>
         </div>
       </a-space>
+
+      <!-- 范围锁定为当前账号，不受列表勾选影响 -->
+      <ExportAccountsModal
+        v-model:open="exportOpen"
+        :selected-ids="[account.id]"
+        scope-locked
+      />
     </template>
   </a-drawer>
 </template>
