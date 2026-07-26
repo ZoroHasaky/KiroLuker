@@ -2,6 +2,10 @@ appId: dev.kiro.account.lite
 productName: Kiro Manager Lite
 directories:
   buildResources: build
+# 不按 Electron ABI 重建原生模块：全项目唯一的原生依赖是 cbor-x 的可选加速模块
+# cbor-extract，加载失败时 cbor-x 会自动回退纯 JS 实现，功能不受影响。
+# 打开重建会要求 macOS / Windows 上具备 node-gyp 工具链，CI 上是常见的失败点。
+npmRebuild: false
 # 发布目标：latest*.yml 里的下载地址按此生成，供后续 electron-updater 检查更新。
 # CI 里统一用 --publish never，实际上传由 GitHub Actions 负责
 publish:

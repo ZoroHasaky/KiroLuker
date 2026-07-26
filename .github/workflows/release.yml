@@ -48,6 +48,15 @@ jobs:
           node-version: 22
           cache: npm
 
+      # 兜底：任何依赖触发 node-gyp 时都需要 distutils，
+      # runner 自带的 Python 3.12+ 已移除它，靠 setuptools 补回来
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 准备构建工具链
+        run: python -m pip install --upgrade setuptools
+
       - name: 安装依赖
         run: npm ci
 

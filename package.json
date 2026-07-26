@@ -20,8 +20,7 @@
     "build:win": "npm run prepack:dist && electron-builder --win",
     "build:linux": "npm run prepack:dist && electron-builder --linux",
     "build:all": "npm run prepack:dist && electron-builder --mac --win --linux",
-    "build:unpack": "npm run prepack:dist && electron-builder --dir",
-    "postinstall": "electron-builder install-app-deps"
+    "build:unpack": "npm run prepack:dist && electron-builder --dir"
   },
   "dependencies": {
     "@ant-design/icons-vue": "7.0.1",
