@@ -71,4 +71,4 @@
 - Enterprise SSO 回调服务器仅监听 `127.0.0.1` 随机端口，授权完成即关闭，state 与 PKCE 全程校验
 - 外部链接只放行 http/https，统一交给系统浏览器打开
 
-[1.0.0]: https://github.com/lucks-cloud
+[1.0.0]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.0
