@@ -5,6 +5,7 @@ import {
   refreshAccountToken,
   setLastSwitchedAccountId,
   switchAccount,
+  syncCredentialsToIde,
   verifyCredentials
 } from './accountService'
 import { clearKiroSsoCache, readKiroAuthToken, readLocalKiroCredentials } from './kiroAuth'
@@ -126,7 +127,24 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   // 封禁需要额外回传 banned 标记，单独注册以保留该字段
   ipcMain.handle('accounts:check-status', async (_e, account: Account) => {
     try {
-      return ok(await checkAccountStatus(account))
+      const snapshot = await checkAccountStatus(account)
+      /*
+       * accessToken 过期时 checkAccountStatus 会顺手刷新一次，refreshToken 随之轮换。
+       * 这种轮换必须同步给 IDE 并重排主动续期，否则 IDE 手里的 refreshToken 已作废，
+       * 主动续期也会因为磁盘值对不上而判定「不是激活账号」并停止调度。
+       */
+      const { accessToken, refreshToken } = snapshot
+      if (accessToken && refreshToken && refreshToken !== account.credentials.refreshToken) {
+        // 接口没给 expiresIn 时按 1 小时兜底，与 accountService 的默认值一致
+        const expiresIn = snapshot.expiresIn ?? 3600
+        const { syncedToIde } = await syncCredentialsToIde(
+          account,
+          { accessToken, refreshToken, expiresIn },
+          account.credentials.refreshToken
+        )
+        if (syncedToIde) scheduleProactiveRenewal(account.id, Date.now() + expiresIn * 1000)
+      }
+      return ok(snapshot)
     } catch (e) {
       const banned = (e as { isBanned?: boolean }).isBanned === true
       return { ...fail(e), banned }

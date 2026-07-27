@@ -38,9 +38,13 @@ export function maskNickname(email: string): string {
   return maskEmail(email).split('@')[0] ?? ''
 }
 
+/**
+ * 积分数值。
+ * 开启「积分两位小数」时固定保留两位，否则四舍五入到整数。
+ */
 export function formatCredits(value: number | undefined, precision = false): string {
   if (value == null || Number.isNaN(value)) return '-'
-  return precision ? value.toFixed(2) : String(Math.round(value * 100) / 100)
+  return precision ? value.toFixed(2) : String(Math.round(value))
 }
 
 /**

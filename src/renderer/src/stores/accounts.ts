@@ -13,6 +13,7 @@ import {
   type BatchResult,
   type IdpType,
   type OnlineLoginCredentials,
+  type ProactiveRenewalPayload,
   type SubscriptionType,
   type SwitchAccountResult,
   type VerifyCredentialsInput
@@ -464,9 +465,12 @@ export const useAccountsStore = defineStore('accounts', () => {
       return { ok: false, error: res.error }
     }
 
+    // 请求期间凭证可能已被主进程主动续期更新过，这里重新取一次，
+    // 否则展开的是 await 之前的旧 credentials，会把新值覆盖回去
+    const latest = get(id) ?? account
     updateAccount(id, {
       credentials: {
-        ...account.credentials,
+        ...latest.credentials,
         accessToken: res.data.accessToken,
         refreshToken: res.data.refreshToken,
         expiresAt: Date.now() + res.data.expiresIn * 1000
@@ -475,6 +479,29 @@ export const useAccountsStore = defineStore('accounts', () => {
       lastError: undefined
     })
     return { ok: true, syncedToIde: res.data.syncedToIde }
+  }
+
+  /**
+   * 同步主进程主动续期后的新凭证。
+   *
+   * 主进程只对 IDE 激活账号续期，并且会把新凭证写进磁盘。渲染进程若不同步，
+   * 内存里留着的旧 refreshToken 会在下一次 persist 时覆盖磁盘（全量写入），
+   * 之后无论谁再拿它去刷新都会 invalid_grant，表现就是自动刷新时不时失败。
+   */
+  function applyRenewedCredentials(payload: ProactiveRenewalPayload): void {
+    const account = get(payload.accountId)
+    if (!account) return
+    updateAccount(payload.accountId, {
+      credentials: {
+        ...account.credentials,
+        accessToken: payload.accessToken,
+        refreshToken: payload.refreshToken,
+        expiresAt: Date.now() + payload.expiresIn * 1000
+      },
+      status: 'active',
+      lastError: undefined
+    })
+    console.info(`[ProactiveRenewal] 已同步续期后的凭证：${account.email}`)
   }
 
   async function checkStatus(id: string): Promise<{ ok: boolean; error?: string }> {
@@ -518,14 +545,22 @@ export const useAccountsStore = defineStore('accounts', () => {
     // 一旦这里漏掉复位，task.running 会永久为 true，之后所有自动刷新都会被静默跳过
     try {
       await runPool(ids, settingsStore.settings.concurrency, async (id) => {
-        const res = kind === 'refresh' ? await refreshToken(id) : await checkStatus(id)
-        if (res.ok) result.success++
-        else {
+        // 单个账号的异常必须就地兜住：抛出去会中断所在的并发通道，
+        // 该通道排队中的账号会被整批丢掉，表现为「一批里有些账号没刷新」
+        try {
+          const res = kind === 'refresh' ? await refreshToken(id) : await checkStatus(id)
+          if (res.ok) result.success++
+          else {
+            result.failed++
+            result.messages.push(`${get(id)?.email ?? id}：${res.error}`)
+          }
+        } catch (e) {
           result.failed++
-          result.messages.push(`${get(id)?.email ?? id}：${res.error}`)
+          result.messages.push(`${get(id)?.email ?? id}：${errorMessage(e)}`)
+        } finally {
+          task.value.done++
+          onProgress?.(task.value.done, ids.length)
         }
-        task.value.done++
-        onProgress?.(task.value.done, ids.length)
       })
     } finally {
       task.value.running = false
@@ -640,15 +675,54 @@ export const useAccountsStore = defineStore('accounts', () => {
   let appliedKeyInterval = 0
   let appliedUsageInterval = 0
 
+  /**
+   * 上次真正跑完一轮的时间，落 localStorage 跨启动保留。
+   * 冷启动时据此判断是否已经欠了一轮，欠了就立刻补跑，不必再等一个完整间隔。
+   */
+  const LAST_RUN_STORAGE = {
+    key: 'kal:auto-key-refresh-at',
+    usage: 'kal:auto-usage-refresh-at'
+  } as const
+
+  type AutoKind = keyof typeof LAST_RUN_STORAGE
+
+  function readLastRun(kind: AutoKind): number {
+    const raw = Number(localStorage.getItem(LAST_RUN_STORAGE[kind]))
+    // 缺记录（首次启动）或数据被改坏时返回 0，一律按「欠一轮」处理
+    return Number.isFinite(raw) && raw > 0 ? raw : 0
+  }
+
+  function markRan(kind: AutoKind): void {
+    try {
+      localStorage.setItem(LAST_RUN_STORAGE[kind], String(Date.now()))
+    } catch {
+      // 隐私模式下 localStorage 可能不可写，退化成「每次启动都补跑一轮」
+    }
+  }
+
   const keyIntervalMs = (): number => Math.max(1, settingsStore.settings.keyRefreshInterval) * 60_000
   const usageIntervalMs = (): number =>
     Math.max(1, settingsStore.settings.usageRefreshInterval) * 60_000
 
-  /** 只处理即将过期的账号，避免无谓地轮换 refreshToken */
+  /**
+   * 只处理即将过期的账号（剩余有效期 < AUTO_REFRESH_WINDOW_MS）。
+   *
+   * refreshToken 是轮换式的，刷一次旧值立即作废，所以刷得越勤、轮换失败与限流的
+   * 面就越大，而 token 本身有 1 小时寿命，没必要每轮都换。
+   *
+   * IDE 当前激活账号在「主动续期」开启时排除在外：它每次轮换都必须同步写入 IDE 的
+   * token 文件，同步失败就会让 IDE 被登出。主进程的主动续期专门负责这个账号
+   * （剩 15 分钟时刷 + 写盘 + 失败即停止调度交给 IDE 兜底），两边同时刷同一个账号
+   * 反而会互相拿到已作废的旧 token。主动续期关闭时，这里照常覆盖它。
+   */
   async function refreshExpiringKeys(): Promise<void> {
+    const renewalOn = settingsStore.settings.proactiveRenewalEnabled
     const soon = accounts.value
       .filter(
-        (a) => a.status !== 'banned' && a.credentials.expiresAt - Date.now() < AUTO_REFRESH_WINDOW_MS
+        (a) =>
+          a.status !== 'banned' &&
+          !(renewalOn && a.isActive) &&
+          a.credentials.expiresAt - Date.now() < AUTO_REFRESH_WINDOW_MS
       )
       .map((a) => a.id)
     if (!soon.length) {
@@ -659,12 +733,19 @@ export const useAccountsStore = defineStore('accounts', () => {
     if (res.success) message.success(`自动刷新密钥完成：成功 ${res.success}，失败 ${res.failed}`)
   }
 
-  /** 覆盖全部非封禁账号，成功时保持静默，避免定时弹通知打扰 */
+  /** 覆盖全部非封禁账号，界面上保持静默，只往控制台记录，避免定时弹通知打扰 */
   async function refreshAllUsage(): Promise<void> {
     const ids = accounts.value.filter((a) => a.status !== 'banned').map((a) => a.id)
     if (!ids.length) return
+    const startedAt = Date.now()
+    console.info(`[AutoRefresh] 开始刷新用量：${ids.length} 个账号`)
     const res = await runBatch(ids, 'check')
-    if (res.failed) console.warn('[AutoRefresh] 用量刷新部分失败：', res.messages)
+    // 打印耗时便于对照间隔：耗时接近或超过间隔时下一轮会紧接着开始
+    console.info(
+      `[AutoRefresh] 用量刷新结束：成功 ${res.success}，失败 ${res.failed}，` +
+        `耗时 ${Math.round((Date.now() - startedAt) / 1000)}s`
+    )
+    if (res.failed) console.warn('[AutoRefresh] 用量刷新失败明细：', res.messages)
   }
 
   /** 每秒检查两条任务是否到期；到期就跑，跑完从当前时间重新计时 */
@@ -679,16 +760,22 @@ export const useAccountsStore = defineStore('accounts', () => {
 
     autoRunning = true
     try {
-      // 到期时间先往后推一轮再执行：中途异常也不会卡在「一直到期」的状态里反复重试
+      // 到期时间先往后推一轮再执行：中途异常也不会卡在「一直到期」的状态里反复重试。
+      // 执行结束后只在「已经超过下一轮时间」时才顺延，否则每轮都会被本轮耗时顶后一截，
+      // 账号多的时候实际间隔会越跑越长
       if (keyDue) {
-        nextKeyRefreshAt.value = at + keyIntervalMs()
+        const next = at + keyIntervalMs()
+        nextKeyRefreshAt.value = next
         await refreshExpiringKeys()
-        nextKeyRefreshAt.value = Date.now() + keyIntervalMs()
+        markRan('key')
+        if (Date.now() >= next) nextKeyRefreshAt.value = Date.now() + keyIntervalMs()
       }
       if (usageDue) {
-        nextUsageRefreshAt.value = Date.now() + usageIntervalMs()
+        const next = at + usageIntervalMs()
+        nextUsageRefreshAt.value = next
         await refreshAllUsage()
-        nextUsageRefreshAt.value = Date.now() + usageIntervalMs()
+        markRan('usage')
+        if (Date.now() >= next) nextUsageRefreshAt.value = Date.now() + usageIntervalMs()
       }
     } catch (e) {
       console.error('[AutoRefresh] 本轮自动刷新异常：', e)
@@ -717,6 +804,8 @@ export const useAccountsStore = defineStore('accounts', () => {
       nextKeyRefreshAt.value = null
       return
     }
+    // 调用方刚刚全量刷过，等价于跑完一轮，记下来供下次启动判断
+    markRan('key')
     nextKeyRefreshAt.value = Date.now() + keyIntervalMs()
     ensureTick()
   }
@@ -728,24 +817,63 @@ export const useAccountsStore = defineStore('accounts', () => {
       nextUsageRefreshAt.value = null
       return
     }
+    markRan('usage')
     nextUsageRefreshAt.value = Date.now() + usageIntervalMs()
+    ensureTick()
+  }
+
+  /**
+   * 按「上次跑完的时间 + 间隔」对齐下一轮，而不是从现在起算。
+   *
+   * 冷启动、长时间休眠、或把间隔从长调短之后，如果已经越过应刷时间，
+   * 这里算出的时间点就落在过去，下一个 tick（1 秒内）立刻补跑一轮，
+   * 不必再干等一个完整间隔。
+   */
+  function alignNextRun(kind: AutoKind): number {
+    const interval = kind === 'key' ? keyIntervalMs() : usageIntervalMs()
+    const due = readLastRun(kind) + interval
+    // 已经欠一轮：统一归到当下，界面显示「本轮正在执行…」而不是一个久远的时间
+    return due <= Date.now() ? Date.now() : due
+  }
+
+  function alignKeyRefresh(): void {
+    appliedKeyInterval = settingsStore.settings.keyRefreshInterval
+    if (!settingsStore.settings.autoRefresh) {
+      nextKeyRefreshAt.value = null
+      return
+    }
+    nextKeyRefreshAt.value = alignNextRun('key')
+    ensureTick()
+  }
+
+  function alignUsageRefresh(): void {
+    appliedUsageInterval = settingsStore.settings.usageRefreshInterval
+    if (!settingsStore.settings.autoRefreshUsage) {
+      nextUsageRefreshAt.value = null
+      return
+    }
+    nextUsageRefreshAt.value = alignNextRun('usage')
     ensureTick()
   }
 
   /**
    * 按当前设置对齐两条任务：开关刚打开或间隔真的改了才重新计时，
    * 其余设置改动（主题、侧边栏、隐私模式……）不影响已经在跑的倒计时。
+   *
+   * 计时基准是「上次跑完的时间」，所以冷启动时若距上次刷新已超过间隔，
+   * 会立刻补跑一轮而不是干等一个完整间隔。
    */
   function startAutoRefresh(): void {
     const { autoRefresh, autoRefreshUsage, keyRefreshInterval, usageRefreshInterval } =
       settingsStore.settings
+    // 用 align 而不是 schedule：冷启动或改短间隔后若已欠一轮，会立刻补跑
     if (!autoRefresh) nextKeyRefreshAt.value = null
     else if (nextKeyRefreshAt.value === null || appliedKeyInterval !== keyRefreshInterval) {
-      scheduleKeyRefresh()
+      alignKeyRefresh()
     }
     if (!autoRefreshUsage) nextUsageRefreshAt.value = null
     else if (nextUsageRefreshAt.value === null || appliedUsageInterval !== usageRefreshInterval) {
-      scheduleUsageRefresh()
+      alignUsageRefresh()
     }
 
     if (nextKeyRefreshAt.value === null && nextUsageRefreshAt.value === null) stopTick()
@@ -782,6 +910,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     // 刷新 / 切号
     refreshToken,
     checkStatus,
+    applyRenewedCredentials,
     runBatch,
     switchTo,
     restartKiroIde,

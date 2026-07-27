@@ -243,9 +243,68 @@ export async function checkAccountStatus(account: Account): Promise<AccountSnaps
  * 仅当该账号确实是 Kiro IDE 当前激活账号时才回写磁盘 token 文件，
  * 否则会把 IDE 正在用的账号覆盖掉。
  */
+/**
+ * 轮换出新凭证后，若该账号确实是 IDE 当前激活账号，就把新凭证写进 IDE 的 token 文件。
+ *
+ * refreshToken 是轮换式的：任何一次刷新都会让旧值作废。只要新凭证没同步给 IDE，
+ * IDE 手里那份就成了废票，之后它自己刷新会被登出，本应用的主动续期也会因为
+ * 「磁盘 refreshToken 对不上」而判定不是激活账号并停止调度。
+ *
+ * @param previousRefreshToken 轮换前的 refreshToken，用来和磁盘上的值比对身份
+ */
+export async function syncCredentialsToIde(
+  account: Account,
+  next: { accessToken: string; refreshToken: string; expiresIn: number },
+  previousRefreshToken: string
+): Promise<{ syncedToIde: boolean; syncSkipReason?: string }> {
+  const { clientId, clientSecret, region, authMethod, provider, startUrl } = account.credentials
+  try {
+    const disk = await readKiroAuthToken()
+    // 磁盘上可能已经是轮换后的新值（本次刷新已写过盘），两者都算同一个账号
+    const matchByRefresh =
+      !!disk && (disk.refreshToken === previousRefreshToken || disk.refreshToken === next.refreshToken)
+    const matchBySwitch = lastSwitchedAccountId === account.id
+    if (!matchByRefresh && !matchBySwitch) {
+      return {
+        syncedToIde: false,
+        syncSkipReason: disk
+          ? '该账号不是 Kiro IDE 当前激活账号，已跳过磁盘同步'
+          : '本地未找到 kiro-auth-token.json（IDE 未登录），已跳过磁盘同步'
+      }
+    }
+
+    await writeKiroAuthToken({
+      accessToken: next.accessToken,
+      refreshToken: next.refreshToken,
+      expiresAtIso: expiresAtIso(next.expiresIn),
+      authMethod: authMethod === 'social' ? 'social' : 'IdC',
+      provider: provider || (disk?.provider as IdpType) || account.idp || 'BuilderId',
+      region: region || disk?.region,
+      startUrl,
+      clientId,
+      clientSecret,
+      /*
+       * 优先沿用磁盘上已有的 profileArn：切号时那个值是逐个实测过的，
+       * 这里再走一遍 resolveProfileArn 会把它覆盖成占位符，
+       * IDE 下一次调用用量接口就可能变成 Invalid token。
+       */
+      profileArn:
+        account.profileArn ||
+        account.credentials.profileArn ||
+        disk?.profileArn ||
+        (authMethod === 'social'
+          ? resolveProfileArn({ authMethod, provider: provider || account.idp, region })
+          : undefined)
+    })
+    lastSwitchedAccountId = account.id
+    return { syncedToIde: true }
+  } catch (e) {
+    return { syncedToIde: false, syncSkipReason: `磁盘同步失败：${errorMessage(e)}` }
+  }
+}
+
 export async function refreshAccountToken(account: Account): Promise<RefreshTokenResult> {
-  const { refreshToken, clientId, clientSecret, region, authMethod, provider, startUrl } =
-    account.credentials
+  const { refreshToken, clientId, clientSecret, region, authMethod } = account.credentials
 
   const cred = { refreshToken, clientId, clientSecret, region, authMethod }
   assertRefreshCredentials(cred, '缺少 OIDC 刷新凭证（clientId / clientSecret）')
@@ -257,46 +316,11 @@ export async function refreshAccountToken(account: Account): Promise<RefreshToke
   const newRefreshToken = result.refreshToken || refreshToken
   const expiresIn = result.expiresIn ?? DEFAULT_EXPIRES_IN
 
-  let syncedToIde = false
-  let syncSkipReason: string | undefined
-  try {
-    const disk = await readKiroAuthToken()
-    const matchByRefresh = !!disk && disk.refreshToken === refreshToken
-    const matchBySwitch = lastSwitchedAccountId === account.id
-    if (matchByRefresh || matchBySwitch) {
-      await writeKiroAuthToken({
-        accessToken,
-        refreshToken: newRefreshToken,
-        expiresAtIso: expiresAtIso(expiresIn),
-        authMethod: authMethod === 'social' ? 'social' : 'IdC',
-        provider: provider || (disk?.provider as IdpType) || account.idp || 'BuilderId',
-        region: region || disk?.region,
-        startUrl,
-        clientId,
-        clientSecret,
-        /*
-         * 优先沿用磁盘上已有的 profileArn：切号时那个值是逐个实测过的，
-         * 这里再走一遍 resolveProfileArn 会把它覆盖成占位符，
-         * IDE 下一次调用用量接口就可能变成 Invalid token。
-         */
-        profileArn:
-          account.profileArn ||
-          account.credentials.profileArn ||
-          disk?.profileArn ||
-          (authMethod === 'social'
-            ? resolveProfileArn({ authMethod, provider: provider || account.idp, region })
-            : undefined)
-      })
-      lastSwitchedAccountId = account.id
-      syncedToIde = true
-    } else {
-      syncSkipReason = disk
-        ? '该账号不是 Kiro IDE 当前激活账号，已跳过磁盘同步'
-        : '本地未找到 kiro-auth-token.json（IDE 未登录），已跳过磁盘同步'
-    }
-  } catch (e) {
-    syncSkipReason = `磁盘同步失败：${errorMessage(e)}`
-  }
+  const { syncedToIde, syncSkipReason } = await syncCredentialsToIde(
+    account,
+    { accessToken, refreshToken: newRefreshToken, expiresIn },
+    refreshToken
+  )
 
   return { accessToken, refreshToken: newRefreshToken, expiresIn, syncedToIde, syncSkipReason }
 }

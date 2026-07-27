@@ -37,15 +37,22 @@ function confirmQuit(): void {
   })
 }
 
+// 主进程主动续期后回传的新凭证
+let offRenewal: (() => void) | undefined
+
 onMounted(() => {
   offNavigate = window.api.onAppNavigate((target) => {
     if (router.hasRoute(target)) void router.push({ name: target })
   })
   offConfirmQuit = window.api.onConfirmQuit(confirmQuit)
+  offRenewal = window.api.onProactiveRenewal((payload) =>
+    accountsStore.applyRenewedCredentials(payload)
+  )
 })
 onUnmounted(() => {
   offNavigate?.()
   offConfirmQuit?.()
+  offRenewal?.()
 })
 
 onMounted(async () => {

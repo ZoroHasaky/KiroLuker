@@ -89,7 +89,7 @@ function clearFilter(): void {
   accountsStore.applyFilter({ search: accountsStore.filter.search })
 }
 
-/** 与设置页的「邮箱打码」是同一个开关，这里切换会一起持久化 */
+/** 与设置页的「隐私打码」是同一个开关，这里切换会一起持久化 */
 const privacyMode = computed(() => settingsStore.settings.privacyMode)
 
 function togglePrivacy(): void {
@@ -434,7 +434,7 @@ function logoutIde(account?: Account): void {
             <template #icon><SyncOutlined /></template>
           </a-button>
         </a-tooltip>
-        <a-tooltip :title="privacyMode ? '显示完整邮箱' : '隐藏邮箱（打码）'">
+        <a-tooltip :title="privacyMode ? '显示邮箱与昵称' : '隐私打码：隐藏邮箱与昵称'">
           <a-button
             size="small"
             :type="privacyMode ? 'primary' : 'text'"

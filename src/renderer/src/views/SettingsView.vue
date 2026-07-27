@@ -154,9 +154,9 @@ function clearAll(): void {
             />
           </a-space>
         </a-form-item>
-        <a-form-item label="邮箱打码" class="field-inline">
+        <a-form-item label="隐私打码" class="field-inline">
           <SettingSwitch field="privacyMode" />
-          <span class="muted">列表与详情中隐藏邮箱中间部分</span>
+          <span class="muted">列表与详情中隐藏邮箱、昵称等隐私信息</span>
         </a-form-item>
         <a-form-item label="积分两位小数">
           <SettingSwitch field="usagePrecision" />

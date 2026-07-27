@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.1-6c5ce7" alt="version">
+  <img src="https://img.shields.io/badge/version-1.0.2-6c5ce7" alt="version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="platform">
   <img src="https://img.shields.io/badge/Vue-3-42b883" alt="vue">
@@ -64,7 +64,7 @@
 
 ### ⚙️ 个性化设置
 
-- 深色模式、主题色、邮箱打码、积分显示精度
+- 深色模式、主题色、隐私打码（隐藏邮箱与昵称）、积分显示精度
 - 自动刷新开关与间隔（密钥 / 用量分开配置）、批量并发、导入并发
 - 用量接口类型（REST / CBOR 门户）、HTTP 代理、数据目录与备份目录快捷打开
 
@@ -99,6 +99,63 @@
 ### 设置
 
 ![设置](docs/screenshots/setting.png)
+
+---
+
+## 📥 安装说明
+
+前往 [Releases](https://github.com/lucks-cloud/kiro-manager-lite/releases) 下载对应平台的安装包。
+
+| 平台 | 文件 | 说明 |
+| --- | --- | --- |
+| macOS (Apple Silicon) | `*-mac-arm64.dmg` | M 系列芯片 |
+| macOS (Intel) | `*-mac-x64.dmg` | Intel 芯片 |
+| Windows | `*-win-x64-setup.exe` | 仅 x64 |
+| Linux | `*-linux-x86_64.AppImage` | 仅 x64 |
+
+不清楚 Mac 是哪种芯片，在「关于本机」里看「芯片」一栏，写 Apple M 开头的选 arm64。
+`.zip` 与 `.blockmap`、`latest*.yml` 是给后续自动更新用的，手动安装不需要下载。
+
+### Windows
+
+双击 `.exe` 安装程序，可自选安装目录。首次运行 SmartScreen 可能提示"未知发布者"，
+选择「更多信息」→「仍要运行」即可,安装包未做代码签名。
+
+### macOS
+
+安装包未做签名与公证，首次打开会提示「已损坏，无法打开」或「无法验证开发者」。
+先把 `.dmg` 里的应用拖进「应用程序」，再任选一种方式解除限制。
+
+方式一：终端命令（推荐）
+
+```bash
+xattr -cr "/Applications/Kiro Manager Lite.app"
+```
+
+方式二：右键打开
+
+1. 在 Finder 的「应用程序」里找到 Kiro Manager Lite
+2. 按住 `Control` 点击图标（或直接右键）
+3. 选择「打开」
+4. 在弹出的对话框里再点一次「打开」
+
+如果系统提示已被移到废纸篓，恢复后执行方式一的命令即可。
+
+### Linux
+
+AppImage 免安装，加执行权限后直接运行：
+
+```bash
+chmod +x kiro-account-lite-*-linux-x86_64.AppImage
+./kiro-account-lite-*-linux-x86_64.AppImage
+```
+
+部分发行版缺少 FUSE 会报 `dlopen(): error loading libfuse.so.2`，两种解法：装
+`libfuse2`，或者免挂载运行：
+
+```bash
+./kiro-account-lite-*-linux-x86_64.AppImage --appimage-extract-and-run
+```
 
 ---
 
@@ -178,7 +235,7 @@ src/
 
 ## 🔖 更新日志
 
-各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.0.1。
+各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.0.2。
 
 ---
 

@@ -99,6 +99,10 @@ const api = {
   // kiro-manager-lite:// 协议唤起时的路由跳转
   onAppNavigate: (handler: (target: string) => void) => subscribe('app:navigate', handler),
 
+  // 主进程主动续期成功后回传新凭证，渲染进程据此同步内存
+  onProactiveRenewal: (handler: (payload: unknown) => void) =>
+    subscribe('proactive-renewal:done', handler),
+
   // 托盘「退出程序」触发的退出确认
   quitApp: () => invoke('app:quit'),
   onConfirmQuit: (handler: () => void) => subscribe('app:confirm-quit', () => handler())

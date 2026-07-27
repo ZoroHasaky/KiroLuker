@@ -203,6 +203,17 @@ export interface OnlineLoginCredentials {
 
 export type OnlineLoginMethod = 'Google' | 'Github' | 'BuilderId' | 'Enterprise'
 
+/**
+ * 主进程主动续期成功后回传给渲染进程的新凭证。
+ * refreshToken 是轮换式的，渲染进程必须同步内存，否则会用作废的旧值继续刷新。
+ */
+export interface ProactiveRenewalPayload {
+  accountId: string
+  accessToken: string
+  refreshToken: string
+  expiresIn: number
+}
+
 /** 托盘菜单动作 */
 export type TrayAction = 'refresh' | 'switch-next'
 
@@ -353,7 +364,7 @@ export interface AppSettings {
   darkMode: boolean
   /** 侧栏折叠 */
   sidebarCollapsed: boolean
-  /** 邮箱打码 */
+  /** 隐私打码：列表与详情中隐藏邮箱、昵称等隐私信息 */
   privacyMode: boolean
   /** 显示两位小数积分 */
   usagePrecision: boolean

@@ -19,6 +19,7 @@ import type {
   RefreshTokenResult,
   RestartIdeResult,
   SocialCallbackPayload,
+  ProactiveRenewalPayload,
   SwitchAccountInput,
   SwitchAccountResult,
   TrayAction,
@@ -116,6 +117,7 @@ export interface Api {
   syncTray: (snapshot: TraySnapshot) => Promise<IpcResult>
   onTrayAction: (handler: (action: TrayAction) => void) => () => void
   onAppNavigate: (handler: (target: string) => void) => () => void
+  onProactiveRenewal: (handler: (payload: ProactiveRenewalPayload) => void) => () => void
 
   quitApp: () => Promise<IpcResult>
   onConfirmQuit: (handler: () => void) => () => void

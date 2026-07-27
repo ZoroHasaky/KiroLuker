@@ -3,6 +3,45 @@
 本文件记录 Kiro Manager Lite 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.2] - 2026-07-27
+
+重点修复自动刷新时不时不生效的问题，根因是 refreshToken 的轮换在主进程与渲染进程之间没有同步。
+
+### 修复
+
+- **主动续期结果无人接收**：主进程续期成功后发出的 `proactive-renewal:done` 没有任何订阅方，
+  渲染进程内存里仍是轮换前的 refreshToken，而任何一次 `persist()` 都会全量写盘，
+  把作废的旧值覆盖回磁盘，之后再刷新必然 `invalid_grant`。
+  现已补上 preload 通道与渲染进程订阅，续期后立即同步内存凭证
+- **用量刷新轮换凭证后不通知任何人**：accessToken 过期（401）时 `checkAccountStatus`
+  会顺手刷新一次并轮换 refreshToken，但既不写入 IDE 的 token 文件也不重排主动续期。
+  结果是 IDE 手里的凭证作废，且主动续期因「磁盘 refreshToken 对不上」判定不是激活账号后
+  停止调度。现已抽出 `syncCredentialsToIde` 供两处复用，轮换后同步写盘并重排续期
+- **批量并发池吞任务**：并发池内单个账号抛异常会中断所在通道，该通道排队中的账号被整批丢弃，
+  表现为「一批里有些账号没刷新」。现已就地兜住异常并计入失败
+- **密钥刷新与主动续期争抢同一账号**：IDE 当前激活账号在「主动续期」开启时不再参与批量密钥刷新，
+  交由主进程独占处理，避免双方先后拿着同一个旧 refreshToken 互相作废
+- **刷新结果被旧引用覆盖**：`refreshToken()` 在请求返回后用的是请求发起前捕获的 credentials，
+  会覆盖掉这期间主动续期写入的新值，现已重新取最新引用
+- 未开启「积分两位小数」时积分显示为整数：原先是「最多两位小数」，
+  `8586.94` 这类值看起来像开了小数
+
+### 优化
+
+- **冷启动补跑**：上次跑完的时间记录到 localStorage，启动时若距上次刷新已超过间隔，
+  立刻补跑一轮而不是干等一个完整间隔；把刷新间隔从长调短、或重新打开开关时同样适用
+- **修正间隔漂移**：原先每轮执行完都按「当前时间 + 间隔」重新计时，实际周期变成
+  `间隔 + 本轮耗时`，账号多时越跑越晚。现在只在本轮耗时确实超过一整轮时才顺延
+- 自动刷新补充控制台日志（本轮账号数、成功/失败数、整轮耗时、失败明细），便于核对间隔是否准确
+- 「邮箱打码」更名为「隐私打码」，说明改为「列表与详情中隐藏邮箱、昵称等隐私信息」，
+  与实际行为一致（昵称通常就是邮箱前缀，一直是一起遮罩的）
+
+### 文档
+
+- README 新增安装说明：三平台安装包对照表、macOS 未签名的两种放行方式、
+  Windows SmartScreen 提示、Linux AppImage 缺少 FUSE 的处理
+- 更新应用 logo
+
 ## [1.0.1] - 2026-07-26
 
 界面细节与交互优化，无功能变更。
@@ -95,5 +134,6 @@
 - Enterprise SSO 回调服务器仅监听 `127.0.0.1` 随机端口，授权完成即关闭，state 与 PKCE 全程校验
 - 外部链接只放行 http/https，统一交给系统浏览器打开
 
+[1.0.2]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.2
 [1.0.1]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.1
 [1.0.0]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.0
