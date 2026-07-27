@@ -29,6 +29,8 @@ import {
 } from './proactiveRenewal'
 import { setUsageApiType } from './kiroApi'
 import { setProxyConfig } from './net'
+import { checkForUpdate } from './updater'
+import { clearLogs, exportLogs, getLogDir, queryLogs } from './logger'
 import { errorMessage } from '../shared/errors'
 import {
   getAccountData,
@@ -52,6 +54,7 @@ import type {
   AppSettings,
   ChatTestInput,
   IpcResult,
+  LogQuery,
   SwitchAccountInput,
   TraySnapshot,
   VerifyCredentialsInput
@@ -252,16 +255,26 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   })
 
   // ============ 文件导入导出 ============
+  /** 保存对话框的类型筛选：与文件名扩展名一致的那一项排在最前 */
+  function exportFilters(filename: string): { name: string; extensions: string[] }[] {
+    const known = [
+      { name: 'JSON', extensions: ['json'] },
+      { name: '日志', extensions: ['log'] },
+      { name: '文本', extensions: ['txt'] },
+      { name: 'CSV', extensions: ['csv'] }
+    ]
+    const ext = filename.split('.').pop()?.toLowerCase() ?? ''
+    const matched = known.filter((f) => f.extensions.includes(ext))
+    const rest = known.filter((f) => !f.extensions.includes(ext))
+    return [...matched, ...rest, { name: '全部文件', extensions: ['*'] }]
+  }
+
   handle('file:export', async (_e, content: string, filename: string) => {
     const result = await dialog.showSaveDialog(getWindow()!, {
-      title: '导出账号数据',
+      title: filename.endsWith('.log') ? '导出日志' : '导出账号数据',
       defaultPath: filename,
-      filters: [
-        { name: 'JSON', extensions: ['json'] },
-        { name: '文本', extensions: ['txt'] },
-        { name: 'CSV', extensions: ['csv'] },
-        { name: '全部文件', extensions: ['*'] }
-      ]
+      // 匹配文件名扩展名的类型必须排在首位，否则 macOS 会按第一项再追加一次扩展名
+      filters: exportFilters(filename)
     })
     if (result.canceled || !result.filePath) return ok({ saved: false })
     await writeFile(result.filePath, content, 'utf-8')
@@ -316,6 +329,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     })
   )
 
+  // 检查更新：对比 GitHub 最新 Release 的版本号，只给结论不做下载
+  handle('app:check-update', async () => ok(await checkForUpdate()))
+
   handle('app:open-external', async (_e, url: string, privateMode?: boolean) => {
     // 只放行 http(s)，避免被诱导打开本地程序或自定义协议
     if (!isHttpUrl(url)) return fail(new Error('仅支持 http/https 链接'))
@@ -327,10 +343,22 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     return ok()
   })
 
-  handle('app:show-path', (_e, target: 'store' | 'backup') => {
-    shell.openPath(target === 'store' ? app.getPath('userData') : getBackupDir())
+  handle('app:show-path', (_e, target: 'store' | 'backup' | 'logs') => {
+    const paths = { store: app.getPath('userData'), backup: getBackupDir(), logs: getLogDir() }
+    shell.openPath(paths[target] ?? paths.store)
     return ok()
   })
+
+  // ============ 系统日志 ============
+  handle('log:query', (_e, query: LogQuery) => ok(queryLogs(query)))
+
+  handle('log:clear', async () => {
+    await clearLogs()
+    return ok()
+  })
+
+  /** 导出当前筛选结果的纯文本，由渲染层再决定存文件还是复制 */
+  handle('log:export', (_e, query: LogQuery) => ok({ content: exportLogs(query) }))
 
   // 渲染进程确认退出后真正退出。before-quit 会先置位退出标记，
   // 所以窗口 close 监听里的「最小化到托盘」不会把这次退出拦下来

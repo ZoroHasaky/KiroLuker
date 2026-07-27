@@ -3,6 +3,80 @@
 本文件记录 Kiro Manager Lite 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.3] - 2026-07-27
+
+围绕「打包版看起来不会自动刷新」做的一轮排查与整改：问题出在打包产物没有任何日志可看，
+而不是刷新机制本身。顺势补上了内置的系统日志页面，以后排查不再依赖 DevTools。
+
+### 新增
+
+#### 系统日志
+
+- 新增「系统日志」页面：时间倒序的日志流，支持按关键字（消息 / 分类）搜索、
+  时间范围、分类、级别（DEBUG / INFO / WARN / ERROR）多维筛选，
+  并可选择显示行数上限（500 / 1K / 5K / 20K）
+- 日志中心采用内存环形缓冲 + 分片落盘：内存固定保留最近 5 万条，写入 O(1)、占用有上限；
+  磁盘按 5000 条一个分片、最多保留 10 份，避免出现巨型日志文件；写盘按 800ms 批量 flush，
+  不会让高频日志把主进程 IO 拖满
+- 接管主进程 console：现有代码里的 `console.log('[Net] ...')` 自动按 `[分类] 消息`
+  归类入库，无需逐个改调用点，终端输出照旧
+- 渲染进程日志经 IPC 汇入同一个日志中心，主进程与界面的日志在同一条时间线上
+- 工具栏提供自动跟随最新日志、手动刷新、导出当前筛选结果为 `.log`、
+  打开日志目录、清空日志（同时删除磁盘分片）
+- 日志列表用虚拟滚动渲染，两万行也只维持视口内的 DOM
+- 关键链路补充日志埋点：接口请求与响应码、批量刷新结果、自动刷新每轮的账号数与耗时、
+  失败明细
+
+#### 检查更新
+
+- 关于页新增「检查更新」：读取 GitHub Releases 的最新版本号与当前版本做语义化比较，
+  已是最新弹「已是最新版本」，有新版则弹出当前版本 → 最新版本、发布时间与更新说明，
+  可一键跳转 Releases 页面下载。请求走统一网络层，设置里的 HTTP 代理对它生效
+- 更新说明按 Markdown 渲染（marked + DOMPurify 净化），正文里的链接一律交给系统浏览器打开
+- 关于页新增「加入交流群」：弹窗展示 QQ 群二维码
+
+### 修复
+
+- **打包版丢失全部渲染进程日志**：生产构建的 terser 配置是 `drop_console: true`，
+  会把渲染进程所有 `console.*` 调用整个删掉，`[AutoRefresh]` 之类的日志在打包版里根本不存在，
+  自动刷新到底有没有执行完全无从判断。现改为只删调试性质的 `log` / `debug` / `trace`，
+  保留 `info` / `warn` / `error`
+- 主进程新增渲染进程日志转发：把 `[Xxx]` 前缀的日志与警告以上级别转发到主进程 stdout。
+  打包后的应用没法随手开 DevTools，这是排查后台任务问题的唯一通道
+- 日志页切换级别筛选时报 `An object could not be cloned`：`levels` 取自 ref 里的数组，
+  本身是响应式代理，经 IPC 结构化克隆会失败。查询条件统一过 `toPlain` 剥掉代理，
+  查询与导出两条路径一并修好。该错误还会被日志系统捕获后再写进日志、触发下一轮刷新，
+  形成自我循环
+- 导出文件被追加多余扩展名：保存对话框的类型筛选写死且 JSON 排在首位，
+  macOS 会按第一项补扩展名，导出日志会变成 `xxx.log.json`。改为按文件名扩展名动态排序，
+  匹配项置顶，同时补上 `.log` 类型；CSV / TXT 导出的同类问题一并修复
+
+### 变更
+
+- **移除 JavaScript 混淆链路**：删除 `scripts/javascript-obfuscator.mjs` 与
+  `obfuscate` 脚本，`prepack:dist` 不再执行混淆，同时卸载 `javascript-obfuscator`、
+  `cli-table3`、`dotenv` 三个 devDependencies，并删除仅为混淆脚本提供 `VITE_OUTDIR` 的
+  `.env.production`。
+  原因：混淆让产物体积膨胀约 219%，却使打包版彻底不可诊断；实测强档配置对并发池等
+  核心逻辑没有语义影响，保留它的性价比不足
+- `LICENSE` 从建仓时误留的 Apache-2.0 全文替换为 AGPL-3.0 官方文本，
+  与 `package.json` 的声明一致（GitHub 的许可证识别按文件内容判定）
+- 虚拟列表新增动态行高模式：行高先按估算值渲染，再用 `ResizeObserver` 实测可见行并按
+  key 缓存，位置改用前缀和 + 二分查找定位。日志因此可以自动换行，长消息（失败明细、
+  整段 JSON）不再需要横向拖动。定高模式的原有 O(1) 计算路径保持不变
+- 关于页头部改为居中的品牌横幅：应用标识、「Kiro 账户管理器」标题、版本号与
+  检查更新 / 加入交流群两个入口
+- 日志页工具栏的下拉与按钮尺寸统一为 large，与搜索框一致；时间、分类下拉加宽，
+  等级筛选按钮高度对齐
+- 日志导出文件名改用与账号导出一致的时间戳格式（`kiro-logs-20260727-115749.log`），
+  精确到秒且带年份
+
+### 说明
+
+自动刷新机制经实测是正常工作的：一轮覆盖 135 个账号耗时约 15 秒，冷启动补跑也会立即执行。
+此前观察到的「没刷新」，实际是部分账号的接口返回 `HTTP 400 Improperly formed request.`
+或 `HTTP 403 bearer token invalid`，这些账号的数据不会更新，需要单独处理凭证问题。
+
 ## [1.0.2] - 2026-07-27
 
 重点修复自动刷新时不时不生效的问题，根因是 refreshToken 的轮换在主进程与渲染进程之间没有同步。
@@ -134,6 +208,7 @@
 - Enterprise SSO 回调服务器仅监听 `127.0.0.1` 随机端口，授权完成即关闭，state 与 PKCE 全程校验
 - 外部链接只放行 http/https，统一交给系统浏览器打开
 
+[1.0.3]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.3
 [1.0.2]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.2
 [1.0.1]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.1
 [1.0.0]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.0

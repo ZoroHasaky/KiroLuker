@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   HomeOutlined,
   TeamOutlined,
+  FileTextOutlined,
   SettingOutlined,
   InfoCircleOutlined,
   MenuFoldOutlined,
@@ -40,6 +41,7 @@ const items = computed(() => [
     label: accountCount.value ? `账户管理（${accountCount.value}个）` : '账户管理',
     icon: TeamOutlined
   },
+  { key: 'logs', label: '系统日志', icon: FileTextOutlined },
   { key: 'settings', label: '设置', icon: SettingOutlined },
   { key: 'about', label: '关于', icon: InfoCircleOutlined }
 ])

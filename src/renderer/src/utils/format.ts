@@ -98,6 +98,18 @@ export function formatDateTime(ts?: number | string): string {
   return date.toLocaleString('zh-CN', { hour12: false })
 }
 
+/** 日志行用的时间戳：MM-DD HH:mm:ss.SSS，毫秒能看出同一批请求的先后 */
+export function formatLogTime(ts: number): string {
+  const date = new Date(ts)
+  if (Number.isNaN(date.getTime())) return '-'
+  const pad = (n: number, width = 2): string => String(n).padStart(width, '0')
+  return (
+    `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.` +
+    pad(date.getMilliseconds(), 3)
+  )
+}
+
 /**
  * 相对时间：秒 → 分 → 时分 → 天 → 月 → 年。
  * nowMs 显式传入是为了让调用方能用响应式的「当前时间」触发重算。

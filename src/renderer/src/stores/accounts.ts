@@ -307,7 +307,9 @@ export const useAccountsStore = defineStore('accounts', () => {
     selectedIds.value = selectedIds.value.filter((id) => !set.has(id))
     if (activeAccountId.value && set.has(activeAccountId.value)) activeAccountId.value = null
     persist(true)
-    return before - accounts.value.length
+    const removed = before - accounts.value.length
+    if (removed) console.warn(`[Account] 已删除 ${removed} 个账号`)
+    return removed
   }
 
   // ============ 批量导入 ============
@@ -426,6 +428,9 @@ export const useAccountsStore = defineStore('accounts', () => {
       persist(true)
     }
     if (result.skipped) result.messages.push(`跳过 ${result.skipped} 个已存在的账号`)
+    console.info(
+      `[Account] 导入备份完成：新增 ${result.success}，跳过 ${result.skipped}，失败 ${result.failed}`
+    )
     return result
   }
 
@@ -565,6 +570,9 @@ export const useAccountsStore = defineStore('accounts', () => {
     } finally {
       task.value.running = false
       persist(true)
+      console.info(
+        `[Account] ${task.value.label}结束：共 ${ids.length}，成功 ${result.success}，失败 ${result.failed}`
+      )
     }
     return result
   }
@@ -589,9 +597,15 @@ export const useAccountsStore = defineStore('accounts', () => {
       provider: account.idp,
       profileArn: account.profileArn || account.credentials.profileArn
     })
-    if (!res.success || !res.data) return { ok: false, error: res.error }
+    if (!res.success || !res.data) {
+      console.warn(`[Account] 切换到 ${account.email} 失败：${res.error}`)
+      return { ok: false, error: res.error }
+    }
 
     const result = res.data
+    console.info(
+      `[Account] 已切换到 ${account.email}（profileArn 校验${result.verified ? '通过' : '未通过'}）`
+    )
     accounts.value = accounts.value.map((a) =>
       a.id === id
         ? {

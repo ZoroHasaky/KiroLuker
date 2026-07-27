@@ -128,6 +128,8 @@ async function cborRequest<T>(
   })
 
   const buffer = Buffer.from(await res.arrayBuffer())
+  // 只记操作名与状态码，绝不记 token / 响应体，避免日志泄露凭证
+  console.debug(`[KiroApi] CBOR ${operation} ${idp} → ${res.status}`)
   if (!res.ok) {
     let message = `HTTP ${res.status}`
     try {
@@ -241,11 +243,15 @@ async function restGetUsageLimits(
   let res = await httpRequest(`${qEndpoint(region)}${path}`, { headers })
   // 主端点 403 时换另一个区域端点再试
   if (res.status === 403) {
+    console.warn(`[KiroApi] REST getUsageLimits 主端点 403，改用备用端点 ${qFallbackEndpoint(region)}`)
     res = await httpRequest(`${qFallbackEndpoint(region)}${path}`, { headers })
   }
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`)
+    const body = (await res.text()).slice(0, 300)
+    console.warn(`[KiroApi] REST getUsageLimits → ${res.status}: ${body}`)
+    throw new Error(`HTTP ${res.status}: ${body}`)
   }
+  console.debug(`[KiroApi] REST getUsageLimits → ${res.status}`)
   return res.json<UsageResponse>()
 }
 

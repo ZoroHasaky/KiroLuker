@@ -86,8 +86,13 @@ export default defineConfig({
       minify: 'terser', // 默认为 esbuild，无法去除生产环境 console、debugger
       terserOptions: {
         compress: {
-          drop_console: true, // 生产环境删除 console
-          drop_debugger: true // 生产环境删除 debugger
+          /*
+           * 只删调试性质的 console.log / debug / trace，保留 info / warn / error。
+           * 打包后的应用没法随手开 DevTools，自动刷新这类后台任务出问题时
+           * 只能靠这几条日志定位（主进程会把它们转发到 stdout）。
+           */
+          drop_console: ['log', 'debug', 'trace'],
+          drop_debugger: true
         }
       },
       /*

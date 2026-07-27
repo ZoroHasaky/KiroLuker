@@ -303,7 +303,7 @@ export const EXPORT_EXTENSION: Record<ExportFormat, string> = {
 }
 
 /** 本地时间的紧凑时间戳：20260726-201330，精确到秒避免同一天多次导出重名 */
-function exportStamp(date = new Date()): string {
+export function exportStamp(date = new Date()): string {
   const pad = (n: number): string => String(n).padStart(2, '0')
   const ymd = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`
   const hms = `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`

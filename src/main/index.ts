@@ -24,6 +24,7 @@ import {
   scheduleForActiveAccount
 } from './proactiveRenewal'
 import { flushUsageHistory } from './usageHistory'
+import { initLogger, installConsoleBridge, log, shutdownLogger } from './logger'
 import { sendToRenderer } from './utils'
 
 let mainWindow: BrowserWindow | null = null
@@ -68,6 +69,19 @@ function createWindow(): void {
   // 渲染进程加载失败时留下线索：dev 模式下最常见的原因是 Vite dev server 已停止
   mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
     console.error(`[Window] 渲染进程加载失败 ${code} ${desc} ${url}`)
+  })
+
+  /*
+   * 把渲染进程的日志转发到主进程 stdout。
+   * 打包后的应用没法随手开 DevTools，自动刷新之类的问题只能靠日志定位，
+   * 这里只转发本应用自己打的 [Xxx] 前缀日志与错误，避免第三方库的噪音。
+   */
+  mainWindow.webContents.on('console-message', (_e, level, message) => {
+    // 只关心本应用自己打的 [Xxx] 前缀日志与警告以上级别，避免第三方库刷屏
+    if (typeof message !== 'string') return
+    if (level < 2 && !message.startsWith('[')) return
+    // 直接进日志中心：不走 console 是为了保留渲染层原本的 [Xxx] 分类前缀
+    log(level >= 3 ? 'error' : level === 2 ? 'warn' : 'info', message)
   })
 
   // 关闭按钮：启用托盘时按设置决定最小化到托盘还是退出，实现后台常驻。
@@ -162,6 +176,10 @@ app.on('open-url', (event, url) => {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('dev.kiro.account.lite')
 
+  // 日志中心要最先启动，后面各模块的启动日志才不会漏
+  initLogger((total) => sendToRenderer(mainWindow, 'log:appended', total))
+  installConsoleBridge()
+
   // 开发态的 Dock 图标默认是 Electron 的，手动换成应用图标。
   // 打包后由 .app 里的 icns 提供，不再覆盖，避免二次缩放变糊。
   if (process.platform === 'darwin' && !app.isPackaged) {
@@ -228,4 +246,5 @@ app.on('will-quit', () => {
   clearProactiveRenewal('app quitting')
   flushUsageHistory()
   destroyTray()
+  void shutdownLogger()
 })

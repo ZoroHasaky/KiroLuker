@@ -74,6 +74,7 @@ async function writeBackup(data: AccountStoreData): Promise<void> {
     for (const stale of files.slice(0, Math.max(0, files.length - BACKUP_KEEP))) {
       await fs.unlink(path.join(dir, stale)).catch(() => undefined)
     }
+    console.log(`[Store] 已创建账号备份（共 ${data.accounts.length} 个账号）`)
   } catch (e) {
     console.warn('[Store] backup failed:', e)
   }

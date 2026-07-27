@@ -17,6 +17,12 @@ const router = createRouter({
       meta: { title: '账户管理' }
     },
     {
+      path: '/logs',
+      name: 'logs',
+      component: () => import('@/views/LogsView.vue'),
+      meta: { title: '系统日志' }
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('@/views/SettingsView.vue'),

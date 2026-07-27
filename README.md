@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.2-6c5ce7" alt="version">
+  <img src="https://img.shields.io/badge/version-1.0.3-6c5ce7" alt="version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="platform">
   <img src="https://img.shields.io/badge/Vue-3-42b883" alt="vue">
@@ -61,6 +61,14 @@
 - 关闭窗口行为可配：最小化到托盘 / 直接退出 / 每次询问
 - macOS 顶部中文菜单栏：主页、账户管理、设置、关于，以及打开 / 关闭 Kiro IDE
 - 自定义协议 `kiro-manager-lite://` 与短别名 `kml://`，从浏览器或终端直接唤起并跳转页面
+- 关于页一键检查更新：对比 GitHub 最新 Release 版本号，有新版展示更新说明并跳转下载
+
+### 🧾 系统日志
+
+- 内置日志页面：按关键字、时间范围、分类、级别（DEBUG / INFO / WARN / ERROR）筛选，虚拟滚动承载数万行
+- 内存环形缓冲保留最近 5 万条，磁盘按分片落盘并自动清理旧文件，不会出现巨型日志文件
+- 主进程与渲染进程的日志汇入同一条时间线，接口请求、批量刷新结果、自动刷新耗时与失败明细都有记录
+- 支持自动跟随最新日志、导出当前筛选结果为 `.log`、打开日志目录、一键清空
 
 ### ⚙️ 个性化设置
 
@@ -209,6 +217,7 @@ src/
     kiroAuth.ts          Kiro IDE 凭证文件读写与 profileArn 决策
     kiroChat.ts          账号测活：模型列表与流式对话
     kiroProcess.ts       Kiro IDE 进程检测、打开、关闭与重启
+    logger.ts            系统日志：内存环形缓冲、分片落盘、接管 console
     proactiveRenewal.ts  Token 主动续期调度
     tray.ts              系统托盘
     net.ts               统一 fetch 与代理
@@ -216,7 +225,7 @@ src/
   preload/               contextBridge 暴露的 API
   renderer/src/
     stores/              Pinia：accounts / settings
-    views/               HomeView / AccountsView / SettingsView / AboutView
+    views/               HomeView / AccountsView / LogsView / SettingsView / AboutView
     components/          layout、accounts、common 下的组件
     utils/               格式化、导入导出解析、托盘桥接
 ```
@@ -235,7 +244,7 @@ src/
 
 ## 🔖 更新日志
 
-各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.0.2。
+各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.0.3。
 
 ---
 

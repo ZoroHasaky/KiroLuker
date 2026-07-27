@@ -88,6 +88,14 @@ const api = {
   getSettings: () => invoke('settings:get'),
   saveSettings: (patch: unknown) => invoke('settings:save', patch),
   getAppInfo: () => invoke('app:info'),
+  checkUpdate: () => invoke('app:check-update'),
+
+  // 系统日志
+  queryLogs: (query: unknown) => invoke('log:query', query),
+  clearLogs: () => invoke('log:clear'),
+  exportLogs: (query: unknown) => invoke('log:export', query),
+  onLogAppended: (handler: (total: number) => void) => subscribe('log:appended', handler),
+
   openExternal: (url: string, privateMode?: boolean) =>
     invoke('app:open-external', url, privateMode),
   showPath: (target: 'store' | 'backup') => invoke('app:show-path', target),

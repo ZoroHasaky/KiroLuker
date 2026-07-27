@@ -203,6 +203,48 @@ export interface OnlineLoginCredentials {
 
 export type OnlineLoginMethod = 'Google' | 'Github' | 'BuilderId' | 'Enterprise'
 
+// ============ 系统日志 ============
+
+/** 日志级别，按严重程度升序 */
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
+
+export const LOG_LEVELS: LogLevel[] = ['debug', 'info', 'warn', 'error']
+
+export interface LogEntry {
+  /** 自增序号，同时用作列表 key 与增量拉取的游标 */
+  id: number
+  at: number
+  level: LogLevel
+  /** 来源分类，取自日志的 [Xxx] 前缀，如 Net / KiroApi / AutoRefresh */
+  category: string
+  message: string
+}
+
+/** 日志查询条件，全部为可选，未提供即不限制 */
+export interface LogQuery {
+  keyword?: string
+  /** 命中其中任一级别；空数组或不传表示全部 */
+  levels?: LogLevel[]
+  category?: string
+  /** 只看这个时间点之后的日志 */
+  since?: number
+  /** 最多返回多少条（取最新的） */
+  limit?: number
+}
+
+export interface LogQueryResult {
+  /** 按时间升序返回，便于界面直接追加显示 */
+  entries: LogEntry[]
+  /** 命中筛选的总条数（可能大于 entries.length） */
+  matched: number
+  /** 当前保留的日志总条数 */
+  total: number
+  /** 各级别条数，用于顶部徽章（不受 levels 筛选影响） */
+  counts: Record<LogLevel, number>
+  /** 出现过的分类，用于下拉选项 */
+  categories: string[]
+}
+
 /**
  * 主进程主动续期成功后回传给渲染进程的新凭证。
  * refreshToken 是轮换式的，渲染进程必须同步内存，否则会用作废的旧值继续刷新。
@@ -356,6 +398,24 @@ export interface AppInfo {
   platform: string
   storePath: string
   backupDir: string
+}
+
+/** GitHub Release 检查更新结果 */
+export interface UpdateCheckResult {
+  /** 当前运行版本，如 1.0.3 */
+  current: string
+  /** 远端最新版本，已去掉 tag 前缀 v */
+  latest: string
+  /** 远端版本高于当前版本 */
+  hasUpdate: boolean
+  /** Release 页面地址，用于「前往更新」 */
+  releaseUrl: string
+  /** Release 名称，缺失时回退成 tag */
+  name: string
+  /** Release 正文（更新说明），可能为空 */
+  notes: string
+  /** 发布时间 ISO 字符串，可能为空 */
+  publishedAt: string
 }
 
 export interface AppSettings {

@@ -1,13 +1,60 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { GithubOutlined, HeartFilled } from '@ant-design/icons-vue'
+import { computed, ref } from 'vue'
+import {
+  CheckCircleFilled,
+  CommentOutlined,
+  GithubOutlined,
+  HeartFilled,
+  RocketFilled,
+  SyncOutlined
+} from '@ant-design/icons-vue'
+import { message } from 'ant-design-vue'
 import { useSettingsStore } from '@/stores/settings'
+import { formatDate } from '@/utils/format'
+import { handleMarkdownClick, renderMarkdown } from '@/utils/markdown'
+import kiroLogo from '@/assets/kiro-logo.png'
+import qqGroup from '@/assets/qq-group.jpg'
 import authorAvatar from '@/assets/author_avatar.jpg'
 import sponsorWechat from '@/assets/sponsor_wechat.jpg'
 import sponsorAlipay from '@/assets/sponsor_alipay.jpg'
+import type { UpdateCheckResult } from '@shared/types'
 
 const settingsStore = useSettingsStore()
 const info = computed(() => settingsStore.appInfo)
+
+// ============ 检查更新 ============
+const checking = ref(false)
+/** 最近一次检查结果，两个弹窗共用 */
+const checkResult = ref<UpdateCheckResult | null>(null)
+const upToDateOpen = ref(false)
+const updateOpen = ref(false)
+const groupOpen = ref(false)
+
+/** Release 正文是 Markdown，渲染成净化后的 HTML */
+const notesHtml = computed(() => renderMarkdown(checkResult.value?.notes ?? ''))
+
+/** 对比 GitHub 最新 Release：版本一致弹「已是最新」，否则弹「前往更新」 */
+async function checkUpdate(): Promise<void> {
+  if (checking.value) return
+  checking.value = true
+  try {
+    const res = await window.api.checkUpdate()
+    if (!res.success || !res.data) {
+      message.error(res.error || '检查更新失败，请稍后再试')
+      return
+    }
+    checkResult.value = res.data
+    if (res.data.hasUpdate) updateOpen.value = true
+    else upToDateOpen.value = true
+  } finally {
+    checking.value = false
+  }
+}
+
+function goUpdate(): void {
+  if (checkResult.value) open(checkResult.value.releaseUrl)
+  updateOpen.value = false
+}
 
 const author = {
   name: 'lucks-cloud',
@@ -32,18 +79,29 @@ function open(url: string): void {
 
 <template>
   <div>
-    <a-card size="small" style="margin-bottom: 16px">
-      <a-space align="start" :size="16">
-        <!-- 底色跟随主题色，其余样式走 scoped class -->
-        <div class="brand-mark" :style="{ background: settingsStore.settings.primaryColor }">K</div>
-        <div>
-          <h2 style="margin: 0 0 4px">Kiro Manager Lite</h2>
-          <p class="muted" style="margin: 0">
-            只做账户管理的轻量版：添加、导入导出、账号信息面板、删除、刷新密钥与积分、切号。
-          </p>
+    <!-- 头部：品牌标识 + 版本 + 检查更新 / 交流群 -->
+    <section class="hero">
+      <span class="hero-blob hero-blob-a" />
+      <span class="hero-blob hero-blob-b" />
+      <div class="hero-main">
+        <div class="wordmark">
+          <img class="wordmark-logo" :src="kiroLogo" alt="Kiro" />
+          <span class="wordmark-text">kiro</span>
         </div>
-      </a-space>
-    </a-card>
+        <h2 class="hero-title">Kiro 账户管理器</h2>
+        <p class="hero-version muted">版本 {{ info?.version || '-' }}</p>
+        <a-space :size="12" wrap class="hero-actions">
+          <a-button :loading="checking" @click="checkUpdate">
+            <template #icon><SyncOutlined /></template>
+            检查更新
+          </a-button>
+          <a-button @click="groupOpen = true">
+            <template #icon><CommentOutlined /></template>
+            加入交流群
+          </a-button>
+        </a-space>
+      </div>
+    </section>
 
     <a-card size="small" title="版本信息" style="margin-bottom: 16px">
       <a-descriptions :column="2" size="small">
@@ -114,6 +172,53 @@ function open(url: string): void {
         </a-button>
       </a-space>
     </a-card>
+
+    <!-- 已是最新版 -->
+    <a-modal v-model:open="upToDateOpen" title="检查更新" :width="380" centered>
+      <div class="check-result">
+        <CheckCircleFilled class="check-icon ok" />
+        <div class="check-title">已是最新版本</div>
+        <div class="muted">当前版本 v{{ checkResult?.current || info?.version || '-' }}</div>
+      </div>
+      <template #footer>
+        <a-button type="primary" @click="upToDateOpen = false">好的</a-button>
+      </template>
+    </a-modal>
+
+    <!-- 发现新版本 -->
+    <a-modal v-model:open="updateOpen" title="发现新版本" :width="480" centered>
+      <div class="check-result">
+        <RocketFilled class="check-icon new" />
+        <div class="check-title">
+          有新版本可以更新
+        </div>
+        <div class="version-flow">
+          <span class="version-chip">v{{ checkResult?.current }}</span>
+          <span class="muted">→</span>
+          <span class="version-chip new">v{{ checkResult?.latest }}</span>
+        </div>
+        <div v-if="checkResult?.publishedAt" class="muted release-time">
+          发布于 {{ formatDate(checkResult.publishedAt) }}
+        </div>
+      </div>
+      <div v-if="notesHtml" class="release-notes">
+        <div class="release-notes-title muted">更新说明</div>
+        <!-- 内容已过 DOMPurify 净化；链接点击交给 handleMarkdownClick 转系统浏览器 -->
+        <div class="release-notes-body markdown" v-html="notesHtml" @click="handleMarkdownClick" />
+      </div>
+      <template #footer>
+        <a-button @click="updateOpen = false">稍后再说</a-button>
+        <a-button type="primary" @click="goUpdate">前往更新</a-button>
+      </template>
+    </a-modal>
+
+    <!-- 用户交流群 -->
+    <a-modal v-model:open="groupOpen" title="用户交流群" :width="440" centered :footer="null">
+      <div class="group-box">
+        <img class="group-qr" :src="qqGroup" alt="QQ 交流群二维码" />
+        <span class="muted group-tip">用 QQ 扫码加入交流群</span>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -128,16 +233,271 @@ function open(url: string): void {
   margin-bottom: 24px;
 }
 
-/* 应用标识方块，底色由主题色内联注入 */
-.brand-mark {
-  width: 52px;
-  height: 52px;
+/* ============ 头部横幅 ============ */
+.hero {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 16px;
+  padding: 40px 24px 36px;
+  border: 1px solid var(--kal-border);
+  border-radius: 12px;
+  background: var(--kal-card-bg);
+  text-align: center;
+}
+
+.hero-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  background: radial-gradient(circle, var(--kal-primary), transparent 70%);
+  opacity: 0.18;
+  pointer-events: none;
+}
+
+.hero-blob-a {
+  top: -60px;
+  right: -30px;
+  width: 180px;
+  height: 180px;
+}
+
+.hero-blob-b {
+  bottom: -60px;
+  left: -20px;
+  width: 150px;
+  height: 150px;
+}
+
+.hero-main {
+  position: relative;
+}
+
+/* logo + 文字组成的品牌标识 */
+.wordmark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.wordmark-logo {
+  width: 56px;
+  height: 56px;
   border-radius: 14px;
-  display: grid;
-  place-items: center;
-  color: #fff;
-  font-size: 24px;
+  object-fit: cover;
+}
+
+.wordmark-text {
+  font-size: 48px;
   font-weight: 700;
+  line-height: 1;
+  letter-spacing: -1px;
+}
+
+.hero-title {
+  margin: 22px 0 8px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--kal-primary);
+}
+
+.hero-version {
+  margin: 0 0 24px;
+  font-size: 13px;
+}
+
+/* ============ 检查更新弹窗 ============ */
+.check-result {
+  text-align: center;
+  padding: 8px 0 4px;
+}
+
+.check-icon {
+  font-size: 40px;
+}
+
+.check-icon.ok {
+  color: #52c41a;
+}
+
+.check-icon.new {
+  color: var(--kal-primary);
+}
+
+.check-title {
+  margin: 10px 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.version-flow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.version-chip {
+  padding: 2px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--kal-block-bg);
+}
+
+.version-chip.new {
+  color: #fff;
+  background: var(--kal-primary);
+}
+
+.release-time {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.release-notes {
+  margin-top: 16px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--kal-block-bg);
+}
+
+.release-notes-title {
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+/* 更新说明可能很长，限高滚动 */
+.release-notes-body {
+  max-height: 260px;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.75;
+  word-break: break-word;
+}
+
+/* ============ Markdown 正文（v-html，需要 deep 穿透）============ */
+.markdown :deep(> *:first-child) {
+  margin-top: 0;
+}
+
+.markdown :deep(> *:last-child) {
+  margin-bottom: 0;
+}
+
+.markdown :deep(h1),
+.markdown :deep(h2),
+.markdown :deep(h3),
+.markdown :deep(h4) {
+  margin: 14px 0 6px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.markdown :deep(h1) {
+  font-size: 16px;
+}
+
+.markdown :deep(h2) {
+  font-size: 15px;
+}
+
+.markdown :deep(p) {
+  margin: 0 0 8px;
+}
+
+.markdown :deep(ul),
+.markdown :deep(ol) {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+.markdown :deep(li) {
+  margin: 2px 0;
+}
+
+.markdown :deep(li > p) {
+  margin: 0;
+}
+
+.markdown :deep(a) {
+  color: var(--kal-primary);
+}
+
+.markdown :deep(code) {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  background: var(--kal-code-bg);
+}
+
+.markdown :deep(pre) {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  overflow: auto;
+  background: var(--kal-code-bg);
+}
+
+/* 代码块内的 code 不再叠一层底色 */
+.markdown :deep(pre code) {
+  padding: 0;
+  background: none;
+}
+
+.markdown :deep(blockquote) {
+  margin: 0 0 8px;
+  padding: 2px 0 2px 10px;
+  border-left: 3px solid var(--kal-border);
+  color: var(--kal-muted);
+}
+
+.markdown :deep(hr) {
+  margin: 12px 0;
+  border: none;
+  border-top: 1px solid var(--kal-border);
+}
+
+.markdown :deep(img) {
+  max-width: 100%;
+}
+
+.markdown :deep(table) {
+  width: 100%;
+  margin: 0 0 8px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.markdown :deep(th),
+.markdown :deep(td) {
+  padding: 5px 8px;
+  border: 1px solid var(--kal-border);
+  text-align: left;
+}
+
+/* ============ 交流群弹窗 ============ */
+.group-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 原图是竖长图，宽度撑满弹窗的同时限高，避免小窗口下弹窗超出视口 */
+.group-qr {
+  width: 100%;
+  max-width: 380px;
+  height: auto;
+  max-height: 62vh;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.group-tip {
+  font-size: 12px;
 }
 
 .author {

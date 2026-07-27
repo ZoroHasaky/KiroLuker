@@ -19,11 +19,14 @@ import type {
   RefreshTokenResult,
   RestartIdeResult,
   SocialCallbackPayload,
+  LogQuery,
+  LogQueryResult,
   ProactiveRenewalPayload,
   SwitchAccountInput,
   SwitchAccountResult,
   TrayAction,
   TraySnapshot,
+  UpdateCheckResult,
   UsageHistoryEntry,
   VerifyCredentialsInput
 } from '../shared/types'
@@ -111,8 +114,14 @@ export interface Api {
   getSettings: () => Promise<IpcResult<AppSettings>>
   saveSettings: (patch: Partial<AppSettings>) => Promise<IpcResult<AppSettings>>
   getAppInfo: () => Promise<IpcResult<AppInfo>>
+  checkUpdate: () => Promise<IpcResult<UpdateCheckResult>>
   openExternal: (url: string, privateMode?: boolean) => Promise<IpcResult<BrowserOpenInfo>>
-  showPath: (target: 'store' | 'backup') => Promise<IpcResult>
+  showPath: (target: 'store' | 'backup' | 'logs') => Promise<IpcResult>
+
+  queryLogs: (query: LogQuery) => Promise<IpcResult<LogQueryResult>>
+  clearLogs: () => Promise<IpcResult>
+  exportLogs: (query: LogQuery) => Promise<IpcResult<{ content: string }>>
+  onLogAppended: (handler: (total: number) => void) => () => void
 
   syncTray: (snapshot: TraySnapshot) => Promise<IpcResult>
   onTrayAction: (handler: (action: TrayAction) => void) => () => void
