@@ -5,12 +5,17 @@ import { Modal } from 'ant-design-vue'
 import zhCN from 'ant-design-vue/es/locale/zh_CN'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
 import AppTitleBar from '@/components/layout/AppTitleBar.vue'
+import UpdateAvailableModal from '@/components/common/UpdateAvailableModal.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useAccountsStore } from '@/stores/accounts'
+import { useKeysStore } from '@/stores/keys'
+import { useUpdateStore } from '@/stores/update'
 import { useTrayBridge } from '@/utils/tray'
 
 const settingsStore = useSettingsStore()
 const accountsStore = useAccountsStore()
+const keysStore = useKeysStore()
+const updateStore = useUpdateStore()
 const router = useRouter()
 
 useTrayBridge()
@@ -39,6 +44,8 @@ function confirmQuit(): void {
 
 // 主进程主动续期后回传的新凭证
 let offRenewal: (() => void) | undefined
+// API Key 网关状态变化（开启、关闭、当前 Key 切换）
+let offKeyGateway: (() => void) | undefined
 
 onMounted(() => {
   offNavigate = window.api.onAppNavigate((target) => {
@@ -48,17 +55,23 @@ onMounted(() => {
   offRenewal = window.api.onProactiveRenewal((payload) =>
     accountsStore.applyRenewedCredentials(payload)
   )
+  offKeyGateway = window.api.onKeyGatewayChanged((status) => keysStore.applyStatus(status))
 })
 onUnmounted(() => {
   offNavigate?.()
   offConfirmQuit?.()
   offRenewal?.()
+  offKeyGateway?.()
+  keysStore.stopAutoRefresh()
 })
 
 onMounted(async () => {
   await settingsStore.load()
-  await accountsStore.load()
+  // 冷启动静默检查：缓存命中时不请求；失败不打扰用户。
+  void updateStore.initialize(settingsStore.appInfo?.version ?? '')
+  await Promise.all([accountsStore.load(), keysStore.load()])
   accountsStore.startAutoRefresh()
+  keysStore.startAutoRefresh()
 })
 
 // 开关或间隔改动后重新对齐自动刷新；startAutoRefresh 是幂等的，
@@ -71,6 +84,14 @@ watch(
     settingsStore.settings.usageRefreshInterval
   ],
   () => accountsStore.startAutoRefresh()
+)
+
+watch(
+  () => [
+    settingsStore.settings.autoRefreshApiKeyUsage,
+    settingsStore.settings.apiKeyUsageRefreshInterval
+  ],
+  () => keysStore.startAutoRefresh()
 )
 
 // 原生窗口标题：带上当前版本号
@@ -98,6 +119,7 @@ watch(
         </main>
       </div>
     </div>
+    <UpdateAvailableModal />
   </a-config-provider>
 </template>
 

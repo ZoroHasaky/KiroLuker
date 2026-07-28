@@ -217,9 +217,15 @@ function close(): void {
       <span class="title">
         <SendOutlined />
         账号测活
-        <a-tag style="margin: 0">{{ accountLabel }}</a-tag>
       </span>
     </template>
+
+    <a-alert
+      type="info"
+      show-icon
+      :message="`当前账号：${accountLabel}`"
+      style="margin-bottom: 16px"
+    />
 
     <!-- 模型列表就绪前只显示加载态；拉取失败直接把异常摆出来，不给半可用的表单 -->
     <div v-if="modelsLoading" class="stage">

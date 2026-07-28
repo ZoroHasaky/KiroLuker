@@ -37,6 +37,24 @@ const api = {
   loadAccounts: () => invoke('accounts:load'),
   saveAccounts: (data: unknown) => invoke('accounts:save', data),
 
+  // Kiro API Key 管理 / 本地网关
+  loadKeys: () => invoke('keys:load'),
+  addKey: (key: string, note?: string) => invoke('keys:add', key, note),
+  importKeys: (text: string) => invoke('keys:import', text),
+  updateKey: (id: string, note: string) => invoke('keys:update', id, note),
+  deleteKey: (id: string) => invoke('keys:delete', id),
+  selectKey: (id: string | null) => invoke('keys:select', id),
+  testKey: (id: string) => invoke('keys:test', id),
+  listKeyModels: (id: string) => invoke('keys:models', id),
+  syncKey: (id: string) => invoke('keys:sync', id),
+  syncAllKeys: (concurrency?: number) => invoke('keys:sync-all', concurrency),
+  getKeyGatewayStatus: () => invoke('key-gateway:status'),
+  enableKeyGateway: (keyId?: string) => invoke('key-gateway:enable', keyId),
+  disableKeyGateway: () => invoke('key-gateway:disable'),
+  configureKeyGateway: (input: unknown) => invoke('key-gateway:configure', input),
+  onKeyGatewayChanged: (handler: (payload: unknown) => void) =>
+    subscribe('key-gateway:changed', handler),
+
   // 账号操作
   verifyCredentials: (input: unknown) => invoke('accounts:verify', input),
   refreshAccountToken: (account: unknown) => invoke('accounts:refresh-token', account),
@@ -62,6 +80,10 @@ const api = {
   cancelChatTest: (requestId: string) => invoke('kiro:chat-cancel', requestId),
   onChatChunk: (handler: (payload: { requestId: string; delta: string }) => void) =>
     subscribe('kiro:chat-chunk', handler),
+  keyChatTest: (requestId: string, input: unknown) => invoke('keys:chat-test', requestId, input),
+  cancelKeyChatTest: (requestId: string) => invoke('keys:chat-cancel', requestId),
+  onKeyChatChunk: (handler: (payload: { requestId: string; delta: string }) => void) =>
+    subscribe('keys:chat-chunk', handler),
 
   // 在线登录
   startBuilderIdLogin: (region?: string, privateMode?: boolean) =>
@@ -98,7 +120,7 @@ const api = {
 
   openExternal: (url: string, privateMode?: boolean) =>
     invoke('app:open-external', url, privateMode),
-  showPath: (target: 'store' | 'backup') => invoke('app:show-path', target),
+  showPath: (target: 'store' | 'backup' | 'logs') => invoke('app:show-path', target),
 
   // 托盘
   syncTray: (snapshot: unknown) => invoke('tray:sync', snapshot),

@@ -349,6 +349,12 @@ export interface KiroModelInfo {
   description?: string
 }
 
+export interface ApiKeyChatTestInput {
+  keyId: string
+  modelId: string
+  message: string
+}
+
 /** 账号测活：发起一次真实的流式对话 */
 export interface ChatTestInput {
   accountId: string
@@ -455,6 +461,14 @@ export interface AppSettings {
   proxyUrl: string
   /** 删除前二次确认 */
   confirmBeforeDelete: boolean
+  /** 自动刷新 API Key 的订阅与积分用量 */
+  autoRefreshApiKeyUsage: boolean
+  /** API Key 用量刷新间隔（分钟） */
+  apiKeyUsageRefreshInterval: number
+  /** API Key 批量同步并发数 */
+  apiKeyRefreshConcurrency: number
+  /** 删除 API Key 前二次确认 */
+  confirmBeforeDeleteApiKey: boolean
   /** 启用系统托盘 */
   trayEnabled: boolean
   /** 点击窗口关闭按钮时的行为：每次询问 / 最小化到托盘 / 直接退出 */
@@ -486,7 +500,113 @@ export const DEFAULT_SETTINGS: AppSettings = {
   proxyEnabled: false,
   proxyUrl: '',
   confirmBeforeDelete: true,
+  autoRefreshApiKeyUsage: true,
+  apiKeyUsageRefreshInterval: 5,
+  apiKeyRefreshConcurrency: 5,
+  confirmBeforeDeleteApiKey: true,
   trayEnabled: true,
   closeAction: 'minimize',
   proactiveRenewalEnabled: true
+}
+
+// ============================================
+// Key 管理（Kiro API Key / ksk_ 网关）
+// ============================================
+
+/**
+ * 一条 Kiro API Key（ksk_ 开头）。
+ * 除密钥本身外，缓存一份最近查询到的订阅 / 积分信息，用于列表展示，
+ * 不必每次进页面都重新拉取。
+ */
+export interface KeyEntry {
+  id: string
+  /** 完整密钥，ksk_ 开头 */
+  key: string
+  note?: string
+  createdAt: number
+  /** 最近一次查询到的订阅名称，如 Kiro Pro */
+  subscription?: string
+  /** 订阅粗分层：free / pro / pro+ / power / other */
+  tier?: string
+  /** 已用积分 */
+  usedCredits?: number
+  /** 总积分额度 */
+  totalCredits?: number
+  /** 最近一次成功查询时间戳（ms） */
+  lastCheckedAt?: number
+  /** 最近一次查询的错误信息 */
+  lastError?: string
+}
+
+/** Key 网关持久化数据 */
+export interface KeyGatewayData {
+  version: number
+  keys: KeyEntry[]
+  /** 当前激活（用于连接）的 key id */
+  activeKeyId?: string | null
+  /** 总开关：开启后接管 Kiro IDE 内置对话 */
+  enabled: boolean
+  /** 密钥所属 AWS 区域 */
+  region: string
+  /** 本地代理端口，默认 KRS 19830 / CPS 19831 */
+  ports: { krs: number; cps: number }
+  /** 开启接管前的端点原值；关闭或异常退出时原样恢复 */
+  originalEndpoints?: {
+    krs: { region: string; endpoint: string }[]
+    cps: { region: string; endpoint: string }[]
+  }
+  /** 本次接管实际改写的 settings.json */
+  settingsPath?: string
+}
+
+export const DEFAULT_KEY_GATEWAY_DATA: KeyGatewayData = {
+  version: 1,
+  keys: [],
+  activeKeyId: null,
+  enabled: false,
+  region: 'us-east-1',
+  ports: { krs: 19830, cps: 19831 }
+}
+
+/** 单个模型信息（Key 网关测活返回） */
+export interface KeyModelInfo {
+  id: string
+  name?: string
+  rate?: number
+}
+
+/** 测试一个 API Key 的结果 */
+export interface KeyTestResult {
+  modelCount: number
+  defaultModel: string
+  subscription: string
+  tier: string
+  used: number | null
+  total: number | null
+  models: KeyModelInfo[]
+}
+
+/** 应用当前网关状态后回传给渲染进程的运行时信息 */
+export interface KeyGatewayStatus {
+  enabled: boolean
+  /** 两个本地代理是否都已监听并通过健康检查 */
+  running: boolean
+  /** 已选择、下一次网关请求将使用的 Key；不代表最近实际使用 */
+  activeKeyId: string | null
+  /** 当前网关会话最近一次真实转发所使用的 Key */
+  lastForwardedKeyId: string | null
+  /** 最近一次真实转发准备发送到上游的时间戳（ms） */
+  lastForwardedAt?: number
+  /** 最近实际使用的 Key 是否来自当前已接管的网关运行会话 */
+  observedInCurrentSession: boolean
+  region: string
+  ports: { krs: number; cps: number }
+  /** settings.json 端点是否已成功指向本地代理 */
+  endpointsBound: boolean
+  /** 是否需要重启 / 重载 Kiro IDE 才能生效 */
+  needRestart: boolean
+  /** Kiro IDE settings.json 路径（用于提示） */
+  settingsPath?: string
+  /** 过程中的说明信息 */
+  message?: string
 }

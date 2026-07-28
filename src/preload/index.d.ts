@@ -3,6 +3,7 @@ import type {
   AccountSnapshot,
   AccountStoreData,
   AccountUsage,
+  ApiKeyChatTestInput,
   AppInfo,
   AppSettings,
   AuthMethod,
@@ -12,6 +13,10 @@ import type {
   ChatTestInput,
   ChatTestResult,
   IpcResult,
+  KeyGatewayData,
+  KeyGatewayStatus,
+  KeyModelInfo,
+  KeyTestResult,
   KiroModelInfo,
   LocalKiroCredentials,
   LoginPollResult,
@@ -51,6 +56,34 @@ export interface Api {
   loadAccounts: () => Promise<IpcResult<AccountStoreData>>
   saveAccounts: (data: AccountStoreData) => Promise<IpcResult>
 
+  loadKeys: () => Promise<IpcResult<KeyGatewayData>>
+  addKey: (key: string, note?: string) => Promise<IpcResult<KeyGatewayData>>
+  importKeys: (text: string) => Promise<IpcResult<{
+    data: KeyGatewayData
+    added: number
+    skipped: number
+    invalid: number
+  }>>
+  updateKey: (id: string, note: string) => Promise<IpcResult<KeyGatewayData>>
+  deleteKey: (id: string) => Promise<IpcResult<KeyGatewayData>>
+  selectKey: (id: string | null) => Promise<IpcResult<{ data: KeyGatewayData; status: KeyGatewayStatus }>>
+  testKey: (id: string) => Promise<IpcResult<KeyTestResult>>
+  listKeyModels: (id: string) => Promise<IpcResult<KeyModelInfo[]>>
+  syncKey: (id: string) => Promise<IpcResult<KeyGatewayData>>
+  syncAllKeys: (concurrency?: number) => Promise<IpcResult<{
+    data: KeyGatewayData
+    success: number
+    failed: number
+  }>>
+  getKeyGatewayStatus: () => Promise<IpcResult<KeyGatewayStatus>>
+  enableKeyGateway: (keyId?: string) => Promise<IpcResult<KeyGatewayStatus>>
+  disableKeyGateway: () => Promise<IpcResult<KeyGatewayStatus>>
+  configureKeyGateway: (input: {
+    region?: string
+    ports?: { krs: number; cps: number }
+  }) => Promise<IpcResult<{ data: KeyGatewayData; status: KeyGatewayStatus }>>
+  onKeyGatewayChanged: (handler: (status: KeyGatewayStatus) => void) => () => void
+
   verifyCredentials: (input: VerifyCredentialsInput) => Promise<IpcResult<AccountSnapshot>>
   refreshAccountToken: (account: Account) => Promise<IpcResult<RefreshTokenResult>>
   checkAccountStatus: (
@@ -81,6 +114,12 @@ export interface Api {
   chatTest: (requestId: string, input: ChatTestInput) => Promise<IpcResult<ChatTestResult>>
   cancelChatTest: (requestId: string) => Promise<IpcResult>
   onChatChunk: (handler: (payload: ChatTestChunk) => void) => () => void
+  keyChatTest: (
+    requestId: string,
+    input: ApiKeyChatTestInput
+  ) => Promise<IpcResult<ChatTestResult>>
+  cancelKeyChatTest: (requestId: string) => Promise<IpcResult>
+  onKeyChatChunk: (handler: (payload: ChatTestChunk) => void) => () => void
 
   startBuilderIdLogin: (
     region?: string,

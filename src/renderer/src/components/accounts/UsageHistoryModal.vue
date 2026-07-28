@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 积分变化日志：以账号为单位，把每次用量刷新后有变化的积分快照画成曲线 + 列表。
+ * 积分变化日志：复用同一套曲线与列表展示账号或 API Key 的用量快照。
  * 曲线用手写 SVG，不引图表库：数据只有一条线，够用且省一个依赖。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
@@ -11,7 +11,18 @@ import { formatCredits, formatCreditsPair, formatDateTime, usageColor } from '@/
 import { displayEmail } from '@/utils/display'
 import type { Account, UsageHistoryEntry } from '@shared/types'
 
-const props = defineProps<{ account: Account | null }>()
+interface UsageHistorySubject {
+  /** 历史存储主体 ID；API Key 使用 key:<id> 命名空间。 */
+  id: string
+  label: string
+  percentUsed: number
+  noun?: string
+}
+
+const props = defineProps<{
+  account?: Account | null
+  subject?: UsageHistorySubject | null
+}>()
 const emit = defineEmits<{ close: [] }>()
 
 const settingsStore = useSettingsStore()
@@ -20,17 +31,24 @@ const precision = computed(() => settingsStore.settings.usagePrecision)
 const entries = ref<UsageHistoryEntry[]>([])
 const loading = ref(false)
 
-const open = computed(() => !!props.account)
-const accountLabel = computed(() =>
-  props.account ? displayEmail(props.account.email, settingsStore.settings.privacyMode) : ''
-)
+const subjectInfo = computed<UsageHistorySubject | null>(() => {
+  if (props.subject) return props.subject
+  if (!props.account) return null
+  return {
+    id: props.account.id,
+    label: displayEmail(props.account.email, settingsStore.settings.privacyMode),
+    percentUsed: props.account.usage.percentUsed ?? 0,
+    noun: '账号'
+  }
+})
+const open = computed(() => !!subjectInfo.value)
 
 async function load(): Promise<void> {
-  const account = props.account
-  if (!account) return
+  const subject = subjectInfo.value
+  if (!subject) return
   loading.value = true
   try {
-    const res = await window.api.getUsageHistory(account.id)
+    const res = await window.api.getUsageHistory(subject.id)
     entries.value = res.success && res.data ? res.data : []
   } finally {
     loading.value = false
@@ -38,7 +56,7 @@ async function load(): Promise<void> {
 }
 
 watch(
-  () => props.account?.id,
+  () => subjectInfo.value?.id,
   (id) => {
     entries.value = []
     if (id) void load()
@@ -47,9 +65,9 @@ watch(
 )
 
 async function clearHistory(): Promise<void> {
-  const account = props.account
-  if (!account) return
-  const res = await window.api.clearUsageHistory(account.id)
+  const subject = subjectInfo.value
+  if (!subject) return
+  const res = await window.api.clearUsageHistory(subject.id)
   if (!res.success) return void message.error(res.error || '清空失败')
   entries.value = []
   message.success(`已清空 ${res.data?.cleared ?? 0} 条记录`)
@@ -144,7 +162,7 @@ const plot = computed(() => {
   return { points, line, area, yTicks, xTicks, innerW, innerH }
 })
 
-const lineColor = computed(() => usageColor(props.account?.usage.percentUsed ?? 0))
+const lineColor = computed(() => usageColor(subjectInfo.value?.percentUsed ?? 0))
 
 /** 悬停命中的点索引 */
 const hoverIndex = ref<number | null>(null)
@@ -217,14 +235,24 @@ function breakdownText(entry: UsageHistoryEntry): string {
     :open="open"
     width="900px"
     :footer="null"
-    :body-style="{ height: '80vh', display: 'flex', flexDirection: 'column', gap: '12px', paddingTop: '8px' }"
+    centered
+    :body-style="{
+      height: 'clamp(560px, calc(100dvh - 104px), 760px)',
+      minHeight: '560px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '12px',
+      paddingTop: '8px',
+      overflow: 'hidden',
+      boxSizing: 'border-box'
+    }"
     @cancel="emit('close')"
   >
     <template #title>
       <span class="title">
         <LineChartOutlined />
         积分变化
-        <a-tag style="margin: 0">{{ accountLabel }}</a-tag>
+        <a-tag style="margin: 0">{{ subjectInfo?.label }}</a-tag>
       </span>
     </template>
 
@@ -253,7 +281,12 @@ function breakdownText(entry: UsageHistoryEntry): string {
             <template #icon><SyncOutlined /></template>
           </a-button>
         </a-tooltip>
-        <a-popconfirm title="清空该账号的全部积分日志？" ok-text="清空" cancel-text="取消" @confirm="clearHistory">
+        <a-popconfirm
+          :title="`清空该${subjectInfo?.noun || '主体'}的全部积分日志？`"
+          ok-text="清空"
+          cancel-text="取消"
+          @confirm="clearHistory"
+        >
           <a-button size="small" danger :disabled="!entries.length">
             <template #icon><DeleteOutlined /></template>
           </a-button>
@@ -352,8 +385,7 @@ function breakdownText(entry: UsageHistoryEntry): string {
         :loading="loading"
         size="small"
         :pagination="{ pageSize: 20, size: 'small', showSizeChanger: false, hideOnSinglePage: true }"
-        :scroll="{ y: '100%' }"
-        sticky
+        :scroll="{ x: 760, y: '100%' }"
       >
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'at'">{{ formatDateTime(record.at) }}</template>
@@ -458,10 +490,10 @@ function breakdownText(entry: UsageHistoryEntry): string {
   font-size: 11px;
 }
 
-/* 列表占满剩余高度，内部自己滚动 */
+/* 列表至少保留表头和数行数据的空间；窗口不足时由 Modal 外层滚动。 */
 .table-box {
-  flex: 1 1 auto;
-  min-height: 0;
+  flex: 1 0 260px;
+  min-height: 260px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -469,39 +501,28 @@ function breakdownText(entry: UsageHistoryEntry): string {
 
 .table-box :deep(.ant-table-wrapper),
 .table-box :deep(.ant-spin-nested-loading),
-.table-box :deep(.ant-spin-container) {
-  height: 100%;
-}
-
-.table-box :deep(.ant-spin-container) {
-  display: flex;
-  flex-direction: column;
-}
-
-.table-box :deep(.ant-table) {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
+.table-box :deep(.ant-spin-container),
+.table-box :deep(.ant-table),
 .table-box :deep(.ant-table-container) {
-  flex: 1 1 auto;
-  min-height: 0;
   display: flex;
+  flex: 1 1 0;
+  min-height: 0;
   flex-direction: column;
 }
 
-/* 表头固定，表体吃掉剩余高度自己滚动 */
+.table-box :deep(.ant-table-header),
+.table-box :deep(.ant-table-pagination) {
+  flex: 0 0 auto;
+}
+
+/* 表头保持固定高度，只有表体占用剩余空间并滚动。 */
 .table-box :deep(.ant-table-body) {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
-  max-height: none !important;
-  overflow-y: auto !important;
+  overflow: auto !important;
 }
 
 .table-box :deep(.ant-table-pagination) {
-  flex: 0 0 auto;
   margin: 8px 0 0;
 }
 

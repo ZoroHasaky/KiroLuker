@@ -3,11 +3,18 @@ import Store from 'electron-store'
 import { app } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs/promises'
-import { DEFAULT_SETTINGS, type AccountStoreData, type AppSettings } from '../shared/types'
+import {
+  DEFAULT_KEY_GATEWAY_DATA,
+  DEFAULT_SETTINGS,
+  type AccountStoreData,
+  type AppSettings,
+  type KeyGatewayData
+} from '../shared/types'
 
 interface Schema {
   accountData: AccountStoreData
   settings: AppSettings
+  keyData: KeyGatewayData
 }
 
 const EMPTY_DATA: AccountStoreData = { version: 1, accounts: [], activeAccountId: null }
@@ -15,7 +22,11 @@ const EMPTY_DATA: AccountStoreData = { version: 1, accounts: [], activeAccountId
 const store = new Store<Schema>({
   name: 'kiro-account-lite',
   encryptionKey: 'kiro-account-lite-local-key',
-  defaults: { accountData: EMPTY_DATA, settings: DEFAULT_SETTINGS }
+  defaults: {
+    accountData: EMPTY_DATA,
+    settings: DEFAULT_SETTINGS,
+    keyData: DEFAULT_KEY_GATEWAY_DATA
+  }
 })
 
 export function getAccountData(): AccountStoreData {
@@ -41,6 +52,30 @@ export function setSettings(settings: Partial<AppSettings>): AppSettings {
 
 export function getStorePath(): string {
   return store.path
+}
+
+// ============ Key 网关数据 ============
+
+export function getKeyData(): KeyGatewayData {
+  const data = store.get('keyData') as Partial<KeyGatewayData> | undefined
+  // 用默认值打底，兼容旧数据缺字段
+  const merged: KeyGatewayData = { ...DEFAULT_KEY_GATEWAY_DATA, ...(data ?? {}) }
+  if (!Array.isArray(merged.keys)) merged.keys = []
+  if (!merged.ports || typeof merged.ports.krs !== 'number' || typeof merged.ports.cps !== 'number') {
+    merged.ports = { ...DEFAULT_KEY_GATEWAY_DATA.ports }
+  }
+  // 当前 Key 只属于已开启的网关；兼容旧版本关闭后仍保留 activeKeyId 的数据。
+  if (!merged.enabled || !merged.keys.some((entry) => entry.id === merged.activeKeyId)) {
+    merged.activeKeyId = null
+  }
+  return merged
+}
+
+export function setKeyData(data: KeyGatewayData): void {
+  store.set('keyData', {
+    ...data,
+    activeKeyId: data.enabled ? (data.activeKeyId ?? null) : null
+  })
 }
 
 // ============ 滚动备份：每次保存留一份，防止 store 损坏丢号 ============

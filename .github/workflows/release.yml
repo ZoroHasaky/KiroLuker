@@ -115,6 +115,27 @@ jobs:
           「系统设置 - 隐私与安全性」中允许运行。
           EOF
 
+      - name: 删除同标签旧 Release
+        uses: actions/github-script@v7
+        with:
+          script: |
+            try {
+              const { data: release } = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag: context.ref.replace('refs/tags/', '')
+              })
+              await github.rest.repos.deleteRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.id
+              })
+              core.info(`已删除旧 Release：${release.tag_name}`)
+            } catch (error) {
+              if (error.status !== 404) throw error
+              core.info('未找到同标签旧 Release，继续首次发布')
+            }
+
       - uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}

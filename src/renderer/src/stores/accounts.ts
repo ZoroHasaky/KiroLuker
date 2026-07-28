@@ -41,8 +41,14 @@ export interface AccountFilter {
 }
 
 /** 批量任务的进度状态，全局单例，同一时间只跑一件事 */
+export type AccountTaskType =
+  | 'import-validation'
+  | 'account-key-refresh'
+  | 'account-usage-refresh'
+
 interface TaskState {
   running: boolean
+  type: AccountTaskType
   label: string
   total: number
   done: number
@@ -70,7 +76,13 @@ export const useAccountsStore = defineStore('accounts', () => {
   const activeAccountId = ref<string | null>(null)
   const selectedIds = ref<string[]>([])
   const loading = ref(false)
-  const task = ref<TaskState>({ running: false, label: '', total: 0, done: 0 })
+  const task = ref<TaskState>({
+    running: false,
+    type: 'import-validation',
+    label: '',
+    total: 0,
+    done: 0
+  })
   const filter = ref<AccountFilter>({ search: '', statuses: [], subscriptions: [], idps: [] })
 
   // ============ 持久化 ============
@@ -322,7 +334,13 @@ export const useAccountsStore = defineStore('accounts', () => {
       return result
     }
 
-    task.value = { running: true, label: '批量导入校验中', total: valid.length, done: 0 }
+    task.value = {
+      running: true,
+      type: 'import-validation',
+      label: '批量导入校验中',
+      total: valid.length,
+      done: 0
+    }
     const created: Account[] = []
     // 本批已入队的 email|idp，用 Set 查重避免逐个线性扫描（几千条时是 O(n²)）
     const createdKeys = new Set<string>()
@@ -541,6 +559,7 @@ export const useAccountsStore = defineStore('accounts', () => {
 
     task.value = {
       running: true,
+      type: kind === 'refresh' ? 'account-key-refresh' : 'account-usage-refresh',
       label: kind === 'refresh' ? '批量刷新密钥' : '批量刷新用量',
       total: ids.length,
       done: 0

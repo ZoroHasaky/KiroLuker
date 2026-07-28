@@ -26,6 +26,7 @@ import {
 import { flushUsageHistory } from './usageHistory'
 import { initLogger, installConsoleBridge, log, shutdownLogger } from './logger'
 import { sendToRenderer } from './utils'
+import { initializeKeyService, shutdownKeyServiceSync } from './keyService'
 
 let mainWindow: BrowserWindow | null = null
 /** 是否正在真正退出应用（区别于「关闭按钮最小化到托盘」） */
@@ -196,6 +197,8 @@ app.whenReady().then(() => {
   registerLoginFocusHandler(focusWindow)
   initProactiveRenewal(() => mainWindow)
   registerIpc(() => mainWindow)
+  // 恢复上次的 API Key 接管；状态变化主动推送给渲染进程。
+  void initializeKeyService((status) => sendToRenderer(mainWindow, 'key-gateway:changed', status))
   // macOS 顶部菜单栏（中文菜单 + 页面导航），其他平台维持默认
   setupAppMenu({ focusWindow, getWindow: () => mainWindow })
   createWindow()
@@ -245,6 +248,8 @@ app.on('will-quit', () => {
   unregisterProtocol()
   clearProactiveRenewal('app quitting')
   flushUsageHistory()
+  // 同步还原 Kiro IDE 端点后再退出，避免 IDE 指向已停止的本地网关。
+  shutdownKeyServiceSync()
   destroyTray()
   void shutdownLogger()
 })

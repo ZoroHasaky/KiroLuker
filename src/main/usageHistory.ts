@@ -117,13 +117,13 @@ export function clearUsageHistory(accountId: string): number {
   return count
 }
 
-/** 删除已经不存在的账号留下的历史，避免日志无限堆积 */
+/** 删除已经不存在的账号留下的历史；API Key 使用独立 key: 命名空间，由 Key 删除流程清理。 */
 export function pruneUsageHistory(keepAccountIds: string[]): number {
   const keep = new Set(keepAccountIds)
   const all = history()
   let removed = 0
   for (const id of Object.keys(all)) {
-    if (keep.has(id)) continue
+    if (id.startsWith('key:') || keep.has(id)) continue
     delete all[id]
     removed++
   }

@@ -10,7 +10,7 @@ import {
 } from './accountService'
 import { clearKiroSsoCache, readKiroAuthToken, readLocalKiroCredentials } from './kiroAuth'
 import { isKiroRunning, restartKiroIde } from './kiroProcess'
-import { listKiroModels, streamKiroChat } from './kiroChat'
+import { listKiroModels, streamApiKeyChat, streamKiroChat } from './kiroChat'
 import {
   cancelLogin,
   completeSocialLogin,
@@ -31,6 +31,22 @@ import { setUsageApiType } from './kiroApi'
 import { setProxyConfig } from './net'
 import { checkForUpdate } from './updater'
 import { clearLogs, exportLogs, getLogDir, queryLogs } from './logger'
+import {
+  addKey,
+  configureGateway,
+  deleteKey,
+  disableGateway,
+  enableGateway,
+  getGatewayStatus,
+  importKeys,
+  listKeyModels,
+  loadKeys,
+  selectKey,
+  syncAllKeys,
+  syncKey,
+  testKey,
+  updateKey
+} from './keyService'
 import { errorMessage } from '../shared/errors'
 import {
   getAccountData,
@@ -52,6 +68,7 @@ import type {
   AccountStoreData,
   AccountUsage,
   AppSettings,
+  ApiKeyChatTestInput,
   ChatTestInput,
   IpcResult,
   LogQuery,
@@ -190,18 +207,40 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   handle('kiro:restart-ide', async () => ok(await restartKiroIde()))
 
+  // ============ Kiro API Key 管理 / 本地网关 ============
+  handle('keys:load', () => ok(loadKeys()))
+  handle('keys:add', (_e, key: string, note?: string) => ok(addKey(key, note)))
+  handle('keys:import', (_e, text: string) => ok(importKeys(text)))
+  handle('keys:update', (_e, id: string, note: string) => ok(updateKey(id, note)))
+  handle('keys:delete', (_e, id: string) => ok(deleteKey(id)))
+  handle('keys:select', async (_e, id: string) => ok(await selectKey(id)))
+  handle('keys:test', async (_e, id: string) => ok(await testKey(id)))
+  handle('keys:models', async (_e, id: string) => ok(await listKeyModels(id)))
+  handle('keys:sync', async (_e, id: string) => ok(await syncKey(id)))
+  handle('keys:sync-all', async (_e, concurrency?: number) => ok(await syncAllKeys(concurrency)))
+
+  handle('key-gateway:status', async () => ok(await getGatewayStatus()))
+  handle('key-gateway:enable', async (_e, keyId?: string) => ok(await enableGateway(keyId)))
+  handle('key-gateway:disable', async () => ok(await disableGateway()))
+  handle(
+    'key-gateway:configure',
+    async (_e, input: { region?: string; ports?: { krs: number; cps: number } }) =>
+      ok(await configureGateway(input))
+  )
+
   // ============ 账号测活（真实对话）============
 
   handle('kiro:list-models', async (_e, input: Parameters<typeof listKiroModels>[0]) =>
     ok(await listKiroModels(input))
   )
 
-  // 一个请求一个 AbortController，取消按钮据此中断读流
-  const chatAborters = new Map<string, AbortController>()
+  // 一个请求一个 AbortController，账号与 API Key 测活分别管理，避免 requestId 相同时相互取消。
+  const accountChatAborters = new Map<string, AbortController>()
+  const keyChatAborters = new Map<string, AbortController>()
 
   handle('kiro:chat-test', async (event, requestId: string, input: ChatTestInput) => {
     const controller = new AbortController()
-    chatAborters.set(requestId, controller)
+    accountChatAborters.set(requestId, controller)
     try {
       const result = await streamKiroChat(
         input,
@@ -217,12 +256,44 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       )
       return ok(result)
     } finally {
-      chatAborters.delete(requestId)
+      if (accountChatAborters.get(requestId) === controller) accountChatAborters.delete(requestId)
     }
   })
 
   handle('kiro:chat-cancel', (_e, requestId: string) => {
-    chatAborters.get(requestId)?.abort(new Error('用户取消'))
+    accountChatAborters.get(requestId)?.abort(new Error('用户取消'))
+    return ok()
+  })
+
+  // API Key 在线对话测活：凭证只在主进程读取，不下发到渲染层。
+  handle('keys:chat-test', async (event, requestId: string, input: ApiKeyChatTestInput) => {
+    const data = loadKeys()
+    const entry = data.keys.find((key) => key.id === input.keyId)
+    if (!entry) return fail('未找到该 API Key')
+    const controller = new AbortController()
+    keyChatAborters.set(requestId, controller)
+    try {
+      const result = await streamApiKeyChat(
+        entry.key,
+        data.region,
+        { modelId: input.modelId, message: input.message },
+        {
+          onDelta: (delta) => {
+            if (!event.sender.isDestroyed()) {
+              event.sender.send('keys:chat-chunk', { requestId, delta })
+            }
+          }
+        },
+        controller.signal
+      )
+      return ok(result)
+    } finally {
+      if (keyChatAborters.get(requestId) === controller) keyChatAborters.delete(requestId)
+    }
+  })
+
+  handle('keys:chat-cancel', (_e, requestId: string) => {
+    keyChatAborters.get(requestId)?.abort(new Error('用户取消'))
     return ok()
   })
 

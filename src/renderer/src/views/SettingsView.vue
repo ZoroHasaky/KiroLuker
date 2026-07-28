@@ -13,6 +13,7 @@ import type { AppSettings } from '@shared/types'
 import { useSettingsStore } from '@/stores/settings'
 import SettingSwitch from '@/components/common/SettingSwitch.vue'
 import { useAccountsStore } from '@/stores/accounts'
+import { useKeysStore } from '@/stores/keys'
 import { formatCheckedAt } from '@/utils/format'
 import { now } from '@/utils/now'
 import { bodyPopupContainer, confirmDanger } from '@/utils/ui'
@@ -21,6 +22,7 @@ import ImportAccountsModal from '@/components/accounts/ImportAccountsModal.vue'
 
 const settingsStore = useSettingsStore()
 const accountsStore = useAccountsStore()
+const keysStore = useKeysStore()
 
 const settings = computed(() => settingsStore.settings)
 const proxyDraft = ref(settingsStore.settings.proxyUrl)
@@ -46,6 +48,7 @@ function nextRefreshText(at: number | null): string {
 
 const nextKeyRefreshText = computed(() => nextRefreshText(accountsStore.nextKeyRefreshAt))
 const nextUsageRefreshText = computed(() => nextRefreshText(accountsStore.nextUsageRefreshAt))
+const nextApiKeyUsageRefreshText = computed(() => nextRefreshText(keysStore.nextUsageRefreshAt))
 
 watch(
   () => settingsStore.settings.proxyUrl,
@@ -156,7 +159,7 @@ function clearAll(): void {
         </a-form-item>
         <a-form-item label="隐私打码" class="field-inline">
           <SettingSwitch field="privacyMode" />
-          <span class="muted">列表与详情中隐藏邮箱、昵称等隐私信息</span>
+          <span class="muted">列表与详情中隐藏邮箱、昵称、API Key 等隐私信息</span>
         </a-form-item>
         <a-form-item label="积分两位小数">
           <SettingSwitch field="usagePrecision" />
@@ -240,6 +243,52 @@ function clearAll(): void {
           主动续期只对 IDE 当前激活的那一个账号维护定时器，续期成功后写回磁盘并刷新界面；
           该账号一旦不再是 IDE 当前账号就自动停止，交给 IDE 自身兜底。
         </li>
+      </ul>
+    </a-card>
+
+    <a-card size="small" title="API Key 刷新" style="margin-bottom: 16px">
+      <a-form v-bind="FORM_LAYOUT">
+        <a-form-item label="自动刷新用量" class="field-inline">
+          <SettingSwitch field="autoRefreshApiKeyUsage" />
+          <span class="muted">
+            定期同步全部 API Key 的订阅类型与积分用量，默认开启
+          </span>
+        </a-form-item>
+        <a-form-item label="用量刷新间隔" class="field-inline">
+          <a-input-number
+            :value="settings.apiKeyUsageRefreshInterval"
+            :min="1"
+            :max="600"
+            :step="5"
+            addon-after="分钟"
+            style="width: 180px"
+            :disabled="!settings.autoRefreshApiKeyUsage"
+            @change="(v: unknown) => update({ apiKeyUsageRefreshInterval: Number(v) || DEFAULT_SETTINGS.apiKeyUsageRefreshInterval })"
+          />
+          <span class="muted">
+            默认每 5 分钟同步一次
+            <span class="next-refresh">{{ nextApiKeyUsageRefreshText }}</span>
+          </span>
+        </a-form-item>
+        <a-form-item label="批量并发" class="field-inline">
+          <a-input-number
+            :value="settings.apiKeyRefreshConcurrency"
+            :min="1"
+            :max="20"
+            style="width: 180px"
+            @change="(v: unknown) => update({ apiKeyRefreshConcurrency: Number(v) || DEFAULT_SETTINGS.apiKeyRefreshConcurrency })"
+          />
+          <span class="muted">每批同时同步的 API Key 数量，并发过高容易被限流</span>
+        </a-form-item>
+        <a-form-item label="删除前确认" class="field-inline">
+          <SettingSwitch field="confirmBeforeDeleteApiKey" />
+          <span class="muted">删除 API Key 前弹出二次确认</span>
+        </a-form-item>
+      </a-form>
+      <ul class="tips">
+        <li>首次开启或距离上次同步已超过间隔时，会在应用启动后自动补跑一轮。</li>
+        <li>窗口最小化到托盘、电脑睡眠唤醒后，错过的轮次会自动补跑。</li>
+        <li>同步失败会保留上次成功的订阅与额度，仅更新错误状态。</li>
       </ul>
     </a-card>
 

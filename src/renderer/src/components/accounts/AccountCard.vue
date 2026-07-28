@@ -6,12 +6,12 @@ import {
   CopyOutlined,
   DeleteOutlined,
   EditOutlined,
-  ExperimentOutlined,
   InfoCircleOutlined,
   KeyOutlined,
   LoginOutlined,
   LogoutOutlined,
-  SyncOutlined
+  SyncOutlined,
+  ThunderboltOutlined
 } from '@ant-design/icons-vue'
 import { useSettingsStore } from '@/stores/settings'
 import {
@@ -179,7 +179,7 @@ const actions = computed<CardAction[]>(() => [
   { key: 'refresh-key', title: '刷新密钥', icon: KeyOutlined },
   { key: 'refresh-usage', title: '刷新用量与积分', icon: SyncOutlined },
   { key: 'copy-token', title: '复制凭证 JSON', icon: CopyOutlined },
-  { key: 'test', title: '测活（发一次真实对话）', icon: ExperimentOutlined },
+  { key: 'test', title: '测活（发一次真实对话）', icon: ThunderboltOutlined },
   { key: 'detail', title: '查看详情', icon: InfoCircleOutlined },
   { key: 'edit', title: '编辑', icon: EditOutlined },
   { key: 'remove', title: '删除', icon: DeleteOutlined, danger: true }

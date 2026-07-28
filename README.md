@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.3-6c5ce7" alt="version">
+  <img src="https://img.shields.io/badge/version-1.0.4-6c5ce7" alt="version">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="platform">
   <img src="https://img.shields.io/badge/Vue-3-42b883" alt="vue">
@@ -104,15 +104,28 @@
 
 ![账号测活](docs/screenshots/account-online-test.png)
 
+### API Key 管理
+
+![API Key 管理](docs/screenshots/apikey.png)
+
+### API Key 网关
+
+![API Key 网关](docs/screenshots/apikey-gateway.png)
+
 ### 设置
 
 ![设置](docs/screenshots/setting.png)
+
+### 关于
+
+![关于](docs/screenshots/about.png)
 
 ---
 
 ## 📥 安装说明
 
 前往 [Releases](https://github.com/lucks-cloud/kiro-manager-lite/releases) 下载对应平台的安装包。
+如遇到系统拦截、架构选择、升级或卸载问题，请查看 **[安装说明与常见问题](./INSTALL.md)**。
 
 | 平台 | 文件 | 说明 |
 | --- | --- | --- |
@@ -121,49 +134,7 @@
 | Windows | `*-win-x64-setup.exe` | 仅 x64 |
 | Linux | `*-linux-x86_64.AppImage` | 仅 x64 |
 
-不清楚 Mac 是哪种芯片，在「关于本机」里看「芯片」一栏，写 Apple M 开头的选 arm64。
-`.zip` 与 `.blockmap`、`latest*.yml` 是给后续自动更新用的，手动安装不需要下载。
-
-### Windows
-
-双击 `.exe` 安装程序，可自选安装目录。首次运行 SmartScreen 可能提示"未知发布者"，
-选择「更多信息」→「仍要运行」即可,安装包未做代码签名。
-
-### macOS
-
-安装包未做签名与公证，首次打开会提示「已损坏，无法打开」或「无法验证开发者」。
-先把 `.dmg` 里的应用拖进「应用程序」，再任选一种方式解除限制。
-
-方式一：终端命令（推荐）
-
-```bash
-xattr -cr "/Applications/Kiro Manager Lite.app"
-```
-
-方式二：右键打开
-
-1. 在 Finder 的「应用程序」里找到 Kiro Manager Lite
-2. 按住 `Control` 点击图标（或直接右键）
-3. 选择「打开」
-4. 在弹出的对话框里再点一次「打开」
-
-如果系统提示已被移到废纸篓，恢复后执行方式一的命令即可。
-
-### Linux
-
-AppImage 免安装，加执行权限后直接运行：
-
-```bash
-chmod +x kiro-account-lite-*-linux-x86_64.AppImage
-./kiro-account-lite-*-linux-x86_64.AppImage
-```
-
-部分发行版缺少 FUSE 会报 `dlopen(): error loading libfuse.so.2`，两种解法：装
-`libfuse2`，或者免挂载运行：
-
-```bash
-./kiro-account-lite-*-linux-x86_64.AppImage --appimage-extract-and-run
-```
+`.zip`、`.blockmap` 与 `latest*.yml` 主要供自动更新使用，手动安装无需下载。
 
 ---
 
@@ -244,7 +215,7 @@ src/
 
 ## 🔖 更新日志
 
-各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.0.3。
+各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.0.4。
 
 ---
 

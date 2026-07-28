@@ -5,55 +5,36 @@ import {
   CommentOutlined,
   GithubOutlined,
   HeartFilled,
-  RocketFilled,
   SyncOutlined
 } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import { useSettingsStore } from '@/stores/settings'
-import { formatDate } from '@/utils/format'
-import { handleMarkdownClick, renderMarkdown } from '@/utils/markdown'
+import { useUpdateStore } from '@/stores/update'
 import kiroLogo from '@/assets/kiro-logo.png'
 import qqGroup from '@/assets/qq-group.jpg'
 import authorAvatar from '@/assets/author_avatar.jpg'
 import sponsorWechat from '@/assets/sponsor_wechat.jpg'
 import sponsorAlipay from '@/assets/sponsor_alipay.jpg'
-import type { UpdateCheckResult } from '@shared/types'
 
 const settingsStore = useSettingsStore()
+const updateStore = useUpdateStore()
 const info = computed(() => settingsStore.appInfo)
 
 // ============ 检查更新 ============
-const checking = ref(false)
-/** 最近一次检查结果，两个弹窗共用 */
-const checkResult = ref<UpdateCheckResult | null>(null)
+const checking = computed(() => updateStore.checking)
+const checkResult = computed(() => updateStore.result)
 const upToDateOpen = ref(false)
-const updateOpen = ref(false)
 const groupOpen = ref(false)
 
-/** Release 正文是 Markdown，渲染成净化后的 HTML */
-const notesHtml = computed(() => renderMarkdown(checkResult.value?.notes ?? ''))
-
-/** 对比 GitHub 最新 Release：版本一致弹「已是最新」，否则弹「前往更新」 */
+/** 手动检查始终访问 GitHub，绕过冷启动缓存。 */
 async function checkUpdate(): Promise<void> {
   if (checking.value) return
-  checking.value = true
-  try {
-    const res = await window.api.checkUpdate()
-    if (!res.success || !res.data) {
-      message.error(res.error || '检查更新失败，请稍后再试')
-      return
-    }
-    checkResult.value = res.data
-    if (res.data.hasUpdate) updateOpen.value = true
-    else upToDateOpen.value = true
-  } finally {
-    checking.value = false
+  const response = await updateStore.checkNow()
+  if (response.error) {
+    message.error(response.error)
+    return
   }
-}
-
-function goUpdate(): void {
-  if (checkResult.value) open(checkResult.value.releaseUrl)
-  updateOpen.value = false
+  if (response.data && !response.data.hasUpdate) upToDateOpen.value = true
 }
 
 const author = {
@@ -182,33 +163,6 @@ function open(url: string): void {
       </div>
       <template #footer>
         <a-button type="primary" @click="upToDateOpen = false">好的</a-button>
-      </template>
-    </a-modal>
-
-    <!-- 发现新版本 -->
-    <a-modal v-model:open="updateOpen" title="发现新版本" :width="480" centered>
-      <div class="check-result">
-        <RocketFilled class="check-icon new" />
-        <div class="check-title">
-          有新版本可以更新
-        </div>
-        <div class="version-flow">
-          <span class="version-chip">v{{ checkResult?.current }}</span>
-          <span class="muted">→</span>
-          <span class="version-chip new">v{{ checkResult?.latest }}</span>
-        </div>
-        <div v-if="checkResult?.publishedAt" class="muted release-time">
-          发布于 {{ formatDate(checkResult.publishedAt) }}
-        </div>
-      </div>
-      <div v-if="notesHtml" class="release-notes">
-        <div class="release-notes-title muted">更新说明</div>
-        <!-- 内容已过 DOMPurify 净化；链接点击交给 handleMarkdownClick 转系统浏览器 -->
-        <div class="release-notes-body markdown" v-html="notesHtml" @click="handleMarkdownClick" />
-      </div>
-      <template #footer>
-        <a-button @click="updateOpen = false">稍后再说</a-button>
-        <a-button type="primary" @click="goUpdate">前往更新</a-button>
       </template>
     </a-modal>
 
