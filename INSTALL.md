@@ -70,12 +70,36 @@ chmod +x kiro-account-lite-*-linux-x86_64.AppImage
 
 ## 卸载
 
+卸载前请先在应用内关掉会修改 Kiro IDE 配置的功能，让应用把配置还原回去：
+
+- **API Key 网关**：在 API Key 管理页关闭网关并按提示重启 Kiro IDE，确保官方端点已恢复。
+  涉及 `codewhisperer.config.krsEndpoints` / `cpsEndpoints` 两项设置。
+- **自动同意所有 Shell 命令**：在常用工具页关闭开关。涉及 `kiroAgent.trustedCommands`、
+  `kiroAgent.commandDenylist` 与 `~/.kiro/settings/permissions.yaml`。
+
+然后按平台卸载：
+
 - **Windows**：在“设置”→“应用”中卸载 Kiro Manager Lite。
 - **macOS**：退出应用后，将“应用程序”中的 Kiro Manager Lite 移到废纸篓。
 - **Linux**：退出应用后删除 AppImage 文件以及自行创建的快捷方式。
 
 普通卸载会保留用户数据，便于以后重装恢复。若要彻底删除，请在卸载前通过应用设置打开数据目录，
 记下位置；退出并卸载应用后，再手动删除该目录。删除后账号、API Key、设置和历史记录无法恢复。
+
+### 已经卸载才想起来还原 Kiro 配置
+
+应用首次修改 Kiro IDE 的 `settings.json` 时，会在同目录留下一份
+`settings.json.kiro-manager.bak` 备份，可据此手动恢复。Kiro IDE 用户设置的位置：
+
+| 平台 | 路径 |
+| --- | --- |
+| macOS | `~/Library/Application Support/Kiro/User/settings.json` |
+| Windows | `%APPDATA%\Kiro\User\settings.json` |
+| Linux | `~/.config/Kiro/User/settings.json` |
+
+`~/.kiro/settings/permissions.yaml` 里由本应用追加的内容包在
+`# >>> kiro-manager-lite:shell-auto-approve` 与 `# <<< ...` 两行标记之间，
+删掉这一段即可还原，其余规则不会被改动。
 
 ## 常见问题
 
@@ -91,42 +115,40 @@ chmod +x kiro-account-lite-*-linux-x86_64.AppImage
 ### 开启网关或切换 API Key 后未生效
 
 按应用提示重启 Kiro IDE，使 IDE 重新读取端点配置。如果提示端口占用，请在 API Key 网关设置中
-改用未被占用的端口后重试。
+改用未被占用的端口后重试。若提示已被其它本地网关接管，可在冲突弹窗里选择强制关闭其它网关并接管。
+
+仍未生效时，完全退出 Kiro IDE 和托盘中的 Kiro Manager Lite，重新打开应用确认网关状态后再启动
+Kiro IDE。
+
+### 检查更新失败
+
+检查更新需要访问 GitHub Releases。请确认网络可访问 GitHub；如需代理，在应用设置中配置 HTTP
+代理。也可以直接打开
+[Releases](https://github.com/lucks-cloud/kiro-manager-lite/releases) 手动下载。
+
+### 关闭窗口后应用仍在运行
+
+默认关闭行为可能是最小化到托盘。请从 macOS 菜单栏或 Windows / Linux 系统托盘中选择“退出”，
+也可在设置中修改关闭窗口行为。
 
 ### 如何查看日志
 
 进入应用的“系统日志”页面，可筛选、导出日志或点击文件夹按钮打开日志目录。反馈问题时请先检查并
 移除账号凭证、API Key、邮箱等敏感信息，再提供必要的错误片段。
 
+### 自动同意所有 Shell 命令开关打开了但仍会弹确认框
+
+常用工具页会逐项显示两套机制的写入状态。若某一项显示“未写入”或“不可用”，按提示处理：
+未检测到 Kiro 用户数据目录说明没装 Kiro IDE 或用了非默认路径；`permissions.yaml` 缺少
+`rules` 顶层键属于格式异常，本应用不会改动它。另外命令拒绝名单（`kiroAgent.commandDenylist`）
+优先级高于放行，页面会在检测到时给出提示。
+
 ### 重装后如何恢复数据
 
 先启动一次新安装的应用再退出，通过设置页确认数据和备份目录。将此前保存的备份恢复到对应位置后
 重新启动应用。恢复前请额外保留现有目录副本，避免覆盖仍需使用的数据。
-## 升级与卸载
-
-- 升级前先完全退出旧版本，包括菜单栏或系统托盘中的常驻进程，再安装新版本。
-- 直接覆盖安装会保留账户、API Key、设置和日志等本地数据；建议定期使用应用的导出功能备份重要凭证。
-- **卸载前若开启了 API Key 网关，请先在 API Key 管理页关闭网关并按提示重启 Kiro IDE**，确保官方端点已恢复。
-- 普通卸载不会主动删除用户数据。需要完全清理时，先在“设置”中打开数据目录并记下位置，退出应用、卸载程序后再手动删除该目录。
-
-## 常见问题
-
-### 应用打不开或提示权限不足
-
-先确认安装包与系统架构匹配，并按上面的 macOS 放行、Windows SmartScreen 或 Linux 执行权限步骤处理。升级后仍无法打开时，先退出托盘中的旧进程再重试。
-
-### 检查更新失败
-
-检查更新需要访问 GitHub Releases。请确认网络可访问 GitHub；如需代理，在应用设置中配置 HTTP 代理。也可以直接打开 [Releases](https://github.com/lucks-cloud/kiro-manager-lite/releases) 手动下载。
-
-### 开启或关闭网关后 Kiro IDE 没有生效
-
-Kiro IDE 可能缓存了请求端点。按应用弹窗执行“立即重启 Kiro IDE”；若仍未生效，完全退出 Kiro IDE 和托盘中的 Kiro Manager Lite，重新打开应用后检查网关状态，再启动 Kiro IDE。
-
-### 关闭窗口后应用仍在运行
-
-默认关闭行为可能是最小化到托盘。请从 macOS 菜单栏或 Windows/Linux 系统托盘中选择“退出”，也可在设置中修改关闭窗口行为。
 
 ### 仍然无法安装或启动
 
-提交 Issue 时请附上系统版本、CPU 架构、安装包文件名、报错截图和复现步骤，但不要粘贴完整 Token、Refresh Token 或 API Key。
+提交 Issue 时请附上系统版本、CPU 架构、安装包文件名、报错截图和复现步骤，但不要粘贴完整
+Token、Refresh Token 或 API Key。

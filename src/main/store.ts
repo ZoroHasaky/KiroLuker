@@ -11,10 +11,35 @@ import {
   type KeyGatewayData
 } from '../shared/types'
 
+/** permissions.yaml 开启前的原始状态 */
+export interface ShellApproveYamlBackup {
+  /** 备份时文件是否存在；false 表示关闭时应删除该文件 */
+  existed: boolean
+  content: string
+}
+
+/** Kiro IDE settings.json 里命令审批相关键的原值 */
+export interface ShellApproveSettingsBackup {
+  path: string
+  /** 原本是否存在该键；false 表示关闭时应删除该键而不是写空数组 */
+  hadTrustedCommands: boolean
+  trustedCommands?: unknown
+  hadCommandDenylist: boolean
+  commandDenylist?: unknown
+}
+
+/** 开启「自动同意所有 Shell 命令」前的完整配置快照 */
+export interface ShellApproveBackup {
+  savedAt: number
+  yaml?: ShellApproveYamlBackup
+  settings?: ShellApproveSettingsBackup
+}
+
 interface Schema {
   accountData: AccountStoreData
   settings: AppSettings
   keyData: KeyGatewayData
+  shellApproveBackup: ShellApproveBackup | null
 }
 
 const EMPTY_DATA: AccountStoreData = { version: 1, accounts: [], activeAccountId: null }
@@ -25,9 +50,30 @@ const store = new Store<Schema>({
   defaults: {
     accountData: EMPTY_DATA,
     settings: DEFAULT_SETTINGS,
-    keyData: DEFAULT_KEY_GATEWAY_DATA
+    keyData: DEFAULT_KEY_GATEWAY_DATA,
+    shellApproveBackup: null
   }
 })
+
+/** 权限配置备份：仅在开关开启期间存在，关闭还原后清空 */
+export function getShellApproveBackup(): ShellApproveBackup | null {
+  const raw = store.get('shellApproveBackup') as Record<string, unknown> | null | undefined
+  if (!raw || typeof raw !== 'object') return null
+
+  // 1.0.4 之前只备份 permissions.yaml，字段平铺在顶层，这里做一次形状升级
+  if (typeof raw.content === 'string' && !raw.yaml && !raw.settings) {
+    return {
+      savedAt: Number(raw.savedAt) || Date.now(),
+      yaml: { existed: raw.existed === true, content: raw.content }
+    }
+  }
+  if (!raw.yaml && !raw.settings) return null
+  return raw as unknown as ShellApproveBackup
+}
+
+export function setShellApproveBackup(backup: ShellApproveBackup | null): void {
+  store.set('shellApproveBackup', backup)
+}
 
 export function getAccountData(): AccountStoreData {
   const data = store.get('accountData') as AccountStoreData | undefined

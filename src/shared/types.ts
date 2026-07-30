@@ -254,6 +254,11 @@ export interface ProactiveRenewalPayload {
   accessToken: string
   refreshToken: string
   expiresIn: number
+  /**
+   * 新凭证是否已写进 Kiro IDE。
+   * false 表示该账号已不是 IDE 当前激活账号，续期让位给渲染进程的自动刷新。
+   */
+  syncedToIde: boolean
 }
 
 /** 托盘菜单动作 */
@@ -404,6 +409,52 @@ export interface AppInfo {
   platform: string
   storePath: string
   backupDir: string
+}
+
+// ============================================
+// 常用工具：Kiro Agent 命令审批配置
+// ============================================
+
+/** 「自动同意 AI 操作（命令 / 文件 / 网络）」涉及的一种配置机制 */
+export interface ShellAutoApproveTarget {
+  /**
+   * trustedCommands：Kiro IDE settings.json 的 kiroAgent.trustedCommands，
+   *   0.x 版本命令审批的真正入口（列表含字面 "*" 即无条件放行）。
+   * permissionsYaml：~/.kiro/settings/permissions.yaml，1.0+ 的权限规则表。
+   */
+  kind: 'trustedCommands' | 'permissionsYaml'
+  label: string
+  path: string
+  fileExists: boolean
+  /** 本应用写入的配置当前是否在位 */
+  applied: boolean
+  /** 该机制现在是否可写（不可写时给出 blockedReason） */
+  writable: boolean
+  /** 不可写原因，或需要提醒用户的说明 */
+  note?: string
+}
+
+/**
+ * 「自动同意 AI 操作（命令 / 文件 / 网络）」的当前状态。
+ * 一律以配置文件的真实内容为准，不依赖本应用自己记录的开关值。
+ */
+export interface ShellAutoApproveStatus {
+  /** 两种机制都已按预期写入即为开启 */
+  enabled: boolean
+  /** 部分机制写入成功、部分失败 */
+  partial: boolean
+  /** 两种机制都是热加载，正常情况下恒为 false */
+  requiresRestart: boolean
+  /** 是否存有开启前的原始配置，可用于精确还原 */
+  hasBackup: boolean
+  /** 用户自己已经配置了放行，不属于本应用，关闭开关时不会被改动 */
+  externalAllow: boolean
+  /** 存在优先级更高的拦截规则，会让放行失效 */
+  denyConflict: boolean
+  denyConflictReason?: string
+  /** 完全无法自动处理时的原因 */
+  blockedReason?: string
+  targets: ShellAutoApproveTarget[]
 }
 
 /** GitHub Release 检查更新结果 */
@@ -584,6 +635,29 @@ export interface KeyTestResult {
   used: number | null
   total: number | null
   models: KeyModelInfo[]
+}
+
+/**
+ * 开启网关前检测到的接管冲突：Kiro IDE 的端点已经指向别的本地网关。
+ * 结构化返回冲突端点与端口，界面才能给出「强制接管」而不是只报错。
+ */
+export interface KeyGatewayConflict {
+  /** 面向用户的说明文案 */
+  message: string
+  /** 冲突的本地端点，如 http://127.0.0.1:19820 */
+  endpoints: string[]
+  /** 冲突端点对应的本地端口，用于强制接管时释放 */
+  ports: number[]
+}
+
+/** 强制接管时对单个冲突端口的处理结果 */
+export interface KeyGatewayReleaseResult {
+  port: number
+  /** 该端口上监听的进程（不含本应用自身） */
+  pids: number[]
+  /** 端口是否已不再被其它进程占用 */
+  stopped: boolean
+  message: string
 }
 
 /** 应用当前网关状态后回传给渲染进程的运行时信息 */

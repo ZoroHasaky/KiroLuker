@@ -49,7 +49,9 @@ const api = {
   syncKey: (id: string) => invoke('keys:sync', id),
   syncAllKeys: (concurrency?: number) => invoke('keys:sync-all', concurrency),
   getKeyGatewayStatus: () => invoke('key-gateway:status'),
-  enableKeyGateway: (keyId?: string) => invoke('key-gateway:enable', keyId),
+  inspectKeyGatewayConflict: () => invoke('key-gateway:inspect-conflict'),
+  enableKeyGateway: (keyId?: string, force?: boolean) =>
+    invoke('key-gateway:enable', keyId, force),
   disableKeyGateway: () => invoke('key-gateway:disable'),
   configureKeyGateway: (input: unknown) => invoke('key-gateway:configure', input),
   onKeyGatewayChanged: (handler: (payload: unknown) => void) =>
@@ -111,6 +113,13 @@ const api = {
   saveSettings: (patch: unknown) => invoke('settings:save', patch),
   getAppInfo: () => invoke('app:info'),
   checkUpdate: () => invoke('app:check-update'),
+
+  // 常用工具：Kiro Agent 权限
+  getShellAutoApproveStatus: () => invoke('tools:shell-approve-status'),
+  enableShellAutoApprove: () => invoke('tools:shell-approve-enable'),
+  disableShellAutoApprove: () => invoke('tools:shell-approve-disable'),
+  revealShellApproveTarget: (kind: 'trustedCommands' | 'permissionsYaml') =>
+    invoke('tools:shell-approve-reveal', kind),
 
   // 系统日志
   queryLogs: (query: unknown) => invoke('log:query', query),

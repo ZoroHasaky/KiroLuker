@@ -18,6 +18,8 @@ import {
 } from 'fs'
 import * as path from 'path'
 import * as os from 'os'
+import { URL } from 'url'
+import type { KeyGatewayConflict } from '../shared/types'
 
 /** Kiro IDE 用户数据根目录（跨平台） */
 function kiroUserDataDir(): string {
@@ -124,6 +126,23 @@ async function writeSettings(file: string, obj: Record<string, unknown>): Promis
   }
 }
 
+/**
+ * 供其它模块复用的 settings.json 读写（如「自动同意所有 Shell 命令」需要改 kiroAgent.* 键）。
+ * 统一走同一套 JSONC 解析 + 首次备份 + 原子写，避免出现第二套实现。
+ */
+export async function readKiroSettingsObject(
+  file = kiroSettingsPath()
+): Promise<Record<string, unknown>> {
+  return readSettings(file)
+}
+
+export async function writeKiroSettingsObject(
+  obj: Record<string, unknown>,
+  file = kiroSettingsPath()
+): Promise<void> {
+  return writeSettings(file, obj)
+}
+
 function normalizeList(value: unknown): EndpointEntry[] {
   if (!Array.isArray(value)) return []
   return value
@@ -146,24 +165,58 @@ export async function readEndpointSnapshot(file = kiroSettingsPath()): Promise<E
   return { krs: normalizeList(obj[KRS_KEY]), cps: normalizeList(obj[CPS_KEY]) }
 }
 
+const LOCAL_ENDPOINT_RE = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?/i
+
+function isLocalEndpoint(endpoint: string): boolean {
+  return LOCAL_ENDPOINT_RE.test(endpoint)
+}
+
+/** 从 http://127.0.0.1:19820 里取出端口；没写端口按协议默认值 */
+function endpointPort(endpoint: string): number | null {
+  try {
+    const url = new URL(endpoint)
+    if (url.port) return Number(url.port)
+    return url.protocol === 'https:' ? 443 : 80
+  } catch {
+    return null
+  }
+}
+
+/** 只保留官方（非本地）端点：恢复时绝不能把 IDE 指回某个本地网关 */
+function withoutLocalEntries(list: EndpointEntry[]): EndpointEntry[] {
+  return list.filter((entry) => !isLocalEndpoint(entry.endpoint))
+}
+
 /**
- * 开启前互斥检查：只要端点已经指向其它本地地址，就不能覆盖，
+ * 开启前互斥检查：只要端点已经指向其它本地地址，就不能静默覆盖，
  * 避免多个本地网关同时修改同一份 IDE 配置。
+ * 返回结构化冲突信息，界面据此提供「强制接管」；无冲突返回 null。
  */
 export async function endpointConflict(
   krsPort: number,
   cpsPort: number,
   activeRegion: string
-): Promise<string | null> {
+): Promise<KeyGatewayConflict | null> {
   const obj = await readSettings(kiroSettingsPath())
   const expectedKrs = endpointOverride(krsPort, activeRegion)
   const expectedCps = endpointOverride(cpsPort, activeRegion)
   const local = [...normalizeList(obj[KRS_KEY]), ...normalizeList(obj[CPS_KEY])]
-    .filter((entry) => /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/i.test(entry.endpoint))
+    .filter((entry) => isLocalEndpoint(entry.endpoint))
   if (!local.length) return null
   if (listsEqual(obj[KRS_KEY], expectedKrs) && listsEqual(obj[CPS_KEY], expectedCps)) return null
-  const endpoints = [...new Set(local.map((entry) => entry.endpoint))].join('、')
-  return `Kiro IDE 已被其它本地网关接管（${endpoints}）。请先关闭其它本地网关或同类工具。`
+  const endpoints = [...new Set(local.map((entry) => entry.endpoint))]
+  const ports = [
+    ...new Set(
+      endpoints
+        .map((endpoint) => endpointPort(endpoint))
+        .filter((port): port is number => port !== null)
+    )
+  ]
+  return {
+    message: `Kiro IDE 已被其它本地网关接管（${endpoints.join('、')}）。请先关闭其它本地网关或同类工具。`,
+    endpoints,
+    ports
+  }
 }
 
 /**
@@ -177,7 +230,12 @@ export async function applyEndpointOverride(
 ): Promise<{ changed: boolean; settingsPath: string; original: EndpointSnapshot }> {
   const file = kiroSettingsPath()
   const obj = await readSettings(file)
-  const original = { krs: normalizeList(obj[KRS_KEY]), cps: normalizeList(obj[CPS_KEY]) }
+  // 记录原值时剔除本地网关端点：无论原来指向本应用的残留端口还是别的工具，
+  // 关闭接管时都应还原成官方端点，而不是把 IDE 指回一个不再监听的本地端口。
+  const original = {
+    krs: withoutLocalEntries(normalizeList(obj[KRS_KEY])),
+    cps: withoutLocalEntries(normalizeList(obj[CPS_KEY]))
+  }
   const krsExpected = endpointOverride(krsPort, activeRegion)
   const cpsExpected = endpointOverride(cpsPort, activeRegion)
 

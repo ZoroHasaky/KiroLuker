@@ -49,13 +49,24 @@ mac:
   entitlementsInherit: build/entitlements.mac.inherit.plist
   notarize: false
 dmg:
-  # 拖拽安装的经典布局：左边 App，右边 Applications
+  # 默认白底，窗口尺寸给三个图标留出空间
+  window:
+    width: 560
+    height: 380
+  # 布局：安装指南放在顶部，下面左边 App、右边 Applications。
   contents:
-    - x: 140
-      y: 200
+    # 安装指南（纯文本，双击用「文本编辑」打开）：说明 macOS 首次打开被拦截的处理办法，
+    # 避免用户把安全拦截误当成安装失败。文件放在 build/ 下，path 相对 buildResources 解析。
+    - x: 280
+      y: 72
       type: file
-    - x: 400
-      y: 200
+      path: 安装指南.txt
+      name: 安装指南.txt
+    - x: 150
+      y: 190
+      type: file
+    - x: 410
+      y: 190
       type: link
       path: /Applications
 win:

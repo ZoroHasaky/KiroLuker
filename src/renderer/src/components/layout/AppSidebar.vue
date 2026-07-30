@@ -5,6 +5,7 @@ import {
   HomeOutlined,
   TeamOutlined,
   KeyOutlined,
+  ToolOutlined,
   FileTextOutlined,
   SettingOutlined,
   InfoCircleOutlined,
@@ -51,6 +52,7 @@ const items = computed(() => [
     label: keysStore.count ? `API Key 管理（${keysStore.count}个）` : 'API Key 管理',
     icon: KeyOutlined
   },
+  { key: 'tools', label: '常用工具', icon: ToolOutlined },
   { key: 'logs', label: '系统日志', icon: FileTextOutlined },
   { key: 'settings', label: '设置', icon: SettingOutlined },
   { key: 'about', label: '关于', icon: InfoCircleOutlined }
@@ -61,7 +63,7 @@ const items = computed(() => [
   <aside
     class="app-sidebar"
     :class="{ collapsed }"
-    :style="{ width: collapsed ? '80px' : '208px' }"
+    :style="{ width: collapsed ? '80px' : '228px' }"
   >
     <div class="sidebar-brand">
       <a-tooltip

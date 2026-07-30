@@ -96,17 +96,18 @@ async function runProactiveRenewal(accountId: string): Promise<void> {
     return
   }
 
-  // 未能写入 IDE：说明该账号已不是 IDE 当前激活账号，停止续期，交给 IDE 自身兜底
-  if (!result.syncedToIde) {
-    console.log(
-      `[ProactiveRenewal] Skipped disk sync (${result.syncSkipReason || 'not active'}), stop scheduling`
-    )
-    return
-  }
-
   const newExpiresAt = Date.now() + result.expiresIn * 1000
 
-  // 更新持久化的账号凭证，保证 store 与 IDE 磁盘一致
+  /*
+   * 刷新一旦成功，服务端就已经轮换掉旧 refreshToken，所以无论有没有同步进 IDE，
+   * 新凭证都必须先落盘并下发给渲染进程。早先在「未同步 IDE」时直接 return，
+   * 新凭证被丢掉，内存与磁盘留着的旧值立刻作废，下一次刷新必然
+   * invalid_grant / Bad credentials。
+   *
+   * isActive 一并据实修正：同步失败就说明它已不是 IDE 当前激活账号，
+   * 交回给渲染进程的自动刷新覆盖，避免出现「主动续期已停、自动刷新又排除它」
+   * 两头都不管的空档。
+   */
   data.accounts[index] = {
     ...account,
     credentials: {
@@ -115,6 +116,7 @@ async function runProactiveRenewal(accountId: string): Promise<void> {
       refreshToken: result.refreshToken,
       expiresAt: newExpiresAt
     },
+    isActive: result.syncedToIde ? account.isActive : false,
     status: 'active',
     lastError: undefined
   }
@@ -129,8 +131,17 @@ async function runProactiveRenewal(accountId: string): Promise<void> {
     accountId,
     accessToken: result.accessToken,
     refreshToken: result.refreshToken,
-    expiresIn: result.expiresIn
+    expiresIn: result.expiresIn,
+    syncedToIde: result.syncedToIde
   })
+
+  // 未能写入 IDE：该账号已不是 IDE 当前激活账号，停止续期，交给 IDE 自身兜底
+  if (!result.syncedToIde) {
+    console.log(
+      `[ProactiveRenewal] Skipped disk sync (${result.syncSkipReason || 'not active'}), stop scheduling`
+    )
+    return
+  }
 
   console.log(
     `[ProactiveRenewal] Renewed OK for ${account.email || accountId}, ` +

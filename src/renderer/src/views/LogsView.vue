@@ -210,36 +210,37 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <span class="toolbar-spacer" />
-
-      <a-tooltip title="自动跟随最新日志">
-        <a-button
-          :type="autoFollow ? 'primary' : 'default'"
-          @click="autoFollow = !autoFollow"
-        >
-          <template #icon><VerticalAlignBottomOutlined /></template>
-        </a-button>
-      </a-tooltip>
-      <a-tooltip title="刷新">
-        <a-button :loading="loading" @click="refresh()">
-          <template #icon><SyncOutlined /></template>
-        </a-button>
-      </a-tooltip>
-      <a-tooltip title="下载当前筛选结果">
-        <a-button @click="download">
-          <template #icon><DownloadOutlined /></template>
-        </a-button>
-      </a-tooltip>
-      <a-tooltip title="打开日志目录">
-        <a-button @click="openLogDir">
-          <template #icon><FolderOpenOutlined /></template>
-        </a-button>
-      </a-tooltip>
-      <a-tooltip title="清空日志">
-        <a-button danger @click="clearAll">
-          <template #icon><ClearOutlined /></template>
-        </a-button>
-      </a-tooltip>
+      <!-- 五个操作图标作为一个整体：组内不换行，空间不足时整组一起折到下一行 -->
+      <div class="toolbar-actions">
+        <a-tooltip title="自动跟随最新日志">
+          <a-button
+            :type="autoFollow ? 'primary' : 'default'"
+            @click="autoFollow = !autoFollow"
+          >
+            <template #icon><VerticalAlignBottomOutlined /></template>
+          </a-button>
+        </a-tooltip>
+        <a-tooltip title="刷新">
+          <a-button :loading="loading" @click="refresh()">
+            <template #icon><SyncOutlined /></template>
+          </a-button>
+        </a-tooltip>
+        <a-tooltip title="下载当前筛选结果">
+          <a-button @click="download">
+            <template #icon><DownloadOutlined /></template>
+          </a-button>
+        </a-tooltip>
+        <a-tooltip title="打开日志目录">
+          <a-button @click="openLogDir">
+            <template #icon><FolderOpenOutlined /></template>
+          </a-button>
+        </a-tooltip>
+        <a-tooltip title="清空日志">
+          <a-button danger @click="clearAll">
+            <template #icon><ClearOutlined /></template>
+          </a-button>
+        </a-tooltip>
+      </div>
     </div>
 
     <div class="logs-meta muted">
@@ -292,8 +293,14 @@ onUnmounted(() => {
   width: 240px;
 }
 
-.toolbar-spacer {
-  flex: 1 1 auto;
+/* margin-left: auto 顶到右侧；同行或换行后都保持右对齐，且组内始终一排 */
+.toolbar-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .level-chips {

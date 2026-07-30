@@ -23,6 +23,12 @@ const router = createRouter({
       meta: { title: 'API Key 管理' }
     },
     {
+      path: '/tools',
+      name: 'tools',
+      component: () => import('@/views/ToolsView.vue'),
+      meta: { title: '常用工具' }
+    },
+    {
       path: '/logs',
       name: 'logs',
       component: () => import('@/views/LogsView.vue'),

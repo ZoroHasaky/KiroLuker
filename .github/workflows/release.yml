@@ -90,11 +90,14 @@ jobs:
       - name: 生成发布说明
         run: |
           version="${GITHUB_REF_NAME#v}"
-          # 只取 CHANGELOG 里当前版本那一段，避免把历史日志全塞进说明
+          # 只取 CHANGELOG 里当前版本那一段，避免把历史日志全塞进说明。
+          # 同时跳过底部链接定义，以及每版重复的「安装遇到问题」入口行——
+          # 后者统一放到说明最底部（见下方），并用绝对链接，避免夹在下载表上方且无法点击。
           awk -v ver="$version" '
             $0 ~ "^## \\[" ver "\\]" { flag = 1; next }
             flag && /^## \[/ { exit }
-            flag && /^\[.*\]: http/ { next }   # 跳过底部链接定义
+            flag && /^\[.*\]: http/ { next }
+            flag && /^> *安装遇到问题/ { next }
             flag { print }
           ' CHANGELOG.md > NOTES.md
           if [ ! -s NOTES.md ]; then
@@ -113,6 +116,10 @@ jobs:
 
           macOS 安装包未做签名与公证，首次打开请右键选择「打开」，或在
           「系统设置 - 隐私与安全性」中允许运行。
+
+          ---
+
+          > 安装遇到问题？请查看 [安装说明与常见问题](https://github.com/lucks-cloud/kiro-manager-lite/blob/main/INSTALL.md)。
           EOF
 
       - name: 删除同标签旧 Release

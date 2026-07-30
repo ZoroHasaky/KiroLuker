@@ -19,10 +19,12 @@ import {
   restoreEndpointOverrideSync,
   type EndpointSnapshot
 } from './kiroSettings'
+import { releasePorts } from './localPorts'
 import { log } from './logger'
 import type {
   AccountUsage,
   KeyEntry,
+  KeyGatewayConflict,
   KeyGatewayData,
   KeyGatewayStatus,
   KeyModelInfo,
@@ -293,7 +295,34 @@ export async function syncAllKeys(
   return { data: getKeyData(), success, failed }
 }
 
-export async function enableGateway(keyId?: string): Promise<KeyGatewayStatus> {
+/** 查询当前是否被其它本地网关接管；未安装 IDE 时无从判断，按无冲突处理。 */
+export async function inspectGatewayConflict(): Promise<KeyGatewayConflict | null> {
+  const data = getKeyData()
+  if (!isKiroInstalled()) return null
+  return endpointConflict(data.ports.krs, data.ports.cps, data.region)
+}
+
+/**
+ * 强制接管：停掉仍在监听旧端点的其它本地网关进程。
+ * 端点改写由后续 applyEndpointOverride 完成，这里只负责让旧网关不再工作。
+ */
+async function releaseConflictingGateways(conflict: KeyGatewayConflict): Promise<string> {
+  log('warn', `[KeyGateway] 强制接管：原接管端点 ${conflict.endpoints.join('、')}`)
+  const results = conflict.ports.length ? await releasePorts(conflict.ports) : []
+  const failed = results.filter((item) => !item.stopped)
+  if (failed.length) {
+    return `已强制接管 Kiro IDE 端点，但 ${failed.map((item) => item.port).join('、')} 端口仍被占用，请手动关闭对应程序`
+  }
+  const stoppedPorts = results.filter((item) => item.pids.length).map((item) => item.port)
+  return stoppedPorts.length
+    ? `已关闭其它本地网关（端口 ${stoppedPorts.join('、')}）并强制接管 Kiro IDE 端点`
+    : '已强制接管 Kiro IDE 端点，未发现仍在运行的其它本地网关进程'
+}
+
+export async function enableGateway(
+  keyId?: string,
+  options: { force?: boolean } = {}
+): Promise<KeyGatewayStatus> {
   const data = getKeyData()
   validatePorts(data.ports.krs, data.ports.cps)
   if (!data.keys.length) throw new Error('请先添加 API Key，再开启网关')
@@ -303,7 +332,9 @@ export async function enableGateway(keyId?: string): Promise<KeyGatewayStatus> {
   if (!isKiroInstalled()) throw new Error('未找到 Kiro IDE 用户数据目录，请先安装并启动一次 Kiro IDE')
 
   const conflict = await endpointConflict(data.ports.krs, data.ports.cps, data.region)
-  if (conflict) throw new Error(conflict)
+  if (conflict && !options.force) throw new Error(conflict.message)
+  // 强制接管是用户在弹窗里显式确认的操作，会终止其它本地网关进程。
+  const forcedNote = conflict ? await releaseConflictingGateways(conflict) : ''
 
   const pendingCredential = { id: selected.id, key: selected.key }
   let applied: Awaited<ReturnType<typeof applyEndpointOverride>> | null = null
@@ -330,7 +361,8 @@ export async function enableGateway(keyId?: string): Promise<KeyGatewayStatus> {
     latest.settingsPath = applied.settingsPath
     setKeyData(latest)
     log('info', `[KeyGateway] 已开启接管，settings=${applied.settingsPath}`)
-    return await emitStatus('API Key 接管已开启，请重启 Kiro IDE 使端点生效', applied.changed)
+    const opened = 'API Key 接管已开启，请重启 Kiro IDE 使端点生效'
+    return await emitStatus(forcedNote ? `${forcedNote}；${opened}` : opened, applied.changed)
   } catch (error) {
     stopGateway()
     if (applied) {

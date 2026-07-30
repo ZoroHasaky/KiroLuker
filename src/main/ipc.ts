@@ -1,5 +1,7 @@
 import { BrowserWindow, dialog, ipcMain, shell, app, type IpcMainInvokeEvent } from 'electron'
 import { readFile, writeFile } from 'fs/promises'
+import { existsSync } from 'fs'
+import { dirname } from 'path'
 import {
   checkAccountStatus,
   refreshAccountToken,
@@ -30,6 +32,12 @@ import {
 import { setUsageApiType } from './kiroApi'
 import { setProxyConfig } from './net'
 import { checkForUpdate } from './updater'
+import {
+  disableShellAutoApprove,
+  enableShellAutoApprove,
+  getShellAutoApproveStatus,
+  shellApproveTargetPath
+} from './kiroPermissions'
 import { clearLogs, exportLogs, getLogDir, queryLogs } from './logger'
 import {
   addKey,
@@ -39,6 +47,7 @@ import {
   enableGateway,
   getGatewayStatus,
   importKeys,
+  inspectGatewayConflict,
   listKeyModels,
   loadKeys,
   selectKey,
@@ -72,6 +81,7 @@ import type {
   ChatTestInput,
   IpcResult,
   LogQuery,
+  ShellAutoApproveTarget,
   SwitchAccountInput,
   TraySnapshot,
   VerifyCredentialsInput
@@ -220,7 +230,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   handle('keys:sync-all', async (_e, concurrency?: number) => ok(await syncAllKeys(concurrency)))
 
   handle('key-gateway:status', async () => ok(await getGatewayStatus()))
-  handle('key-gateway:enable', async (_e, keyId?: string) => ok(await enableGateway(keyId)))
+  handle('key-gateway:inspect-conflict', async () => ok(await inspectGatewayConflict()))
+  handle('key-gateway:enable', async (_e, keyId?: string, force?: boolean) =>
+    ok(await enableGateway(keyId, { force: !!force }))
+  )
   handle('key-gateway:disable', async () => ok(await disableGateway()))
   handle(
     'key-gateway:configure',
@@ -402,6 +415,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // 检查更新：对比 GitHub 最新 Release 的版本号，只给结论不做下载
   handle('app:check-update', async () => ok(await checkForUpdate()))
+
+  // ============ 常用工具：Kiro Agent 权限 ============
+  handle('tools:shell-approve-status', async () => ok(await getShellAutoApproveStatus()))
+  handle('tools:shell-approve-enable', async () => ok(await enableShellAutoApprove()))
+  handle('tools:shell-approve-disable', async () => ok(await disableShellAutoApprove()))
+
+  /**
+   * 在文件管理器里定位配置文件。
+   * 渲染层只能传机制标识，路径一律由主进程自行解析，避免任意路径被打开。
+   */
+  handle('tools:shell-approve-reveal', async (_e, kind: ShellAutoApproveTarget['kind']) => {
+    const target = shellApproveTargetPath(kind)
+    // 文件还不存在时退一步打开它所在目录，至少让用户看到位置
+    if (existsSync(target)) shell.showItemInFolder(target)
+    else await shell.openPath(dirname(target))
+    return ok()
+  })
 
   handle('app:open-external', async (_e, url: string, privateMode?: boolean) => {
     // 只放行 http(s)，避免被诱导打开本地程序或自定义协议

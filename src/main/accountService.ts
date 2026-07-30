@@ -9,7 +9,7 @@ import {
   refreshTokenByMethod,
   type TokenRefreshResult
 } from './kiroApi'
-import { errorMessage } from '../shared/errors'
+import { errorMessage, isCredentialRejected } from '../shared/errors'
 import {
   arnForApiCall,
   profileArnCandidates,
@@ -303,26 +303,89 @@ export async function syncCredentialsToIde(
   }
 }
 
-export async function refreshAccountToken(account: Account): Promise<RefreshTokenResult> {
+/**
+ * 磁盘上可能存着比内存更新的 refreshToken：Kiro IDE 自己的 refresh loop 抢先轮换过时，
+ * 应用内存里那一份已经是废票，直接重试还是 Bad credentials。
+ *
+ * 只有能确认「该账号就是 IDE 当前登录账号」时才允许拿磁盘凭证，否则会用别人的
+ * refreshToken 去刷新，既把那个账号的凭证换废，又把结果错记到当前账号上。
+ */
+async function diskRefreshTokenFor(account: Account, usedToken: string): Promise<string | null> {
+  const ownsIde = lastSwitchedAccountId === account.id || account.isActive === true
+  if (!ownsIde) return null
+
+  const disk = await readKiroAuthToken().catch(() => null)
+  const diskToken = disk?.refreshToken
+  // 磁盘上还是刚才那一份，说明作废与 IDE 无关，换它重试没有意义
+  if (!diskToken || diskToken === usedToken) return null
+
+  // 登录方式与 provider 对不上时，磁盘上那份属于另一个账号。
+  // social 的判定口径与 readLocalKiroCredentials 保持一致：只有显式 social 才算社交登录
+  if ((disk?.authMethod === 'social') !== (account.credentials.authMethod === 'social')) return null
+  const accountProvider = account.credentials.provider || account.idp
+  if (disk?.provider && accountProvider && disk.provider !== accountProvider) return null
+
+  return diskToken
+}
+
+async function performRefreshAccountToken(account: Account): Promise<RefreshTokenResult> {
   const { refreshToken, clientId, clientSecret, region, authMethod } = account.credentials
 
   const cred = { refreshToken, clientId, clientSecret, region, authMethod }
   assertRefreshCredentials(cred, '缺少 OIDC 刷新凭证（clientId / clientSecret）')
 
   // 网络类失败重试几次；invalid_grant 之类的凭证问题不重试，避免白等
-  const result = await refreshWithRetry('刷新 Token', cred, 'Token 刷新失败')
+  let usedRefreshToken = refreshToken
+  let result: TokenRefreshResult & { accessToken: string }
+  try {
+    result = await refreshWithRetry('刷新 Token', cred, 'Token 刷新失败')
+  } catch (error) {
+    const message = errorMessage(error)
+    const fallback = isCredentialRejected(message)
+      ? await diskRefreshTokenFor(account, refreshToken)
+      : null
+    // 拿不到更新的凭证就把原始错误抛出去，交给界面提示重新登录
+    if (!fallback) throw error
+
+    console.warn('[AccountService] 内存中的 refreshToken 已作废，改用 Kiro IDE 磁盘上的最新凭证重试')
+    usedRefreshToken = fallback
+    result = await refreshWithRetry(
+      '用磁盘凭证刷新 Token',
+      { ...cred, refreshToken: fallback },
+      'Token 刷新失败'
+    )
+  }
 
   const accessToken = result.accessToken
-  const newRefreshToken = result.refreshToken || refreshToken
+  const newRefreshToken = result.refreshToken || usedRefreshToken
   const expiresIn = result.expiresIn ?? DEFAULT_EXPIRES_IN
 
   const { syncedToIde, syncSkipReason } = await syncCredentialsToIde(
     account,
     { accessToken, refreshToken: newRefreshToken, expiresIn },
-    refreshToken
+    // 身份比对要用本次实际送出去的那一份，兜底重试后它才是磁盘上的旧值
+    usedRefreshToken
   )
 
   return { accessToken, refreshToken: newRefreshToken, expiresIn, syncedToIde, syncSkipReason }
+}
+
+/**
+ * 同一账号的刷新去重：手动刷新、自动刷新、主动续期可能几乎同时命中同一个账号，
+ * 各自带着同一份旧 refreshToken 发请求，先到的成功并轮换，后到的必然 401。
+ * 这里让并发调用复用同一个 in-flight 结果。
+ */
+const refreshInFlight = new Map<string, Promise<RefreshTokenResult>>()
+
+export function refreshAccountToken(account: Account): Promise<RefreshTokenResult> {
+  const running = refreshInFlight.get(account.id)
+  if (running) return running
+
+  const task = performRefreshAccountToken(account).finally(() => {
+    refreshInFlight.delete(account.id)
+  })
+  refreshInFlight.set(account.id, task)
+  return task
 }
 
 // ============ 切号 ============

@@ -2,6 +2,7 @@ import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import {
   DEFAULT_KEY_GATEWAY_DATA,
+  type KeyGatewayConflict,
   type KeyGatewayData,
   type KeyGatewayStatus,
   type KeyModelInfo,
@@ -197,11 +198,21 @@ export const useKeysStore = defineStore('keys', () => {
     }
   }
 
-  async function setEnabled(enabled: boolean, keyId?: string): Promise<string | null> {
+  /** 查询 Kiro IDE 是否已被其它本地网关接管；无冲突返回 null。 */
+  async function inspectConflict(): Promise<{
+    error?: string
+    conflict?: KeyGatewayConflict | null
+  }> {
+    const res = await window.api.inspectKeyGatewayConflict()
+    if (!res.success) return { error: res.error || '接管状态检测失败' }
+    return { conflict: res.data ?? null }
+  }
+
+  async function setEnabled(enabled: boolean, keyId?: string, force = false): Promise<string | null> {
     loading.value = true
     try {
       const res = enabled
-        ? await window.api.enableKeyGateway(keyId)
+        ? await window.api.enableKeyGateway(keyId, force)
         : await window.api.disableKeyGateway()
       if (!res.success || !res.data) return res.error || '操作失败'
       applyStatus(res.data)
@@ -347,6 +358,7 @@ export const useKeysStore = defineStore('keys', () => {
     scheduleUsageRefresh,
     stopAutoRefresh,
     setEnabled,
+    inspectConflict,
     configure,
     detectCurrentApiKey,
     applyStatus

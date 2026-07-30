@@ -1,6 +1,6 @@
 {
   "name": "kiro-account-lite",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Kiro Manager Lite - 只做账户管理的轻量版",
   "main": "./out/main/index.js",
   "author": "kiro-account-lite",

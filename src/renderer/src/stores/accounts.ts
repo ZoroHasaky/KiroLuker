@@ -18,7 +18,7 @@ import {
   type SwitchAccountResult,
   type VerifyCredentialsInput
 } from '@shared/types'
-import { errorMessage } from '@shared/errors'
+import { describeRefreshError, errorMessage, isCredentialRejected } from '@shared/errors'
 import { DEFAULT_REGION } from '@shared/regions'
 import { runPool } from '@/utils/format'
 import { toPlain } from '@/utils/ipc'
@@ -484,8 +484,15 @@ export const useAccountsStore = defineStore('accounts', () => {
 
     const res = await window.api.refreshAccountToken(toPlain(account))
     if (!res.success || !res.data) {
-      updateAccount(id, { status: 'error', lastError: res.error, lastCheckedAt: Date.now() })
-      return { ok: false, error: res.error }
+      // 凭证被拒和网络异常是两回事：前者只能重新登录，标成「已过期」并给可读提示
+      const raw = res.error || 'Token 刷新失败'
+      const reason = describeRefreshError(raw)
+      updateAccount(id, {
+        status: isCredentialRejected(raw) ? 'expired' : 'error',
+        lastError: reason,
+        lastCheckedAt: Date.now()
+      })
+      return { ok: false, error: reason }
     }
 
     // 请求期间凭证可能已被主进程主动续期更新过，这里重新取一次，
@@ -521,10 +528,21 @@ export const useAccountsStore = defineStore('accounts', () => {
         refreshToken: payload.refreshToken,
         expiresAt: Date.now() + payload.expiresIn * 1000
       },
+      /*
+       * 主进程续期后没能写进 IDE，说明它已不是 IDE 激活账号，续期也随之停止调度。
+       * 这里同步清掉 isActive，让 refreshExpiringKeys 重新接管它；
+       * 否则它会被主动续期和自动刷新同时排除，一直到 token 过期才被动刷新，
+       * 那时 refreshToken 很可能已被 IDE 换废。
+       */
+      ...(payload.syncedToIde ? {} : { isActive: false }),
       status: 'active',
       lastError: undefined
     })
-    console.info(`[ProactiveRenewal] 已同步续期后的凭证：${account.email}`)
+    console.info(
+      payload.syncedToIde
+        ? `[ProactiveRenewal] 已同步续期后的凭证：${account.email}`
+        : `[ProactiveRenewal] 已同步凭证，但该账号不再由主动续期负责：${account.email}`
+    )
   }
 
   async function checkStatus(id: string): Promise<{ ok: boolean; error?: string }> {
@@ -533,12 +551,15 @@ export const useAccountsStore = defineStore('accounts', () => {
 
     const res = await window.api.checkAccountStatus(toPlain(account))
     if (!res.success || !res.data) {
+      const raw = res.error || '用量刷新失败'
+      const reason = describeRefreshError(raw)
+      const credentialGone = !res.banned && isCredentialRejected(raw)
       updateAccount(id, {
-        status: res.banned ? 'banned' : 'error',
-        lastError: res.error,
+        status: res.banned ? 'banned' : credentialGone ? 'expired' : 'error',
+        lastError: reason,
         lastCheckedAt: Date.now()
       })
-      return { ok: false, error: res.error }
+      return { ok: false, error: reason }
     }
     applySnapshot(id, res.data)
     return { ok: true }

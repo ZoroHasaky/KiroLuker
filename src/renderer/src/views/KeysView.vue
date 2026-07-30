@@ -9,6 +9,7 @@ import {
   DownOutlined,
   DownloadOutlined,
   EditOutlined,
+  ExclamationCircleFilled,
   EyeInvisibleOutlined,
   EyeOutlined,
   KeyOutlined,
@@ -31,7 +32,7 @@ import RegionSelect from '@/components/common/RegionSelect.vue'
 import UsageHistoryModal from '@/components/accounts/UsageHistoryModal.vue'
 import ApiKeyDetailDrawer from '@/components/keys/ApiKeyDetailDrawer.vue'
 import ApiKeyTestModal from '@/components/keys/ApiKeyTestModal.vue'
-import type { KeyEntry } from '@shared/types'
+import type { KeyEntry, KeyGatewayConflict } from '@shared/types'
 
 const store = useKeysStore()
 const settingsStore = useSettingsStore()
@@ -72,6 +73,11 @@ interface RestartPrompt {
 }
 const restartPrompt = ref<RestartPrompt | null>(null)
 const restartingIde = ref(false)
+
+/** 其它本地网关已接管 IDE 时的强制接管提示 */
+const conflictPrompt = ref<{ conflict: KeyGatewayConflict; keyId?: string } | null>(null)
+const inspectingConflict = ref(false)
+const forcingTakeover = ref(false)
 const restartPromptTitle = computed(() => {
   if (restartPrompt.value?.reason === 'gateway-enabled') return 'API Key 接管已开启'
   if (restartPrompt.value?.reason === 'gateway-disabled') return 'API Key 接管已关闭'
@@ -317,13 +323,40 @@ async function applySelection(entry: KeyEntry): Promise<void> {
   }
 }
 
+/**
+ * 开启网关前先探测是否已被其它本地网关接管。
+ * 返回 true 表示已弹出强制接管弹窗，调用方不要再走常规确认。
+ */
+async function guardConflict(keyId?: string): Promise<boolean> {
+  inspectingConflict.value = true
+  try {
+    const result = await store.inspectConflict()
+    if (result.conflict) {
+      conflictPrompt.value = { conflict: result.conflict, keyId }
+      return true
+    }
+    // 探测本身失败不阻断开启：真正冲突时主进程仍会拒绝，并在下方引导强制接管
+    if (result.error) message.warning(result.error)
+    return false
+  } finally {
+    inspectingConflict.value = false
+  }
+}
+
+/** 开启失败时的兜底：竞态下别的网关抢先接管，仍给出强制接管入口 */
+async function handleEnableError(error: string, keyId?: string): Promise<boolean> {
+  if (error.includes('本地网关') && (await guardConflict(keyId))) return true
+  message.error(`开启网关失败：${error}`)
+  return false
+}
+
 async function enableGatewayAndSelect(entry: KeyEntry): Promise<void> {
   if (actionBusy(entry.id, 'select')) return
   setBusy(entry.id, 'select', true)
   try {
     const error = await store.setEnabled(true, entry.id)
     if (error) {
-      message.error(`开启网关失败：${error}`)
+      if (await handleEnableError(error, entry.id)) return
       throw new Error(error)
     }
 
@@ -337,7 +370,8 @@ async function enableGatewayAndSelect(entry: KeyEntry): Promise<void> {
   }
 }
 
-function confirmEnableGatewayAndSelect(entry: KeyEntry): void {
+async function confirmEnableGatewayAndSelect(entry: KeyEntry): Promise<void> {
+  if (await guardConflict(entry.id)) return
   const label = keyConfirmationLabel(entry)
   Modal.confirm({
     title: 'API Key 网关未开启',
@@ -349,10 +383,30 @@ function confirmEnableGatewayAndSelect(entry: KeyEntry): void {
   })
 }
 
+/** 结束占用旧端点的其它本地网关，并把端点强制改写到本应用 */
+async function forceTakeover(): Promise<void> {
+  const prompt = conflictPrompt.value
+  if (!prompt || forcingTakeover.value) return
+  forcingTakeover.value = true
+  try {
+    const error = await store.setEnabled(true, prompt.keyId, true)
+    if (error) return void message.error(`强制接管失败：${error}`)
+    conflictPrompt.value = null
+    message.success('已强制接管 Kiro IDE 的 AI 请求端点')
+    restartPrompt.value = {
+      reason: 'gateway-enabled',
+      keyId: prompt.keyId ?? data.value.activeKeyId ?? undefined,
+      needRestart: status.value?.needRestart ?? true
+    }
+  } finally {
+    forcingTakeover.value = false
+  }
+}
+
 function select(entry: KeyEntry): void {
   if (entry.id === data.value.activeKeyId || actionBusy(entry.id, 'select')) return
   if (!data.value.enabled) {
-    confirmEnableGatewayAndSelect(entry)
+    void confirmEnableGatewayAndSelect(entry)
     return
   }
   confirmUseApiKey(keyConfirmationLabel(entry), () => applySelection(entry))
@@ -449,7 +503,11 @@ async function toggleGateway(checked: boolean): Promise<void> {
     return
   }
   const error = await store.setEnabled(checked, targetKey?.id)
-  if (error) return void message.error(error)
+  if (error) {
+    if (checked) await handleEnableError(error, targetKey?.id)
+    else message.error(error)
+    return
+  }
   if (checked) {
     restartPrompt.value = {
       reason: 'gateway-enabled',
@@ -464,13 +522,14 @@ async function toggleGateway(checked: boolean): Promise<void> {
   }
 }
 
-function confirmToggleGateway(): void {
+async function confirmToggleGateway(): Promise<void> {
   const enabling = !data.value.enabled
   const firstKey = data.value.keys[0]
   if (enabling && !firstKey) {
     message.warning('请先添加 API Key')
     return
   }
+  if (enabling && (await guardConflict(firstKey?.id))) return
   Modal.confirm({
     title: enabling ? '开启 API Key 网关' : '关闭 API Key 网关',
     content: enabling
@@ -557,7 +616,7 @@ onMounted(() => void store.load())
         <a-button
           :type="data.enabled ? 'primary' : 'default'"
           :danger="data.enabled"
-          :loading="loading"
+          :loading="loading || inspectingConflict"
           @click="confirmToggleGateway"
         >
           <template #icon><PoweroffOutlined /></template>
@@ -864,6 +923,54 @@ onMounted(() => void store.load())
       </a-space>
     </a-modal>
 
+    <a-modal
+      :open="!!conflictPrompt"
+      width="560px"
+      :footer="null"
+      :mask-closable="false"
+      :closable="!forcingTakeover"
+      @cancel="conflictPrompt = null"
+    >
+      <template #title>
+        <span class="restart-title">
+          <ExclamationCircleFilled style="color: #faad14" />
+          Kiro IDE 已被其它本地网关接管
+        </span>
+      </template>
+
+      <p class="restart-lead">
+        Kiro IDE 的 AI 请求端点当前指向下面的本地地址，说明有其它网关或同类工具正在接管：
+      </p>
+      <div class="conflict-endpoints">
+        <span
+          v-for="endpoint in conflictPrompt?.conflict.endpoints || []"
+          :key="endpoint"
+          class="mono conflict-endpoint"
+        >{{ endpoint }}</span>
+      </div>
+
+      <a-alert
+        type="warning"
+        show-icon
+        style="margin-bottom: 14px"
+        message="强制接管会结束占用这些端口的本地进程，并把端点改写到本应用网关。"
+        description="其它工具的接管会立即失效；若它以 Kiro IDE 扩展形式运行，扩展进程会一起结束，建议随后重启 IDE。"
+      />
+
+      <p class="muted restart-tip">
+        冲突端口：{{ (conflictPrompt?.conflict.ports || []).join('、') || '未识别' }}
+        · 本应用网关端口：KRS {{ data.ports.krs }} / CPS {{ data.ports.cps }}
+      </p>
+
+      <a-space style="width: 100%; justify-content: flex-end">
+        <a-button :disabled="forcingTakeover" @click="conflictPrompt = null">取消</a-button>
+        <a-button type="primary" danger :loading="forcingTakeover" @click="forceTakeover">
+          <template #icon><PoweroffOutlined /></template>
+          强制关闭并接管
+        </a-button>
+      </a-space>
+    </a-modal>
+
     <a-modal v-model:open="configOpen" title="网关配置" :confirm-loading="savingConfig" @ok="saveConfig">
       <a-form layout="vertical">
         <a-form-item label="Region" required>
@@ -947,6 +1054,8 @@ onMounted(() => void store.load())
 .restart-title { display: inline-flex; align-items: center; gap: 8px; }
 .restart-lead { margin: 0 0 12px; }
 .restart-tip { margin: 0 0 14px; font-size: 12px; }
+.conflict-endpoints { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.conflict-endpoint { padding: 3px 8px; border-radius: 6px; background: var(--kal-block-bg); font-size: 12px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 .muted { color: var(--kal-muted); }
 @media (max-width: 900px) {

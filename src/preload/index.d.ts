@@ -13,6 +13,7 @@ import type {
   ChatTestInput,
   ChatTestResult,
   IpcResult,
+  KeyGatewayConflict,
   KeyGatewayData,
   KeyGatewayStatus,
   KeyModelInfo,
@@ -23,6 +24,8 @@ import type {
   OnlineLoginCredentials,
   RefreshTokenResult,
   RestartIdeResult,
+  ShellAutoApproveStatus,
+  ShellAutoApproveTarget,
   SocialCallbackPayload,
   LogQuery,
   LogQueryResult,
@@ -76,7 +79,8 @@ export interface Api {
     failed: number
   }>>
   getKeyGatewayStatus: () => Promise<IpcResult<KeyGatewayStatus>>
-  enableKeyGateway: (keyId?: string) => Promise<IpcResult<KeyGatewayStatus>>
+  inspectKeyGatewayConflict: () => Promise<IpcResult<KeyGatewayConflict | null>>
+  enableKeyGateway: (keyId?: string, force?: boolean) => Promise<IpcResult<KeyGatewayStatus>>
   disableKeyGateway: () => Promise<IpcResult<KeyGatewayStatus>>
   configureKeyGateway: (input: {
     region?: string
@@ -154,6 +158,13 @@ export interface Api {
   saveSettings: (patch: Partial<AppSettings>) => Promise<IpcResult<AppSettings>>
   getAppInfo: () => Promise<IpcResult<AppInfo>>
   checkUpdate: () => Promise<IpcResult<UpdateCheckResult>>
+  getShellAutoApproveStatus: () => Promise<IpcResult<ShellAutoApproveStatus>>
+  enableShellAutoApprove: () => Promise<IpcResult<ShellAutoApproveStatus>>
+  disableShellAutoApprove: () => Promise<IpcResult<ShellAutoApproveStatus>>
+  /** 在文件管理器里定位对应机制的配置文件 */
+  revealShellApproveTarget: (
+    kind: ShellAutoApproveTarget['kind']
+  ) => Promise<IpcResult<void>>
   openExternal: (url: string, privateMode?: boolean) => Promise<IpcResult<BrowserOpenInfo>>
   showPath: (target: 'store' | 'backup' | 'logs') => Promise<IpcResult>
 
