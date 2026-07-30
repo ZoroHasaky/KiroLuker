@@ -1,6 +1,8 @@
 import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import vue from '@vitejs/plugin-vue'
+import Components from 'unplugin-vue-components/vite'
+import { AntDesignVueResolver } from 'unplugin-vue-components/resolvers'
 import { createHtmlPlugin } from 'vite-plugin-html'
 import dayjs from 'dayjs'
 
@@ -34,6 +36,13 @@ export default defineConfig({
     },
     plugins: [
       vue(),
+      // ant-design-vue 按需加载：只把模板里真正用到的 a-* 组件打进包，
+      // 替代 main.ts 里的全量 app.use(Antd)，显著减小 vendor-ant-design-vue 体积与首屏解析开销。
+      // importStyle: false —— 4.x 走 CSS-in-JS，样式在运行时生成，无需按组件引入样式文件。
+      Components({
+        dts: false,
+        resolvers: [AntDesignVueResolver({ importStyle: false })]
+      }),
       // 压缩首页 html，并把打包时间注入进去
       createHtmlPlugin({
         minify: true,

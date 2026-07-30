@@ -32,6 +32,8 @@
 
 ### 优化
 
+- ant-design-vue 改为按需自动引入（`unplugin-vue-components` + `AntDesignVueResolver`），
+  不再全量 `app.use(Antd)`：组件包体积从约 1.2MB 降到约 785KB，减少打包版首屏脚本解析开销
 - macOS DMG 安装窗口重新布局：顶部放「安装指南.txt」，下方左侧应用、右侧「应用程序」，
   中间保留拖拽安装的引导
 
