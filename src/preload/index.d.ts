@@ -36,7 +36,8 @@ import type {
   TraySnapshot,
   UpdateCheckResult,
   UsageHistoryEntry,
-  VerifyCredentialsInput
+  VerifyCredentialsInput,
+  XlsxSheet
 } from '../shared/types'
 
 export interface KiroActiveToken {
@@ -153,6 +154,11 @@ export interface Api {
 
   exportToFile: (
     content: string,
+    filename: string
+  ) => Promise<IpcResult<{ saved: boolean; path?: string }>>
+  /** 导出为 Excel 工作簿；主进程负责生成二进制并弹保存对话框 */
+  exportToXlsx: (
+    sheet: XlsxSheet,
     filename: string
   ) => Promise<IpcResult<{ saved: boolean; path?: string }>>
   importFromFile: () => Promise<IpcResult<ImportedFile | null>>

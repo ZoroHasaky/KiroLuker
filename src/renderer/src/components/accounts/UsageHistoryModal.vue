@@ -5,11 +5,17 @@
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { DeleteOutlined, LineChartOutlined, SyncOutlined } from '@ant-design/icons-vue'
+import {
+  DeleteOutlined,
+  DownloadOutlined,
+  LineChartOutlined,
+  SyncOutlined
+} from '@ant-design/icons-vue'
 import { useSettingsStore } from '@/stores/settings'
 import { formatCredits, formatCreditsPair, formatDateTime, usageColor } from '@/utils/format'
 import { displayEmail } from '@/utils/display'
-import type { Account, UsageHistoryEntry } from '@shared/types'
+import { exportStamp, safeNamePart } from '@/utils/transfer'
+import type { Account, UsageHistoryEntry, XlsxSheet } from '@shared/types'
 
 interface UsageHistorySubject {
   /** 历史存储主体 ID；API Key 使用 key:<id> 命名空间。 */
@@ -228,6 +234,53 @@ function breakdownText(entry: UsageHistoryEntry): string {
   if (entry.bonusLimit) parts.push(`奖励 ${pair(entry.bonusCurrent, entry.bonusLimit)}`)
   return parts.join(' · ') || '—'
 }
+
+// ============ 导出 ============
+
+const exporting = ref(false)
+
+/** 文件名：带上主体名便于辨认，认不出的名字（纯中文、打码串）就只留时间戳 */
+function exportFilename(): string {
+  const name = safeNamePart(subjectInfo.value?.label || '')
+  return `kiro-usage-${name ? `${name}-` : ''}${exportStamp()}.xlsx`
+}
+
+/**
+ * 导出为 xlsx：列与界面表格保持一致，但写入原始数值而非格式化字符串，
+ * 这样在 Excel 里还能直接排序、求和、画图。
+ */
+async function exportXlsx(): Promise<void> {
+  if (!rows.value.length || exporting.value) return
+  const decimals = precision.value ? 2 : 0
+  const sheet: XlsxSheet = {
+    name: '积分变化',
+    columns: [
+      { title: '时间', width: 21, format: 'datetime' },
+      { title: '已用积分', width: 13, format: 'number', decimals },
+      { title: '总额度', width: 13, format: 'number', decimals },
+      { title: '变化', width: 11, format: 'number', decimals },
+      { title: '占比', width: 10, format: 'percent', decimals: 2 },
+      { title: '额度构成', width: 46 }
+    ],
+    rows: rows.value.map((entry) => [
+      entry.at,
+      entry.current,
+      entry.limit,
+      entry.delta,
+      entry.percentUsed || 0,
+      breakdownText(entry)
+    ])
+  }
+
+  exporting.value = true
+  try {
+    const res = await window.api.exportToXlsx(sheet, exportFilename())
+    if (!res.success) return void message.error(res.error || '导出失败')
+    if (res.data?.saved) message.success(`已导出 ${sheet.rows.length} 条记录`)
+  } finally {
+    exporting.value = false
+  }
+}
 </script>
 
 <template>
@@ -276,6 +329,16 @@ function breakdownText(entry: UsageHistoryEntry): string {
         <span v-else class="muted">还没有记录，刷新一次用量后就会开始累积</span>
       </div>
       <a-space>
+        <a-tooltip title="导出为 Excel 表格">
+          <a-button
+            size="small"
+            :loading="exporting"
+            :disabled="!entries.length"
+            @click="exportXlsx"
+          >
+            <template #icon><DownloadOutlined /></template>
+          </a-button>
+        </a-tooltip>
         <a-tooltip title="重新读取日志">
           <a-button size="small" :loading="loading" @click="load">
             <template #icon><SyncOutlined /></template>

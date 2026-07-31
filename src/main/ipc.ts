@@ -39,6 +39,7 @@ import {
   shellApproveTargetPath
 } from './kiroPermissions'
 import { clearLogs, exportLogs, getLogDir, queryLogs } from './logger'
+import { buildXlsx } from './xlsxWriter'
 import {
   addKey,
   configureGateway,
@@ -85,7 +86,8 @@ import type {
   ShellAutoApproveTarget,
   SwitchAccountInput,
   TraySnapshot,
-  VerifyCredentialsInput
+  VerifyCredentialsInput,
+  XlsxSheet
 } from '../shared/types'
 
 function ok<T>(data?: T): IpcResult<T> {
@@ -349,7 +351,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       { name: 'JSON', extensions: ['json'] },
       { name: '日志', extensions: ['log'] },
       { name: '文本', extensions: ['txt'] },
-      { name: 'CSV', extensions: ['csv'] }
+      { name: 'CSV', extensions: ['csv'] },
+      { name: 'Excel 工作簿', extensions: ['xlsx'] }
     ]
     const ext = filename.split('.').pop()?.toLowerCase() ?? ''
     const matched = known.filter((f) => f.extensions.includes(ext))
@@ -366,6 +369,18 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     })
     if (result.canceled || !result.filePath) return ok({ saved: false })
     await writeFile(result.filePath, content, 'utf-8')
+    return ok({ saved: true, path: result.filePath })
+  })
+
+  // xlsx 是二进制 zip，走不了上面的 utf-8 通道；渲染层只传结构化数据，落盘前在主进程组装
+  handle('file:export-xlsx', async (_e, sheet: XlsxSheet, filename: string) => {
+    const result = await dialog.showSaveDialog(getWindow()!, {
+      title: '导出表格',
+      defaultPath: filename,
+      filters: exportFilters(filename)
+    })
+    if (result.canceled || !result.filePath) return ok({ saved: false })
+    await writeFile(result.filePath, buildXlsx(sheet))
     return ok({ saved: true, path: result.filePath })
   })
 

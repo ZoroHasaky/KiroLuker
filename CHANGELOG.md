@@ -3,6 +3,32 @@
 本文件记录 Kiro Manager Lite 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.7] - 2026-07-31
+
+本版本给积分变化日志加上导出能力：一键把某个账号或 API Key 的全部积分记录存成 Excel 表格。
+
+### 新增
+
+#### 积分变化导出
+- 积分变化弹窗的工具栏新增下载按钮，选好保存位置即导出为 `.xlsx` 表格，
+  账号与 API Key 两处的积分变化弹窗都能用
+- 导出的列与界面表格一致（时间 / 已用积分 / 总额度 / 变化 / 占比 / 额度构成），
+  行序同样是最新的排在最上面，所见即所得
+- 保存对话框的文件类型补上「Excel 工作簿」
+
+### 优化
+
+#### 导出体验
+- 表格里写的是原始数值而不是格式化后的文本：时间是真正的日期时间、积分是数值、
+  占比是百分比单元格，在 Excel 里可以直接排序、求和、透视、画图；
+  小数位跟随设置里的「积分两位小数」
+- 预置冻结首行、自动筛选与列宽，几百条记录打开就能看，不用先调格式
+- 文件名自动带上主体名与精确到秒的时间戳（形如 `kiro-usage-<名称>-20260731-162337.xlsx`），
+  同一天多次导出不会互相覆盖；纯中文或已打码的名称会退化成只留时间戳
+- xlsx 由主进程手写 OOXML 后自行打包，没有引入任何表格库，安装包体积不受影响
+
+> 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
+
 ## [1.0.6] - 2026-07-31
 
 本版本重做账号导入入口并支持一次导入多个文件，把 API Key 的区域从全局设置下沉到每个 Key
@@ -393,6 +419,7 @@
 
 > 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
 
+[1.0.7]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.7
 [1.0.6]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.6
 [1.0.5]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.5
 [1.0.4]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.4

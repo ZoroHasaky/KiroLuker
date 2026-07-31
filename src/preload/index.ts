@@ -107,6 +107,8 @@ const api = {
   // 文件
   exportToFile: (content: string, filename: string) =>
     invoke('file:export', content, filename),
+  exportToXlsx: (sheet: unknown, filename: string) =>
+    invoke('file:export-xlsx', sheet, filename),
   importFromFile: () => invoke('file:import'),
   writeClipboard: (text: string) => clipboard.writeText(text),
 

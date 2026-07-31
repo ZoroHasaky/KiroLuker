@@ -412,6 +412,39 @@ export interface AppInfo {
 }
 
 // ============================================
+// 表格导出（xlsx）
+// ============================================
+
+/** 单元格取值：数字走数值格式，字符串走文本，null 留空 */
+export type XlsxCellValue = string | number | null
+
+/** 一列的表头与格式；格式按列统一应用，和界面表格的列一一对应 */
+export interface XlsxColumn {
+  title: string
+  /** 列宽（Excel 字符宽度），不填由 Excel 默认 */
+  width?: number
+  /**
+   * 数值呈现方式：
+   * - number 普通数值，配合 decimals 控制小数位
+   * - percent 百分比，值传 0-1 的小数
+   * - datetime 日期时间，值传毫秒时间戳
+   * - 不填按常规格式（文本原样、数字通用）
+   */
+  format?: 'number' | 'percent' | 'datetime'
+  /** number / percent 的小数位数，默认 2 */
+  decimals?: number
+}
+
+/** 导出用的单个工作表数据 */
+export interface XlsxSheet {
+  /** 工作表名称（Excel 限制 31 字符且不能含 : \ / ? * [ ]） */
+  name: string
+  columns: XlsxColumn[]
+  /** 数据行，顺序与 columns 对应 */
+  rows: XlsxCellValue[][]
+}
+
+// ============================================
 // 常用工具：Kiro Agent 命令审批配置
 // ============================================
 

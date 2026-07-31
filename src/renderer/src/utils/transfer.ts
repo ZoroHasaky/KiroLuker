@@ -311,7 +311,7 @@ export function exportStamp(date = new Date()): string {
 }
 
 /** 账号名转文件名片段：只留字母数字与 . _ -，其余折成单个短横 */
-function safeNamePart(value: string): string {
+export function safeNamePart(value: string): string {
   const cleaned = value
     .trim()
     .replace(/[^a-zA-Z0-9._-]+/g, '-')
