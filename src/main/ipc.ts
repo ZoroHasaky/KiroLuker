@@ -51,6 +51,7 @@ import {
   inspectGatewayConflict,
   listKeyModels,
   loadKeys,
+  recordChatTestResult,
   selectKey,
   syncAllKeys,
   syncKey,
@@ -305,7 +306,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
         },
         controller.signal
       )
+      // 真实对话是唯一能查出封禁/失效的途径，结论必须落库，否则卡片仍显示「正常」
+      recordChatTestResult(entry.id, undefined)
       return ok(result)
+    } catch (error) {
+      // 用户主动中止不构成测活结论，不能据此把 Key 标成异常
+      if (!controller.signal.aborted) {
+        recordChatTestResult(entry.id, errorMessage(error))
+      }
+      throw error
     } finally {
       if (keyChatAborters.get(requestId) === controller) keyChatAborters.delete(requestId)
     }

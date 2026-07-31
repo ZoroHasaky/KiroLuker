@@ -14,7 +14,6 @@ import {
   PlusOutlined,
   SearchOutlined,
   SortAscendingOutlined,
-  SwapOutlined,
   SyncOutlined,
   UploadOutlined
 } from '@ant-design/icons-vue'
@@ -33,7 +32,13 @@ import SwitchResultModal from '@/components/accounts/SwitchResultModal.vue'
 import { useAccountsStore } from '@/stores/accounts'
 import { useSettingsStore } from '@/stores/settings'
 import { displayEmail as maskedEmail } from '@/utils/display'
-import { bodyPopupContainer, confirmDanger, copyText, notifyResult } from '@/utils/ui'
+import {
+  bodyPopupContainer,
+  confirmDanger,
+  confirmDelete,
+  copyText,
+  notifyResult
+} from '@/utils/ui'
 import type { Account, SwitchAccountResult } from '@shared/types'
 
 const accountsStore = useAccountsStore()
@@ -60,6 +65,17 @@ type SortKey = 'createdAt' | 'email' | 'usage' | 'reset' | 'checked'
 const sortKey = ref<SortKey>('createdAt')
 
 const busy = computed(() => accountsStore.task.running)
+/**
+ * 正在跑的批量刷新是哪一条：自动刷新与手动批量刷新共用 runBatch，
+ * 因此这里能同时覆盖两种触发方式。给正在跑的那个按钮上加载态，
+ * 另一个只置灰（全局任务状态一次只容得下一条批量任务）。
+ */
+const keyRefreshing = computed(
+  () => busy.value && accountsStore.task.type === 'account-key-refresh'
+)
+const usageRefreshing = computed(
+  () => busy.value && accountsStore.task.type === 'account-usage-refresh'
+)
 const stats = computed(() => accountsStore.stats)
 
 const sortOptions: { value: SortKey; label: string }[] = [
@@ -159,6 +175,14 @@ const visibleSelectedCount = computed(() => {
   }
   return count
 })
+
+/**
+ * 批量刷新按钮的范围后缀：有勾选时只刷勾选的账号，把数量带到按钮上。
+ * 取可见勾选数而非全部勾选数，与 batch() 实际会处理的条数对齐。
+ */
+const batchScopeSuffix = computed(() =>
+  visibleSelectedCount.value ? `（${visibleSelectedCount.value}个）` : ''
+)
 
 const allVisibleSelected = computed(
   () => sorted.value.length > 0 && visibleSelectedCount.value === sorted.value.length
@@ -261,10 +285,9 @@ function removeOne(account: Account): void {
     message.success('已删除')
   }
   if (!settingsStore.settings.confirmBeforeDelete) return doRemove()
-  confirmDanger({
+  confirmDelete({
     title: '删除账号',
     content: h('span', {}, [`确认删除 ${displayEmail(account.email)}？该操作不可撤销。`]),
-    okText: '删除',
     onOk: doRemove
   })
 }
@@ -272,10 +295,9 @@ function removeOne(account: Account): void {
 function removeSelected(): void {
   const ids = [...accountsStore.selectedIds]
   if (ids.length === 0) return void message.info('请先选择账号')
-  confirmDanger({
+  confirmDelete({
     title: `删除 ${ids.length} 个账号`,
     content: '删除后无法恢复，建议先导出备份。',
-    okText: '删除',
     onOk: () => {
       const count = accountsStore.removeAccounts(ids)
       message.success(`已删除 ${count} 个账号`)
@@ -322,18 +344,22 @@ async function batch(kind: 'refresh' | 'check'): Promise<void> {
   }
 }
 
-function logoutIde(account?: Account): void {
+/**
+ * 退出 IDE 登录。入口只在账号卡片上，因此 account 必传。
+ * 实际动作与账号无关（清空整个 sso cache 目录），account 只用于弹窗标题和行级加载态。
+ */
+function logoutIde(account: Account): void {
   confirmDanger({
-    title: account ? `退出 ${displayEmail(account.email)} 的登录` : '退出 Kiro IDE 登录',
+    title: `退出 ${displayEmail(account.email)} 的登录`,
     content: '会清空 ~/.aws/sso/cache 目录下的凭证文件，IDE 需要重新登录或重新切号。',
     okText: '继续',
     onOk: async () => {
-      if (account) setBusy(account.id, 'logout')
+      setBusy(account.id, 'logout')
       try {
         const res = await accountsStore.logoutIde()
         notifyResult(res, { success: `已清理 ${res.deleted} 个凭证文件` })
       } finally {
-        if (account) setBusy(account.id, undefined)
+        setBusy(account.id, undefined)
       }
     }
   })
@@ -444,38 +470,46 @@ function logoutIde(account?: Account): void {
 
         <a-divider type="vertical" style="margin: 0 2px" />
 
-        <a-tooltip title="批量刷新密钥">
-          <a-button size="small" type="text" :disabled="busy" @click="batch('refresh')">
-            <template #icon><KeyOutlined /></template>
-          </a-button>
-        </a-tooltip>
-        <a-tooltip title="批量刷新用量与积分">
-          <a-button size="small" type="text" :disabled="busy" @click="batch('check')">
-            <template #icon><SyncOutlined /></template>
-          </a-button>
-        </a-tooltip>
-        <a-tooltip :title="privacyMode ? '显示邮箱与昵称' : '隐私打码：隐藏邮箱与昵称'">
-          <a-button
-            size="small"
-            :type="privacyMode ? 'primary' : 'text'"
-            @click="togglePrivacy"
-          >
-            <template #icon>
-              <EyeInvisibleOutlined v-if="privacyMode" />
-              <EyeOutlined v-else />
-            </template>
-          </a-button>
-        </a-tooltip>
-        <a-tooltip title="退出 Kiro IDE 登录">
-          <a-button size="small" type="text" @click="logoutIde()">
-            <template #icon><SwapOutlined /></template>
-          </a-button>
-        </a-tooltip>
-        <a-tooltip title="删除所选账号">
-          <a-button size="small" type="text" danger @click="removeSelected">
-            <template #icon><DeleteOutlined /></template>
-          </a-button>
-        </a-tooltip>
+        <!-- loading 期间按钮自身已拦下点击，disabled 只留给「另一条任务在跑」的情况 -->
+        <a-button
+          size="small"
+          :loading="keyRefreshing"
+          :disabled="busy && !keyRefreshing"
+          @click="batch('refresh')"
+        >
+          <template #icon><KeyOutlined /></template>
+          {{ keyRefreshing ? '正在刷新密钥...' : `刷新密钥${batchScopeSuffix}` }}
+        </a-button>
+        <a-button
+          size="small"
+          :loading="usageRefreshing"
+          :disabled="busy && !usageRefreshing"
+          @click="batch('check')"
+        >
+          <template #icon><SyncOutlined /></template>
+          {{ usageRefreshing ? '正在刷新用量/积分...' : `刷新用量${batchScopeSuffix}` }}
+        </a-button>
+        <a-button
+          size="small"
+          :type="privacyMode ? 'primary' : 'default'"
+          @click="togglePrivacy"
+        >
+          <template #icon>
+            <EyeInvisibleOutlined v-if="privacyMode" />
+            <EyeOutlined v-else />
+          </template>
+          {{ privacyMode ? '隐私打码中' : '隐私打码' }}
+        </a-button>
+        <!-- 删除作用于全部勾选项（不受当前搜索影响），条数与确认弹窗里的数字一致 -->
+        <a-button
+          v-if="accountsStore.selectedIds.length"
+          size="small"
+          danger
+          @click="removeSelected"
+        >
+          <template #icon><DeleteOutlined /></template>
+          删除（{{ accountsStore.selectedIds.length }}个）
+        </a-button>
 
         <a-divider type="vertical" style="margin: 0 2px" />
 

@@ -112,10 +112,17 @@ async function start(): Promise<void> {
       message: text
     })
     if (requestId.value !== currentRequest) return
-    if (response.success && response.data) result.value = response.data
-    else error.value = response.error || '测试失败'
+    // 测活结论同步到卡片：主进程已落库，这里更新本地状态让卡片立即反映
+    if (response.success && response.data) {
+      result.value = response.data
+      keysStore.applyChatResult(target.id)
+    } else {
+      error.value = response.error || '测试失败'
+      keysStore.applyChatResult(target.id, error.value)
+    }
   } catch (cause) {
     error.value = errorMessage(cause)
+    keysStore.applyChatResult(target.id, error.value)
   } finally {
     if (requestId.value === currentRequest) running.value = false
   }

@@ -46,6 +46,8 @@ const maskedKey = computed(() => {
   return `${key.slice(0, 8)}${'•'.repeat(24)}${key.slice(-8)}`
 })
 const isCurrent = computed(() => entry.value?.id === keysStore.data.activeKeyId)
+/** 与卡片一致：管理面同步错误与对话测活错误取并集 */
+const issue = computed(() => entry.value?.lastError || entry.value?.lastChatError)
 
 watch(
   () => [props.keyEntry?.id, settingsStore.settings.privacyMode],
@@ -167,10 +169,10 @@ function subscriptionColor(tier?: string): string {
       </a-space>
 
       <a-alert
-        v-if="entry.lastError"
+        v-if="issue"
         type="error"
         show-icon
-        :message="entry.lastError"
+        :message="issue"
         style="margin-bottom: 16px"
       />
 
@@ -214,8 +216,8 @@ function subscriptionColor(tier?: string): string {
       <div class="section-title">基本信息</div>
       <a-descriptions :column="1" size="small" bordered style="margin-bottom: 18px">
         <a-descriptions-item label="状态">
-          <a-tag :color="entry.lastError ? 'red' : entry.lastCheckedAt ? 'green' : 'default'">
-            {{ entry.lastError ? '异常' : entry.lastCheckedAt ? '正常' : '未检查' }}
+          <a-tag :color="issue ? 'red' : entry.lastCheckedAt ? 'green' : 'default'">
+            {{ issue ? '异常' : entry.lastCheckedAt ? '正常' : '未检查' }}
           </a-tag>
           <a-tag v-if="entry.id === keysStore.data.activeKeyId" color="green">当前使用</a-tag>
         </a-descriptions-item>

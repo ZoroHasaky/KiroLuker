@@ -27,13 +27,14 @@ import {
 } from '@ant-design/icons-vue'
 import { useKeysStore } from '@/stores/keys'
 import { useSettingsStore } from '@/stores/settings'
-import { confirmUseApiKey } from '@/utils/ui'
-import { displayEmail as maskedEmail } from '@/utils/display'
+import { confirmDelete, confirmUseApiKey } from '@/utils/ui'
+import { displayEmail as maskedEmail, displayKey as maskedKey } from '@/utils/display'
 import { formatCreditsPair, formatDateTime, usageColor } from '@/utils/format'
 import RegionSelect from '@/components/common/RegionSelect.vue'
 import UsageHistoryModal from '@/components/accounts/UsageHistoryModal.vue'
 import ApiKeyDetailDrawer from '@/components/keys/ApiKeyDetailDrawer.vue'
 import ApiKeyTestModal from '@/components/keys/ApiKeyTestModal.vue'
+import ApiKeyBatchTestModal from '@/components/keys/ApiKeyBatchTestModal.vue'
 import { DEFAULT_REGION, regionLabel } from '@shared/regions'
 import type { KeyEntry, KeyGatewayConflict } from '@shared/types'
 
@@ -57,6 +58,7 @@ const editId = ref('')
 const editNote = ref('')
 const detailTarget = ref<KeyEntry | null>(null)
 const testTarget = ref<KeyEntry | null>(null)
+const batchTestOpen = ref(false)
 const usageTarget = ref<KeyEntry | null>(null)
 const selectedIds = ref<string[]>([])
 const sortKey = ref<'createdAt' | 'usage' | 'checked' | 'note'>('createdAt')
@@ -73,6 +75,12 @@ const regionValue = ref(DEFAULT_REGION)
 const savingRegion = ref(false)
 const syncingAll = ref(false)
 const busyActions = ref(new Set<string>())
+
+/**
+ * 刷新按钮的加载态。除了本页发起的批量刷新，还要带上 store 的 syncRunning，
+ * 这样自动刷新那一轮也能在按钮上反映出来（自动刷新只调 store，不经过本地 ref）。
+ */
+const syncing = computed(() => syncingAll.value || store.syncRunning)
 
 type RestartPromptReason = 'gateway-enabled' | 'gateway-disabled' | 'key-selected'
 interface RestartPrompt {
@@ -155,10 +163,25 @@ const firstListedKey = computed<KeyEntry | undefined>(
 
 const selectedSet = computed(() => new Set(selectedIds.value))
 const visibleSelectedCount = computed(() => filteredKeys.value.filter((entry) => selectedSet.value.has(entry.id)).length)
+/**
+ * 批量操作（刷新、测活）的共同目标：有勾选就只处理勾选的，否则处理当前列表全部。
+ * 一律从 filteredKeys 里筛，顺序与界面卡片保持一致，也自然排除被搜索过滤掉的。
+ */
+const batchTargets = computed(() =>
+  selectedIds.value.length
+    ? filteredKeys.value.filter((entry) => selectedSet.value.has(entry.id))
+    : filteredKeys.value
+)
+/** 批量操作按钮的范围后缀：有勾选时把实际会处理的条数带到按钮上 */
+const batchScopeSuffix = computed(() =>
+  visibleSelectedCount.value ? `（${visibleSelectedCount.value}个）` : ''
+)
 const allVisibleSelected = computed(() => filteredKeys.value.length > 0 && visibleSelectedCount.value === filteredKeys.value.length)
 const someVisibleSelected = computed(() => visibleSelectedCount.value > 0 && !allVisibleSelected.value)
-const normalCount = computed(() => data.value.keys.filter((entry) => entry.lastCheckedAt && !entry.lastError).length)
-const errorCount = computed(() => data.value.keys.filter((entry) => !!entry.lastError).length)
+const normalCount = computed(
+  () => data.value.keys.filter((entry) => entry.lastCheckedAt && !keyIssue(entry)).length
+)
+const errorCount = computed(() => data.value.keys.filter((entry) => !!keyIssue(entry)).length)
 
 function toggleSelect(id: string, checked: boolean): void {
   const next = new Set(selectedIds.value)
@@ -172,13 +195,12 @@ function toggleSelectVisible(checked: boolean): void {
   selectedIds.value = [...next]
 }
 
-function maskKey(key: string): string {
-  if (key.length <= 16) return `${key.slice(0, 4)}${'*'.repeat(Math.max(4, key.length - 4))}`
-  return `${key.slice(0, 8)}${'*'.repeat(Math.min(16, key.length - 16))}${key.slice(-8)}`
-}
-
+/**
+ * API Key 是否遮蔽只由全局「隐私打码」决定，本页所有展示位置一律走这里。
+ * 此前接管面板与删除确认另用一个无条件打码的实现，关掉开关也看不到完整 Key。
+ */
 function displayKey(key: string): string {
-  return privacyMode.value ? maskKey(key) : key
+  return maskedKey(key, privacyMode.value)
 }
 
 /** 邮箱跟随全局隐私打码，与账户管理一致 */
@@ -227,8 +249,17 @@ const usageSubject = computed(() => {
   }
 })
 
+/**
+ * 卡片上要展示的问题原因：管理面同步错误与对话测活错误取并集。
+ * 只看 lastError 会漏掉被封禁的 Key —— 它们在 Get-Usage-Limits 上返回 200，
+ * 只有真实对话才会暴露 403。
+ */
+function keyIssue(entry: KeyEntry): string | undefined {
+  return entry.lastError || entry.lastChatError
+}
+
 function keyStatus(entry: KeyEntry): { color: string; text: string } {
-  if (entry.lastError) return { color: 'red', text: '异常' }
+  if (keyIssue(entry)) return { color: 'red', text: '异常' }
   if (entry.lastCheckedAt) return { color: 'green', text: '正常' }
   return { color: 'default', text: '未检查' }
 }
@@ -330,12 +361,9 @@ function remove(entry: KeyEntry): void {
     void doRemove()
     return
   }
-  Modal.confirm({
+  confirmDelete({
     title: '删除 API Key',
-    content: `确认删除 ${entry.note || maskKey(entry.key)}？此操作不可撤销。`,
-    okText: '删除',
-    okType: 'danger',
-    cancelText: '取消',
+    content: `确认删除 ${entry.note || displayKey(entry.key)}？此操作不可撤销。`,
     onOk: doRemove
   })
 }
@@ -462,17 +490,16 @@ async function sync(entry: KeyEntry): Promise<void> {
 }
 
 async function syncAll(): Promise<void> {
-  const selected = new Set(selectedIds.value)
-  const targets = selected.size
-    ? data.value.keys.filter((entry) => selected.has(entry.id))
-    : filteredKeys.value
+  // 与批量测活共用目标口径：勾选项同样只取界面上可见的那些
+  const targets = batchTargets.value
   if (!targets.length) return void message.info('没有可刷新的 API Key')
 
   syncingAll.value = true
   try {
     const result = await store.syncMany(targets.map((entry) => entry.id))
     if (result.error) return void message.error(result.error)
-    if (!selected.size) store.scheduleUsageRefresh()
+    // 只有刷了当前列表全部才算「刷了全量」，据此把自动刷新整轮往后顺延
+    if (!selectedIds.value.length) store.scheduleUsageRefresh()
     const text = `用量刷新完成：成功 ${result.success}，失败 ${result.failed}`
     result.failed ? message.warning(text) : message.success(text)
   } finally {
@@ -499,12 +526,9 @@ function removeSelected(): void {
     failed ? message.warning(text) : message.success(text)
   }
   if (!settingsStore.settings.confirmBeforeDeleteApiKey) return void execute()
-  Modal.confirm({
+  confirmDelete({
     title: `删除 ${ids.length} 个 API Key`,
     content: '删除后无法恢复；正在接管中使用的当前 Key 会被保护，不会删除。',
-    okText: '删除',
-    okType: 'danger',
-    cancelText: '取消',
     onOk: execute
   })
 }
@@ -676,7 +700,7 @@ onMounted(() => void store.load())
             </a-tooltip>
           </div>
           <div class="gateway-desc">
-            当前：{{ activeKey?.note || (activeKey ? maskKey(activeKey.key) : '未选择 Key') }}
+            当前：{{ activeKey?.note || (activeKey ? displayKey(activeKey.key) : '未选择 Key') }}
             · {{ activeKey?.region || status?.region || DEFAULT_REGION }}
             · KRS {{ data.ports.krs }} / CPS {{ data.ports.cps }}
           </div>
@@ -737,28 +761,30 @@ onMounted(() => void store.load())
           </template>
         </a-dropdown>
         <a-divider type="vertical" style="margin: 0 2px" />
-        <a-tooltip :title="selectedIds.length ? '刷新所选 API Key' : '刷新当前全部结果'">
-          <a-button size="small" type="text" :loading="syncingAll" @click="syncAll">
-            <template #icon><SyncOutlined /></template>
-          </a-button>
-        </a-tooltip>
-        <a-tooltip :title="privacyMode ? '显示完整 API Key' : '隐私打码：隐藏 API Key'">
-          <a-button
-            size="small"
-            :type="privacyMode ? 'primary' : 'text'"
-            @click="togglePrivacy"
-          >
-            <template #icon>
-              <EyeInvisibleOutlined v-if="privacyMode" />
-              <EyeOutlined v-else />
-            </template>
-          </a-button>
-        </a-tooltip>
-        <a-tooltip title="删除所选 API Key">
-          <a-button size="small" type="text" danger :disabled="!selectedIds.length" @click="removeSelected">
-            <template #icon><DeleteOutlined /></template>
-          </a-button>
-        </a-tooltip>
+        <a-button size="small" :loading="syncing" @click="syncAll">
+          <template #icon><SyncOutlined /></template>
+          {{ syncing ? '正在刷新 API Key 用量/积分...' : `刷新${batchScopeSuffix}` }}
+        </a-button>
+        <a-button
+          size="small"
+          :type="privacyMode ? 'primary' : 'default'"
+          @click="togglePrivacy"
+        >
+          <template #icon>
+            <EyeInvisibleOutlined v-if="privacyMode" />
+            <EyeOutlined v-else />
+          </template>
+          {{ privacyMode ? '隐私打码中' : '隐私打码' }}
+        </a-button>
+        <a-button size="small" :disabled="!batchTargets.length" @click="batchTestOpen = true">
+          <template #icon><ThunderboltOutlined /></template>
+          批量测活{{ batchScopeSuffix }}
+        </a-button>
+        <!-- 删除作用于全部勾选项（不受当前搜索影响），条数与确认弹窗里的数字一致 -->
+        <a-button v-if="selectedIds.length" size="small" danger @click="removeSelected">
+          <template #icon><DeleteOutlined /></template>
+          删除（{{ selectedIds.length }}个）
+        </a-button>
         <a-divider type="vertical" style="margin: 0 2px" />
         <a-checkbox
           :checked="allVisibleSelected"
@@ -860,11 +886,11 @@ onMounted(() => void store.load())
           </div>
         </div>
         <div class="error-slot">
-          <a-tooltip v-if="entry.lastError" placement="topLeft">
+          <a-tooltip v-if="keyIssue(entry)" placement="topLeft">
             <template #title>
-              <span class="error-tip">{{ entry.lastError }}</span>
+              <span class="error-tip">{{ keyIssue(entry) }}</span>
             </template>
-            <div class="error-line">{{ entry.lastError }}</div>
+            <div class="error-line">{{ keyIssue(entry) }}</div>
           </a-tooltip>
         </div>
 
@@ -993,6 +1019,9 @@ onMounted(() => void store.load())
     <a-modal v-model:open="editOpen" title="修改备注" @ok="submitEdit">
       <a-input v-model:value="editNote" placeholder="留空表示无备注" @press-enter="submitEdit" />
     </a-modal>
+
+    <!-- 目标取自 filteredKeys（勾选时只取勾选项）：顺序与内容都跟界面卡片保持一致 -->
+    <ApiKeyBatchTestModal v-model:open="batchTestOpen" :keys="batchTargets" />
 
     <ApiKeyDetailDrawer
       :key-entry="detailTarget"

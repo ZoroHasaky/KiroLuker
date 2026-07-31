@@ -50,6 +50,22 @@ export function confirmDanger(options: {
   })
 }
 
+/**
+ * 删除类操作的二次确认：统一「确认删除」文案与实心红按钮。
+ * 删除不可撤销，用实心而不是默认的红色描边，让确认动作更醒目、也和取消明显区分。
+ */
+export function confirmDelete(options: {
+  title: string
+  content?: string | VNode
+  onOk: () => void | Promise<unknown>
+}): void {
+  confirmDanger({
+    ...options,
+    okText: '确认删除',
+    okButtonProps: { type: 'primary', danger: true }
+  })
+}
+
 /** API Key 设为当前：普通 primary 确认，label 必须由调用方按隐私设置处理。 */
 export function confirmUseApiKey(label: string, onOk: () => Promise<unknown>): void {
   Modal.confirm({

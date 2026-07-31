@@ -629,6 +629,16 @@ export interface KeyEntry {
   lastCheckedAt?: number
   /** 最近一次查询的错误信息 */
   lastError?: string
+  /**
+   * 最近一次真实对话测活失败的原因。
+   *
+   * 必须与 lastError 分开存：管理面的 Get-Usage-Limits 不校验账号状态，
+   * 被封禁的 Key 在那里照样返回 200，而 syncKey 成功后会清空 lastError。
+   * 若共用一个字段，测活查出来的 403 会被下一轮自动刷新擦掉。
+   */
+  lastChatError?: string
+  /** 最近一次真实对话测活的时间戳（ms） */
+  lastChatCheckedAt?: number
 }
 
 /** Key 网关持久化数据 */

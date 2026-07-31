@@ -5,7 +5,7 @@
 <h1 align="center">Kiro Manager Lite</h1>
 
 <p align="center">
-  <strong>只做账户管理的 Kiro IDE 多账号管理器</strong>
+  <strong>Kiro 多账号管理器轻量版</strong>
 </p>
 
 <p align="center">

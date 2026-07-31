@@ -298,6 +298,9 @@ export async function updateKeyRegion(
   entry.userId = undefined
   entry.lastCheckedAt = undefined
   entry.lastError = undefined
+  // 换区后一切重新检测，上一区查出来的测活结论同样作废
+  entry.lastChatError = undefined
+  entry.lastChatCheckedAt = undefined
   data.region = next
   setKeyData(data)
   clearUsageHistory(historySubjectId(id))
@@ -395,6 +398,21 @@ export async function testKey(id: string): Promise<KeyTestResult> {
     total: account.total,
     models: models.models
   }
+}
+
+/**
+ * 记录一次真实对话测活的结论。
+ * 单独存在 lastChatError 里，不与管理面同步的 lastError 混用，
+ * 否则下一轮 syncKey 成功就会把这里查出来的 403 清掉。
+ */
+export function recordChatTestResult(id: string, error?: string): KeyGatewayData {
+  const data = getKeyData()
+  const entry = data.keys.find((item) => item.id === id)
+  if (!entry) return data
+  entry.lastChatError = error ? String(error).slice(0, 500) : undefined
+  entry.lastChatCheckedAt = Date.now()
+  setKeyData(data)
+  return data
 }
 
 export async function syncKey(id: string): Promise<KeyGatewayData> {

@@ -52,6 +52,18 @@ export const useKeysStore = defineStore('keys', () => {
     }
   }
 
+  /**
+   * 把一次真实对话测活的结论同步到本地卡片。
+   * 主进程在 keys:chat-test 里已经落库，这里做本地更新是为了让卡片状态立即变化，
+   * 不必为每个 Key 再往返一次 IPC 重新加载整表。
+   */
+  function applyChatResult(id: string, error?: string): void {
+    const entry = data.value.keys.find((item) => item.id === id)
+    if (!entry) return
+    entry.lastChatError = error || undefined
+    entry.lastChatCheckedAt = Date.now()
+  }
+
   function applyStatus(next: KeyGatewayStatus): void {
     statusRevision++
     status.value = next
@@ -359,6 +371,7 @@ export const useKeysStore = defineStore('keys', () => {
     activeKey,
     effectiveKey,
     count,
+    applyChatResult,
     load,
     add,
     importText,
