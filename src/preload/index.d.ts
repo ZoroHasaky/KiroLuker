@@ -60,14 +60,19 @@ export interface Api {
   saveAccounts: (data: AccountStoreData) => Promise<IpcResult>
 
   loadKeys: () => Promise<IpcResult<KeyGatewayData>>
-  addKey: (key: string, note?: string) => Promise<IpcResult<KeyGatewayData>>
-  importKeys: (text: string) => Promise<IpcResult<{
+  addKey: (key: string, note?: string, region?: string) => Promise<IpcResult<KeyGatewayData>>
+  importKeys: (text: string, region?: string) => Promise<IpcResult<{
     data: KeyGatewayData
     added: number
     skipped: number
     invalid: number
   }>>
   updateKey: (id: string, note: string) => Promise<IpcResult<KeyGatewayData>>
+  /** 修改单个 Key 的区域 */
+  setKeyRegion: (
+    id: string,
+    region: string
+  ) => Promise<IpcResult<{ data: KeyGatewayData; status: KeyGatewayStatus }>>
   deleteKey: (id: string) => Promise<IpcResult<KeyGatewayData>>
   selectKey: (id: string | null) => Promise<IpcResult<{ data: KeyGatewayData; status: KeyGatewayStatus }>>
   testKey: (id: string) => Promise<IpcResult<KeyTestResult>>
@@ -83,7 +88,6 @@ export interface Api {
   enableKeyGateway: (keyId?: string, force?: boolean) => Promise<IpcResult<KeyGatewayStatus>>
   disableKeyGateway: () => Promise<IpcResult<KeyGatewayStatus>>
   configureKeyGateway: (input: {
-    region?: string
     ports?: { krs: number; cps: number }
   }) => Promise<IpcResult<{ data: KeyGatewayData; status: KeyGatewayStatus }>>
   onKeyGatewayChanged: (handler: (status: KeyGatewayStatus) => void) => () => void

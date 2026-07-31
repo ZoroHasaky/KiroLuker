@@ -75,20 +75,23 @@ export const useKeysStore = defineStore('keys', () => {
     }
   }
 
-  async function add(key: string, note?: string): Promise<string | null> {
-    const res = await window.api.addKey(key, note)
+  async function add(key: string, note?: string, region?: string): Promise<string | null> {
+    const res = await window.api.addKey(key, note, region)
     if (!res.success || !res.data) return res.error || '添加失败'
     replace(res.data)
     return null
   }
 
-  async function importText(text: string): Promise<{
+  async function importText(
+    text: string,
+    region?: string
+  ): Promise<{
     error?: string
     added?: number
     skipped?: number
     invalid?: number
   }> {
-    const res = await window.api.importKeys(text)
+    const res = await window.api.importKeys(text, region)
     if (!res.success || !res.data) return { error: res.error || '导入失败' }
     replace(res.data.data)
     return res.data
@@ -98,6 +101,19 @@ export const useKeysStore = defineStore('keys', () => {
     const res = await window.api.updateKey(id, note)
     if (!res.success || !res.data) return res.error || '保存失败'
     replace(res.data)
+    return null
+  }
+
+  /**
+   * 换区会清空该 Key 的缓存额度与历史，随即按新区域重新同步一次。
+   * 同步失败不影响换区本身：sync 内部已持久化 lastError 并回填数据，卡片会展示。
+   */
+  async function setRegion(id: string, region: string): Promise<string | null> {
+    const res = await window.api.setKeyRegion(id, region)
+    if (!res.success || !res.data) return res.error || '修改区域失败'
+    replace(res.data.data)
+    applyStatus(res.data.status)
+    await sync(id)
     return null
   }
 
@@ -222,8 +238,8 @@ export const useKeysStore = defineStore('keys', () => {
     }
   }
 
-  async function configure(region: string, krs: number, cps: number): Promise<string | null> {
-    const res = await window.api.configureKeyGateway({ region, ports: { krs, cps } })
+  async function configure(krs: number, cps: number): Promise<string | null> {
+    const res = await window.api.configureKeyGateway({ ports: { krs, cps } })
     if (!res.success || !res.data) return res.error || '保存配置失败'
     replace(res.data.data)
     applyStatus(res.data.status)
@@ -360,6 +376,7 @@ export const useKeysStore = defineStore('keys', () => {
     setEnabled,
     inspectConflict,
     configure,
+    setRegion,
     detectCurrentApiKey,
     applyStatus
   }

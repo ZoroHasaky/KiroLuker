@@ -2,12 +2,14 @@
 import { computed, h, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import {
+  CodeOutlined,
   DeleteOutlined,
   DownOutlined,
   DownloadOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
   FilterOutlined,
+  InboxOutlined,
   KeyOutlined,
   PlusOutlined,
   SearchOutlined,
@@ -20,7 +22,8 @@ import AccountCard from '@/components/accounts/AccountCard.vue'
 import AccountFilterPanel from '@/components/accounts/AccountFilterPanel.vue'
 import VirtualGrid from '@/components/common/VirtualGrid.vue'
 import AddAccountModal from '@/components/accounts/AddAccountModal.vue'
-import ImportAccountsModal from '@/components/accounts/ImportAccountsModal.vue'
+import ImportAccountsFileModal from '@/components/accounts/ImportAccountsFileModal.vue'
+import ImportAccountsTextModal from '@/components/accounts/ImportAccountsTextModal.vue'
 import ExportAccountsModal from '@/components/accounts/ExportAccountsModal.vue'
 import EditAccountModal from '@/components/accounts/EditAccountModal.vue'
 import AccountDetailDrawer from '@/components/accounts/AccountDetailDrawer.vue'
@@ -37,7 +40,9 @@ const accountsStore = useAccountsStore()
 const settingsStore = useSettingsStore()
 
 const addOpen = ref(false)
-const importOpen = ref(false)
+/** 导入拆成两个入口：拖拽文件、粘贴文本 */
+const importFileOpen = ref(false)
+const importTextOpen = ref(false)
 const exportOpen = ref(false)
 const editTarget = ref<Account | null>(null)
 const detailTarget = ref<Account | null>(null)
@@ -355,10 +360,25 @@ function logoutIde(account?: Account): void {
           <template #icon><PlusOutlined /></template>
           添加账号
         </a-button>
-        <a-button @click="importOpen = true">
-          <template #icon><UploadOutlined /></template>
-          导入
-        </a-button>
+        <a-dropdown>
+          <a-button>
+            <template #icon><UploadOutlined /></template>
+            导入
+            <DownOutlined />
+          </a-button>
+          <template #overlay>
+            <a-menu>
+              <a-menu-item key="file" @click="importFileOpen = true">
+                <InboxOutlined />
+                从文件导入
+              </a-menu-item>
+              <a-menu-item key="text" @click="importTextOpen = true">
+                <CodeOutlined />
+                输入 JSON 导入
+              </a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
         <a-button @click="exportOpen = true">
           <template #icon><DownloadOutlined /></template>
           导出
@@ -528,7 +548,8 @@ function logoutIde(account?: Account): void {
     </div>
 
     <AddAccountModal v-model:open="addOpen" />
-    <ImportAccountsModal v-model:open="importOpen" />
+    <ImportAccountsFileModal v-model:open="importFileOpen" />
+    <ImportAccountsTextModal v-model:open="importTextOpen" />
     <ExportAccountsModal v-model:open="exportOpen" :selected-ids="accountsStore.selectedIds" />
     <EditAccountModal :account="editTarget" @close="editTarget = null" />
     <AccountDetailDrawer :account="detailTarget" @close="detailTarget = null" />

@@ -52,18 +52,23 @@ function onInput(value: unknown): void {
 </template>
 
 <style scoped>
+/*
+ * 两个控件并排，容器过窄时整体换行而不是互相挤压。
+ * 之前自定义输入框是固定 160px 且不许收缩，放进窄栅格列里会把下拉压成几像素宽。
+ */
 .region-select {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .region-preset {
-  flex: 1 1 auto;
+  flex: 1 1 200px;
   min-width: 0;
 }
 
 .region-custom {
-  flex: 0 0 160px;
-  width: 160px;
+  flex: 0 1 160px;
+  min-width: 140px;
 }
 </style>

@@ -39,9 +39,11 @@ const api = {
 
   // Kiro API Key 管理 / 本地网关
   loadKeys: () => invoke('keys:load'),
-  addKey: (key: string, note?: string) => invoke('keys:add', key, note),
-  importKeys: (text: string) => invoke('keys:import', text),
+  addKey: (key: string, note?: string, region?: string) =>
+    invoke('keys:add', key, note, region),
+  importKeys: (text: string, region?: string) => invoke('keys:import', text, region),
   updateKey: (id: string, note: string) => invoke('keys:update', id, note),
+  setKeyRegion: (id: string, region: string) => invoke('keys:set-region', id, region),
   deleteKey: (id: string) => invoke('keys:delete', id),
   selectKey: (id: string | null) => invoke('keys:select', id),
   testKey: (id: string) => invoke('keys:test', id),

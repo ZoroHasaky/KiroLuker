@@ -110,6 +110,12 @@ export function getKeyData(): KeyGatewayData {
   if (!merged.ports || typeof merged.ports.krs !== 'number' || typeof merged.ports.cps !== 'number') {
     merged.ports = { ...DEFAULT_KEY_GATEWAY_DATA.ports }
   }
+  // 1.0.6 之前区域是全局一个，迁移到每个 Key 自带：旧 Key 沿用当时的全局值
+  const fallbackRegion = String(merged.region || DEFAULT_KEY_GATEWAY_DATA.region).trim()
+  merged.region = fallbackRegion || DEFAULT_KEY_GATEWAY_DATA.region
+  merged.keys = merged.keys.map((entry) =>
+    entry.region ? entry : { ...entry, region: merged.region }
+  )
   // 当前 Key 只属于已开启的网关；兼容旧版本关闭后仍保留 activeKeyId 的数据。
   if (!merged.enabled || !merged.keys.some((entry) => entry.id === merged.activeKeyId)) {
     merged.activeKeyId = null

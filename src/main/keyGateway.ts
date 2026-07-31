@@ -207,7 +207,8 @@ export async function fetchModels(region: string, key: string): Promise<FetchedM
 async function fetchUsageRaw(region: string, key: string): Promise<Record<string, unknown>> {
   const res = await apiGet(
     managementBase(region),
-    '/Get-Usage-Limits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST',
+    // isEmailRequired=true 时上游会在 userInfo.email 里带上该 Key 绑定的注册邮箱
+    '/Get-Usage-Limits?origin=AI_EDITOR&resourceType=AGENTIC_REQUEST&isEmailRequired=true',
     key
   )
   if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -251,11 +252,18 @@ export interface AccountInfo {
   tier: string
   used: number | null
   total: number | null
+  /** 该 Key 绑定的注册邮箱，仅在上游返回时有值 */
+  email: string | null
+  /** 账号唯一标识，形如 d-<目录ID>.<用户UUID> */
+  userId: string | null
 }
 export async function fetchAccountInfo(region: string, key: string): Promise<AccountInfo> {
   const data = await fetchUsageRaw(region, key)
   const sub = data?.subscriptionInfo as Record<string, unknown> | undefined
   const title = String(sub?.subscriptionTitle || sub?.subscriptionType || '')
+  const user = data?.userInfo as Record<string, unknown> | undefined
+  const email = typeof user?.email === 'string' && user.email.trim() ? user.email.trim() : null
+  const userId = typeof user?.userId === 'string' && user.userId.trim() ? user.userId.trim() : null
   const pairs: { used: number | null; limit: number | null }[] = []
   collectUsagePairs(data, pairs)
   let used: number | null = null
@@ -264,7 +272,7 @@ export async function fetchAccountInfo(region: string, key: string): Promise<Acc
     if (p.used != null) used = (used || 0) + p.used
     if (p.limit != null) total = (total || 0) + p.limit
   }
-  return { subscriptionTitle: title, tier: tierFromTitle(title), used, total }
+  return { subscriptionTitle: title, tier: tierFromTitle(title), used, total, email, userId }
 }
 
 // ---------------------------------------------------------------------------

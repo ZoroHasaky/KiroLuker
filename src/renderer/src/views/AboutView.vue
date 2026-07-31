@@ -2,10 +2,13 @@
 import { computed, ref } from 'vue'
 import {
   CheckCircleFilled,
+  CheckOutlined,
   CommentOutlined,
   GithubOutlined,
   HeartFilled,
-  SyncOutlined
+  InfoCircleFilled,
+  SyncOutlined,
+  ThunderboltFilled
 } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import { useSettingsStore } from '@/stores/settings'
@@ -37,6 +40,29 @@ async function checkUpdate(): Promise<void> {
   if (response.data && !response.data.hasUpdate) upToDateOpen.value = true
 }
 
+/** 关于页展示的功能清单，与 README 的功能特性保持一致 */
+const features = [
+  { name: '多账号管理', desc: '添加、编辑、删除多个 Kiro 账号，支持搜索、多维筛选与排序' },
+  { name: '三种添加方式', desc: '在线登录（Google / GitHub / Builder ID / Enterprise SSO）、OIDC 凭证、读取本地 Kiro 登录态' },
+  { name: '一键切号', desc: '写入 IDE 凭证前强制刷新 Token，避免 IDE 被强制登出，可一键重启 IDE 生效' },
+  { name: '自动刷新', desc: 'Token 与积分用量各自独立的开关与间隔，冷启动会补跑一轮' },
+  { name: '主动续期', desc: '在 IDE 当前账号的 Token 即将过期前抢先刷新并写盘，保持登录态不掉线' },
+  { name: '账号测活', desc: '拉取真实可用模型并发起一次流式对话，验证账号是否可用' },
+  { name: '积分与用量', desc: '订阅等级、积分明细、重置时间，并记录每次采样生成变化趋势' },
+  { name: 'API Key 管理', desc: '管理 ksk_ 开头的 Kiro API Key，同步订阅额度、测活、查看积分历史' },
+  { name: '本地网关', desc: '把 Kiro IDE 的 AI 请求接管到本地代理并改用 API Key，运行期间可随时换 Key' },
+  { name: '常用工具', desc: '一键放行 Kiro 的终端命令确认框，关闭时还原开启前的配置' },
+  { name: '系统日志', desc: '按级别、分类、关键字与时间筛选，可导出，打包版同样可诊断' },
+  { name: '导入导出', desc: '卡密、JSON、CSV、TXT 互通，支持拖拽多个文件按顺序批量导入' },
+  { name: '隐私打码', desc: '一键隐藏邮箱、昵称与 API Key 等敏感信息' },
+  { name: '桌面端体验', desc: '系统托盘常驻、关闭行为可配、自定义协议唤起、单实例锁' },
+  { name: '网络代理', desc: '支持 HTTP 代理，留空时回退系统环境变量' },
+  { name: '主题定制', desc: '自定义主题色，深色 / 浅色模式' }
+]
+
+/** 本项目仓库地址，头部按钮与检查更新指向同一个仓库 */
+const REPO_URL = 'https://github.com/lucks-cloud/kiro-manager-lite'
+
 const author = {
   name: 'lucks-cloud',
   url: 'https://github.com/lucks-cloud',
@@ -49,8 +75,8 @@ const sponsors = [
 ]
 
 const links = [
-  { label: '原项目 Kiro-account-manager', url: 'https://github.com/chaogei/Kiro-account-manager' },
-  { label: 'Kiro 官网', url: 'https://kiro.dev' }
+  { label: '参考项目 Kiro-account-manager', url: 'https://github.com/chaogei/Kiro-account-manager' },
+  { label: 'Kiro 官网', url: 'https://github.com/kirodotdev/Kiro' }
 ]
 
 function open(url: string): void {
@@ -65,11 +91,8 @@ function open(url: string): void {
       <span class="hero-blob hero-blob-a" />
       <span class="hero-blob hero-blob-b" />
       <div class="hero-main">
-        <div class="wordmark">
-          <img class="wordmark-logo" :src="kiroLogo" alt="Kiro" />
-          <span class="wordmark-text">kiro</span>
-        </div>
-        <h2 class="hero-title">Kiro 账户管理器</h2>
+        <img class="hero-logo" :src="kiroLogo" alt="Kiro Manager Lite" />
+        <h2 class="hero-title">Kiro Manager Lite</h2>
         <p class="hero-version muted">版本 {{ info?.version || '-' }}</p>
         <a-space :size="12" wrap class="hero-actions">
           <a-button :loading="checking" @click="checkUpdate">
@@ -79,6 +102,10 @@ function open(url: string): void {
           <a-button @click="groupOpen = true">
             <template #icon><CommentOutlined /></template>
             加入交流群
+          </a-button>
+          <a-button @click="open(REPO_URL)">
+            <template #icon><GithubOutlined /></template>
+            GitHub
           </a-button>
         </a-space>
       </div>
@@ -95,15 +122,38 @@ function open(url: string): void {
       </a-descriptions>
     </a-card>
 
-    <a-card size="small" title="说明" style="margin-bottom: 16px">
-      <ul style="margin: 0; padding-left: 20px; line-height: 1.9">
-        <li>账号凭证保存在本机 electron-store 加密文件中，不会上传到任何服务器。</li>
-        <li>
-          切号会写入 <span class="mono">~/.aws/sso/cache/kiro-auth-token.json</span>，
-          写盘前会强制刷新一次 Token，避免 Kiro IDE 拿到已作废的 Refresh Token 被强制登出。
+    <a-card size="small" class="intro-card" style="margin-bottom: 16px">
+      <template #title>
+        <span class="card-title">
+          <InfoCircleFilled class="card-title-icon" />
+          关于本应用
+        </span>
+      </template>
+      <p class="intro-text">
+        Kiro Manager Lite 是一个 Kiro IDE 的多账号与 API Key 管理工具。支持多账号快速切换、
+        Token 自动刷新与主动续期、积分用量跟踪、账号测活，以及 Kiro API Key 管理和本地网关接管，
+        帮你在多个账号与订阅之间省去反复登录退出的力气。
+      </p>
+      <p class="intro-text">
+        本应用使用 Electron + Vue 3 + TypeScript 开发，支持 Windows、macOS 和 Linux 平台。
+        所有账号数据均加密保存在本机，不会上传到任何服务器。
+      </p>
+    </a-card>
+
+    <a-card size="small" class="feature-card" style="margin-bottom: 16px">
+      <template #title>
+        <span class="card-title">
+          <ThunderboltFilled class="card-title-icon" />
+          主要功能
+        </span>
+      </template>
+      <ul class="feature-list">
+        <li v-for="item in features" :key="item.name" class="feature-item">
+          <CheckOutlined class="feature-check" />
+          <span class="feature-name">{{ item.name }}</span>
+          <span class="feature-sep">：</span>
+          <span class="feature-desc muted">{{ item.desc }}</span>
         </li>
-        <li>刷新密钥只在该账号确实是 IDE 当前登录账号时才回写磁盘，不会覆盖正在使用的账号。</li>
-        <li>批量操作并发可在设置里调整，并发过高容易触发接口限流。</li>
       </ul>
     </a-card>
 
@@ -177,6 +227,71 @@ function open(url: string): void {
 </template>
 
 <style scoped>
+/* ============ 关于本应用 / 主要功能 ============ */
+.card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-title-icon {
+  color: var(--kal-primary);
+}
+
+.intro-card :deep(.ant-card-body),
+.feature-card :deep(.ant-card-body) {
+  padding: 16px;
+}
+
+.intro-text {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.9;
+}
+
+.intro-text:last-child {
+  margin-bottom: 0;
+}
+
+.feature-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.feature-item {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  padding: 4px 0;
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.feature-check {
+  flex: 0 0 auto;
+  margin-right: 6px;
+  color: var(--kal-primary);
+  font-size: 12px;
+}
+
+.feature-name {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--kal-primary);
+}
+
+.feature-sep {
+  flex: 0 0 auto;
+  color: var(--kal-muted);
+}
+
+/* 说明文字占据剩余宽度，长句在窄窗口下正常换行 */
+.feature-desc {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 /* small 卡片默认 12px 内边距，大号按钮在其中显得贴边，单独放宽上下留白 */
 .credits-card :deep(.ant-card-body) {
   padding: 16px 12px 20px;
@@ -226,31 +341,19 @@ function open(url: string): void {
   position: relative;
 }
 
-/* logo + 文字组成的品牌标识 */
-.wordmark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-
-.wordmark-logo {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
+/* 品牌标识：logo 单独居中，应用名放在下方 */
+.hero-logo {
+  display: block;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto;
+  border-radius: 18px;
   object-fit: cover;
 }
 
-.wordmark-text {
-  font-size: 48px;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: -1px;
-}
-
 .hero-title {
-  margin: 22px 0 8px;
-  font-size: 20px;
+  margin: 18px 0 8px;
+  font-size: 22px;
   font-weight: 700;
   color: var(--kal-primary);
 }

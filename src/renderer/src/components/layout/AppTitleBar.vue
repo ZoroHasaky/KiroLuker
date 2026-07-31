@@ -41,9 +41,11 @@ const selectedKeyLabel = computed(() => {
 })
 const gatewayStatusLoaded = computed(() => keysStore.status !== null)
 const gatewayEnabled = computed(() => keysStore.status?.enabled ?? keysStore.data.enabled)
-const gatewayOwnsIde = computed(() =>
-  keysStore.status?.running === true && keysStore.status?.endpointsBound === true
-)
+/**
+ * 接管判定统一用 ideTakenOver：只看 endpointsBound 会在 Kiro IDE 回写清空 settings.json 后
+ * 把正常转发误报成异常（IDE 内存里仍持有本地端点，请求照旧走网关）。
+ */
+const gatewayOwnsIde = computed(() => keysStore.status?.ideTakenOver === true)
 
 async function detectCurrentApiKey(): Promise<void> {
   const error = await keysStore.detectCurrentApiKey()

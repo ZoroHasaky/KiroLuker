@@ -560,36 +560,59 @@ async function submitCredentials(): Promise<void> {
         </a-form-item>
 
         <a-form-item label="Refresh Token" required>
-          <a-textarea v-model:value="form.refreshToken" :rows="3" allow-clear />
+          <a-textarea
+            v-model:value="form.refreshToken"
+            :rows="3"
+            placeholder="请输入 Refresh Token"
+            allow-clear
+          />
         </a-form-item>
 
         <a-row :gutter="12">
           <a-col :span="12">
             <a-form-item label="Client ID" :required="!isSocial()">
-              <a-input v-model:value="form.clientId" :disabled="isSocial()" allow-clear />
+              <a-input
+                v-model:value="form.clientId"
+                :disabled="isSocial()"
+                :placeholder="isSocial() ? '社交登录无需填写' : '请输入 Client ID'"
+                allow-clear
+              />
             </a-form-item>
           </a-col>
           <a-col :span="12">
             <a-form-item label="Client Secret" :required="!isSocial()">
-              <a-input-password v-model:value="form.clientSecret" :disabled="isSocial()" allow-clear />
+              <a-input-password
+                v-model:value="form.clientSecret"
+                :disabled="isSocial()"
+                :placeholder="isSocial() ? '社交登录无需填写' : '请输入 Client Secret'"
+                allow-clear
+              />
             </a-form-item>
           </a-col>
         </a-row>
 
+        <!-- 区域内部是「预设下拉 + 自定义输入」两个控件，独占一行才不会被挤变形 -->
+        <a-form-item label="区域">
+          <RegionSelect v-model:value="form.region" />
+        </a-form-item>
+
         <a-row :gutter="12">
-          <a-col :span="8">
-            <a-form-item label="区域">
-              <RegionSelect v-model:value="form.region" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="8">
+          <a-col :span="12">
             <a-form-item label="昵称（可选）">
-              <a-input v-model:value="form.nickname" allow-clear />
+              <a-input
+                v-model:value="form.nickname"
+                placeholder="留空则使用邮箱前缀"
+                allow-clear
+              />
             </a-form-item>
           </a-col>
-          <a-col :span="8">
+          <a-col :span="12">
             <a-form-item label="注册密码（可选）">
-              <a-input v-model:value="form.password" allow-clear />
+              <a-input
+                v-model:value="form.password"
+                placeholder="请输入注册密码，仅本地保存备查"
+                allow-clear
+              />
             </a-form-item>
           </a-col>
         </a-row>

@@ -222,3 +222,18 @@ body {
   background: #101216;
   color: rgba(255, 255, 255, 0.85);
 }
+
+/*
+ * 竖排表单标签与控件间距收紧。
+ * ant 默认给 vertical 布局的 label 加了 8px（paddingXS）下内边距，
+ * 叠加 form-item 自身的 margin-bottom 后，标题头与输入框之间空得过多。
+ * 全局压到 2px，各弹窗 / 表单统一生效，不再逐处覆盖。
+ */
+.ant-form-vertical .ant-form-item-label {
+  padding-bottom: 2px;
+}
+/* 响应式布局下 col-24 会退化成竖排，同样命中 */
+.ant-col-24.ant-form-item-label,
+.ant-col-xl-24.ant-form-item-label {
+  padding-bottom: 2px;
+}

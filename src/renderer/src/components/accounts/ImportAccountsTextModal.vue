@@ -1,7 +1,11 @@
 <script setup lang="ts">
+/**
+ * 粘贴文本导入账号：JSON / 卡密 / CSV / TXT 任选一种，格式自动识别。
+ * 从文件导入走 ImportAccountsFileModal，两者共用 parseImportContent 与 store 的导入 action。
+ */
 import { computed, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { FileAddOutlined } from '@ant-design/icons-vue'
+import { CodeOutlined } from '@ant-design/icons-vue'
 import { useAccountsStore } from '@/stores/accounts'
 import { useSettingsStore } from '@/stores/settings'
 import { parseImportContent } from '@/utils/transfer'
@@ -15,7 +19,6 @@ const accountsStore = useAccountsStore()
 const settingsStore = useSettingsStore()
 
 const text = ref('')
-const sourceLabel = ref('')
 const importing = ref(false)
 const result = ref<BatchResult | null>(null)
 
@@ -52,12 +55,18 @@ const importConcurrency = computed(
   () => settingsStore.settings.importConcurrency || DEFAULT_SETTINGS.importConcurrency
 )
 
+/** 只展示本次导入自身的校验进度，不显示后台批量刷新之类的其它任务 */
+const validationProgress = computed(() => {
+  const task = accountsStore.task
+  if (!importing.value || !task.running || task.type !== 'import-validation') return null
+  return `校验进度 ${task.done}/${task.total}`
+})
+
 watch(
   () => props.open,
   (open) => {
     if (open) {
       text.value = ''
-      sourceLabel.value = ''
       result.value = null
     }
   }
@@ -67,17 +76,9 @@ function close(): void {
   emit('update:open', false)
 }
 
-async function pickFile(): Promise<void> {
-  const res = await window.api.importFromFile()
-  if (!res.success) return void message.error(res.error || '读取文件失败')
-  if (!res.data) return
-  text.value = res.data.content
-  sourceLabel.value = res.data.path
-}
-
 async function submit(): Promise<void> {
   const data = parsed.value
-  if (!data) return void message.warning('请粘贴内容或选择文件')
+  if (!data) return void message.warning('请先粘贴要导入的内容')
 
   importing.value = true
   try {
@@ -95,8 +96,11 @@ async function submit(): Promise<void> {
     }
     const res = await accountsStore.importItems(data.items)
     result.value = res
-    if (res.success) message.success(`导入完成：成功 ${res.success}，跳过 ${res.skipped}，失败 ${res.failed}`)
-    else message.warning(`没有成功导入的账号（跳过 ${res.skipped}，失败 ${res.failed}）`)
+    if (res.success) {
+      message.success(`导入完成：成功 ${res.success}，跳过 ${res.skipped}，失败 ${res.failed}`)
+    } else {
+      message.warning(`没有成功导入的账号（跳过 ${res.skipped}，失败 ${res.failed}）`)
+    }
     // 全部处理成功则直接关闭；有失败时保留弹窗，方便查看导入日志
     if (res.success && !res.failed) close()
   } finally {
@@ -108,23 +112,23 @@ async function submit(): Promise<void> {
 <template>
   <a-modal
     :open="props.open"
-    title="导入账号"
     width="700px"
+    centered
     :confirm-loading="importing"
     ok-text="开始导入"
     cancel-text="关闭"
+    :mask-closable="!importing"
     @ok="submit"
     @cancel="close"
   >
-    <a-space style="margin-bottom: 10px">
-      <a-button @click="pickFile">
-        <template #icon><FileAddOutlined /></template>
-        从文件选择
-      </a-button>
-      <span v-if="sourceLabel" class="muted mono">{{ sourceLabel }}</span>
-    </a-space>
+    <template #title>
+      <span class="modal-title">
+        <CodeOutlined />
+        粘贴文本导入账号
+      </span>
+    </template>
 
-    <a-textarea v-model:value="text" :rows="11" :placeholder="placeholder" />
+    <a-textarea v-model:value="text" :rows="12" :placeholder="placeholder" />
 
     <div v-if="preview" style="margin-top: 10px">
       <a-tag color="blue">识别为 {{ preview.kind }}</a-tag>
@@ -135,11 +139,11 @@ async function submit(): Promise<void> {
     </div>
 
     <a-alert
-      v-if="accountsStore.task.running"
+      v-if="validationProgress"
       type="info"
       show-icon
       style="margin-top: 10px"
-      :message="`${accountsStore.task.label} ${accountsStore.task.done}/${accountsStore.task.total}`"
+      :message="validationProgress"
     />
 
     <template v-if="result?.messages.length">
@@ -154,3 +158,11 @@ async function submit(): Promise<void> {
     </template>
   </a-modal>
 </template>
+
+<style scoped>
+.modal-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+</style>

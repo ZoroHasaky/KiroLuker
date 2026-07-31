@@ -112,6 +112,14 @@
 
 ![API Key 网关](docs/screenshots/apikey-gateway.png)
 
+### 常用工具
+
+![常用工具](docs/screenshots/tool.png)
+
+### 系统日志
+
+![系统日志](docs/screenshots/system-log.png)
+
 ### 设置
 
 ![设置](docs/screenshots/setting.png)

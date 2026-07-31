@@ -18,7 +18,7 @@ import {
   type SwitchAccountResult,
   type VerifyCredentialsInput
 } from '@shared/types'
-import { describeRefreshError, errorMessage, isCredentialRejected } from '@shared/errors'
+import { errorMessage, isCredentialRejected } from '@shared/errors'
 import { DEFAULT_REGION } from '@shared/regions'
 import { runPool } from '@/utils/format'
 import { toPlain } from '@/utils/ipc'
@@ -484,15 +484,14 @@ export const useAccountsStore = defineStore('accounts', () => {
 
     const res = await window.api.refreshAccountToken(toPlain(account))
     if (!res.success || !res.data) {
-      // 凭证被拒和网络异常是两回事：前者只能重新登录，标成「已过期」并给可读提示
+      // 凭证被拒和网络异常要区分状态，但错误文案一律保留接口原始返回，便于排查
       const raw = res.error || 'Token 刷新失败'
-      const reason = describeRefreshError(raw)
       updateAccount(id, {
         status: isCredentialRejected(raw) ? 'expired' : 'error',
-        lastError: reason,
+        lastError: raw,
         lastCheckedAt: Date.now()
       })
-      return { ok: false, error: reason }
+      return { ok: false, error: raw }
     }
 
     // 请求期间凭证可能已被主进程主动续期更新过，这里重新取一次，
@@ -552,14 +551,13 @@ export const useAccountsStore = defineStore('accounts', () => {
     const res = await window.api.checkAccountStatus(toPlain(account))
     if (!res.success || !res.data) {
       const raw = res.error || '用量刷新失败'
-      const reason = describeRefreshError(raw)
       const credentialGone = !res.banned && isCredentialRejected(raw)
       updateAccount(id, {
         status: res.banned ? 'banned' : credentialGone ? 'expired' : 'error',
-        lastError: reason,
+        lastError: raw,
         lastCheckedAt: Date.now()
       })
-      return { ok: false, error: reason }
+      return { ok: false, error: raw }
     }
     applySnapshot(id, res.data)
     return { ok: true }

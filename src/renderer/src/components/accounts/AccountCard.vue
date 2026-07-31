@@ -270,9 +270,12 @@ function trigger(key: ActionKey): void {
       </div>
     </div>
 
-    <div v-if="props.account.lastError" class="error-line" :title="props.account.lastError">
-      {{ props.account.lastError }}
-    </div>
+    <a-tooltip v-if="props.account.lastError" placement="topLeft">
+      <template #title>
+        <span class="error-tip">{{ props.account.lastError }}</span>
+      </template>
+      <div class="error-line">{{ props.account.lastError }}</div>
+    </a-tooltip>
 
     <div class="card-foot">
       <div class="meta">
@@ -514,6 +517,13 @@ function trigger(key: ActionKey): void {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: help;
+}
+
+/* 卡片里一行截断，Tooltip 里要能完整换行展示（接口原始返回可能很长） */
+.error-tip {
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .card-foot {

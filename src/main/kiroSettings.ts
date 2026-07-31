@@ -14,7 +14,9 @@ import {
   writeFileSync,
   renameSync,
   unlinkSync,
-  mkdirSync
+  mkdirSync,
+  watch,
+  type FSWatcher
 } from 'fs'
 import * as path from 'path'
 import * as os from 'os'
@@ -312,4 +314,90 @@ export async function isEndpointBound(krsPort: number, cpsPort: number, activeRe
     listsEqual(obj[KRS_KEY], endpointOverride(krsPort, activeRegion)) &&
     listsEqual(obj[CPS_KEY], endpointOverride(cpsPort, activeRegion))
   )
+}
+
+/**
+ * 接管期间守护端点配置，被外部改写就自动改回本地网关。
+ *
+ * 背景：Kiro IDE 启动时会按自己内存里的设置整份回写 settings.json，把我们注入的两个键
+ * 刷成空数组（实测本机：15:05:49 应用写入并通过回读校验 → 15:05:52 IDE 启动 →
+ * 15:05:54 磁盘上的 127.0.0.1 端点消失）。IDE 已加载到内存的值不受影响，所以当前会话
+ * 照旧走网关，但磁盘配置已经丢了，IDE 下次重启就会直连官方端点，接管被静默撤销。
+ *
+ * 监视的是 settings.json 所在目录而非文件本身：写入方普遍用「写临时文件 + rename」做原子
+ * 替换，直接监视文件会因 inode 变更而失效。
+ *
+ * 不存在写入回环：我们自己的写入同样会触发回调，但那时端点已是目标值，校验通过就不再写。
+ */
+export function watchEndpointOverride(options: {
+  krsPort: number
+  cpsPort: number
+  /** 动态取当前区域：换 Key / 换区后期望值会变，不能在注册时固化 */
+  getRegion: () => string
+  onRepair?: (info: { settingsPath: string }) => void
+  onError?: (message: string) => void
+}): () => void {
+  const file = kiroSettingsPath()
+  const dir = path.dirname(file)
+  const base = path.basename(file)
+  let watcher: FSWatcher | null = null
+  let timer: NodeJS.Timeout | null = null
+  let checking = false
+  let stopped = false
+
+  const check = async (): Promise<void> => {
+    if (stopped || checking) return
+    checking = true
+    try {
+      const activeRegion = options.getRegion()
+      if (await isEndpointBound(options.krsPort, options.cpsPort, activeRegion)) return
+      // 读取期间可能已被摘掉（用户正好点了关闭网关）：写下去会把刚还原的官方端点又改回本地
+      if (stopped) return
+      const applied = await applyEndpointOverride(options.krsPort, options.cpsPort, activeRegion)
+      if (!stopped && applied.changed) options.onRepair?.({ settingsPath: applied.settingsPath })
+    } catch (error) {
+      options.onError?.(error instanceof Error ? error.message : String(error))
+    } finally {
+      checking = false
+    }
+  }
+
+  // IDE 回写常是连续多次写入，聚合一小段时间再校验，避免来回抢写
+  const schedule = (): void => {
+    if (stopped) return
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      timer = null
+      void check()
+    }, 400)
+  }
+
+  try {
+    watcher = watch(dir, (_event, filename) => {
+      // 拿不到文件名时保守校验；校验本身只是读一个文件做比对，代价很低
+      if (!filename) return schedule()
+      const name = path.basename(String(filename))
+      if (name !== base && !name.startsWith(base + '.')) return
+      schedule()
+    })
+    watcher.on('error', (error) => {
+      options.onError?.(error instanceof Error ? error.message : String(error))
+    })
+  } catch (error) {
+    options.onError?.(error instanceof Error ? error.message : String(error))
+  }
+
+  return () => {
+    stopped = true
+    if (timer) {
+      clearTimeout(timer)
+      timer = null
+    }
+    try {
+      watcher?.close()
+    } catch {
+      /* ignore */
+    }
+    watcher = null
+  }
 }

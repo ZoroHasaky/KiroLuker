@@ -54,7 +54,8 @@ import {
   syncAllKeys,
   syncKey,
   testKey,
-  updateKey
+  updateKey,
+  updateKeyRegion
 } from './keyService'
 import { errorMessage } from '../shared/errors'
 import {
@@ -219,9 +220,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // ============ Kiro API Key 管理 / 本地网关 ============
   handle('keys:load', () => ok(loadKeys()))
-  handle('keys:add', (_e, key: string, note?: string) => ok(addKey(key, note)))
-  handle('keys:import', (_e, text: string) => ok(importKeys(text)))
+  handle('keys:add', (_e, key: string, note?: string, region?: string) =>
+    ok(addKey(key, note, region))
+  )
+  handle('keys:import', (_e, text: string, region?: string) => ok(importKeys(text, region)))
   handle('keys:update', (_e, id: string, note: string) => ok(updateKey(id, note)))
+  handle('keys:set-region', async (_e, id: string, region: string) =>
+    ok(await updateKeyRegion(id, region))
+  )
   handle('keys:delete', (_e, id: string) => ok(deleteKey(id)))
   handle('keys:select', async (_e, id: string) => ok(await selectKey(id)))
   handle('keys:test', async (_e, id: string) => ok(await testKey(id)))
@@ -235,10 +241,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     ok(await enableGateway(keyId, { force: !!force }))
   )
   handle('key-gateway:disable', async () => ok(await disableGateway()))
-  handle(
-    'key-gateway:configure',
-    async (_e, input: { region?: string; ports?: { krs: number; cps: number } }) =>
-      ok(await configureGateway(input))
+  handle('key-gateway:configure', async (_e, input: { ports?: { krs: number; cps: number } }) =>
+    ok(await configureGateway(input))
   )
 
   // ============ 账号测活（真实对话）============
@@ -288,7 +292,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     try {
       const result = await streamApiKeyChat(
         entry.key,
-        data.region,
+        entry.region,
         { modelId: input.modelId, message: input.message },
         {
           onDelta: (delta) => {

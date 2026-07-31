@@ -574,6 +574,15 @@ export interface KeyEntry {
   /** 完整密钥，ksk_ 开头 */
   key: string
   note?: string
+  /**
+   * 该 Key 所属 AWS 区域。不同 Key 可能来自不同区域，
+   * 查询额度与网关转发都按各自的区域走。旧数据由 store 迁移时补齐。
+   */
+  region: string
+  /** 该 Key 绑定的注册邮箱，同步时从上游查回；上游未返回则为空 */
+  email?: string
+  /** 账号唯一标识，形如 d-<目录ID>.<用户UUID> */
+  userId?: string
   createdAt: number
   /** 最近一次查询到的订阅名称，如 Kiro Pro */
   subscription?: string
@@ -597,7 +606,10 @@ export interface KeyGatewayData {
   activeKeyId?: string | null
   /** 总开关：开启后接管 Kiro IDE 内置对话 */
   enabled: boolean
-  /** 密钥所属 AWS 区域 */
+  /**
+   * 新增 Key 时的默认区域，仅作为添加 / 导入弹窗的预填值。
+   * 真正生效的区域记录在每个 KeyEntry.region 上。
+   */
   region: string
   /** 本地代理端口，默认 KRS 19830 / CPS 19831 */
   ports: { krs: number; cps: number }
@@ -673,6 +685,18 @@ export interface KeyGatewayStatus {
   lastForwardedAt?: number
   /** 最近实际使用的 Key 是否来自当前已接管的网关运行会话 */
   observedInCurrentSession: boolean
+  /**
+   * IDE 的 AI 请求是否确实由本网关接管。
+   * 磁盘端点已绑定，或本次网关会话近期有过真实转发（IDE 进程内存里仍持有本地端点）。
+   * 判定接管请用这个字段，而不是单看 endpointsBound。
+   */
+  ideTakenOver: boolean
+  /**
+   * 接管中但磁盘端点已被外部改写（典型为 Kiro IDE 启动时按自身内存回写清空）。
+   * 端点守护会自动改回，持续为真说明守护没能生效，IDE 重启后接管会失效。
+   */
+  endpointsHijacked: boolean
+  /** 当前 Key 的区域，也是网关转发实际使用的区域；未选择 Key 时为默认区域 */
   region: string
   ports: { krs: number; cps: number }
   /** settings.json 端点是否已成功指向本地代理 */

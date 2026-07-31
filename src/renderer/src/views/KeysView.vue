@@ -12,6 +12,7 @@ import {
   ExclamationCircleFilled,
   EyeInvisibleOutlined,
   EyeOutlined,
+  GlobalOutlined,
   KeyOutlined,
   PlusOutlined,
   PoweroffOutlined,
@@ -27,11 +28,13 @@ import {
 import { useKeysStore } from '@/stores/keys'
 import { useSettingsStore } from '@/stores/settings'
 import { confirmUseApiKey } from '@/utils/ui'
+import { displayEmail as maskedEmail } from '@/utils/display'
 import { formatCreditsPair, formatDateTime, usageColor } from '@/utils/format'
 import RegionSelect from '@/components/common/RegionSelect.vue'
 import UsageHistoryModal from '@/components/accounts/UsageHistoryModal.vue'
 import ApiKeyDetailDrawer from '@/components/keys/ApiKeyDetailDrawer.vue'
 import ApiKeyTestModal from '@/components/keys/ApiKeyTestModal.vue'
+import { DEFAULT_REGION, regionLabel } from '@shared/regions'
 import type { KeyEntry, KeyGatewayConflict } from '@shared/types'
 
 const store = useKeysStore()
@@ -58,10 +61,16 @@ const usageTarget = ref<KeyEntry | null>(null)
 const selectedIds = ref<string[]>([])
 const sortKey = ref<'createdAt' | 'usage' | 'checked' | 'note'>('createdAt')
 const configOpen = ref(false)
-const configRegion = ref('us-east-1')
 const configKrs = ref(19830)
 const configCps = ref(19831)
 const savingConfig = ref(false)
+/** 添加 / 导入时为本批 Key 选择的区域 */
+const addRegion = ref(DEFAULT_REGION)
+const importRegion = ref(DEFAULT_REGION)
+/** 正在换区的 Key */
+const regionTarget = ref<KeyEntry | null>(null)
+const regionValue = ref(DEFAULT_REGION)
+const savingRegion = ref(false)
 const syncingAll = ref(false)
 const busyActions = ref(new Set<string>())
 
@@ -134,6 +143,16 @@ const filteredKeys = computed(() => {
     })
 })
 
+/**
+ * 开启网关时默认使用的 Key：取界面上第一张卡片，保证弹窗里念的 Key 与用户看到的一致。
+ * data.keys 是插入顺序（最早添加在前），与卡片的「活跃优先 + 排序 + 搜索」结果不同，
+ * 直接用 keys[0] 会选中一个界面上根本不在首位的 Key。
+ * 搜索把列表过滤空时回退到原始首个，避免明明有 Key 却提示先添加。
+ */
+const firstListedKey = computed<KeyEntry | undefined>(
+  () => filteredKeys.value[0] ?? data.value.keys[0]
+)
+
 const selectedSet = computed(() => new Set(selectedIds.value))
 const visibleSelectedCount = computed(() => filteredKeys.value.filter((entry) => selectedSet.value.has(entry.id)).length)
 const allVisibleSelected = computed(() => filteredKeys.value.length > 0 && visibleSelectedCount.value === filteredKeys.value.length)
@@ -160,6 +179,11 @@ function maskKey(key: string): string {
 
 function displayKey(key: string): string {
   return privacyMode.value ? maskKey(key) : key
+}
+
+/** 邮箱跟随全局隐私打码，与账户管理一致 */
+function displayEmail(email: string): string {
+  return maskedEmail(email, privacyMode.value)
 }
 
 function togglePrivacy(): void {
@@ -230,11 +254,25 @@ function setBusy(id: string, action: BusyAction, busy: boolean): void {
   busyActions.value = next
 }
 
+/** 打开时预填上次用过的区域，连续添加同区域的 Key 不用反复选 */
+function openAdd(): void {
+  addValue.value = ''
+  addNote.value = ''
+  addRegion.value = data.value.region || DEFAULT_REGION
+  addOpen.value = true
+}
+
+function openImport(): void {
+  importText.value = ''
+  importRegion.value = data.value.region || DEFAULT_REGION
+  importOpen.value = true
+}
+
 async function submitAdd(): Promise<void> {
   adding.value = true
   try {
     const rawKey = addValue.value.trim()
-    const error = await store.add(rawKey, addNote.value)
+    const error = await store.add(rawKey, addNote.value, addRegion.value)
     if (error) return void message.error(error)
     const added = data.value.keys.find((entry) => entry.key === rawKey)
     const verifyError = added ? await store.sync(added.id) : null
@@ -251,7 +289,7 @@ async function submitAdd(): Promise<void> {
 async function submitImport(): Promise<void> {
   importing.value = true
   try {
-    const result = await store.importText(importText.value)
+    const result = await store.importText(importText.value, importRegion.value)
     if (result.error) return void message.error(result.error)
     const synced = result.added ? await store.syncAll(false) : null
     if (synced && !synced.error) store.scheduleUsageRefresh()
@@ -496,8 +534,9 @@ function exportKeys(): void {
   })
 }
 
-async function toggleGateway(checked: boolean): Promise<void> {
-  const targetKey = checked ? data.value.keys[0] : undefined
+/** target 由确认弹窗传入，确保最终启用的就是弹窗里确认过的那个 Key */
+async function toggleGateway(checked: boolean, target?: KeyEntry): Promise<void> {
+  const targetKey = checked ? target ?? firstListedKey.value : undefined
   if (checked && !targetKey) {
     message.warning('请先添加 API Key')
     return
@@ -524,7 +563,7 @@ async function toggleGateway(checked: boolean): Promise<void> {
 
 async function confirmToggleGateway(): Promise<void> {
   const enabling = !data.value.enabled
-  const firstKey = data.value.keys[0]
+  const firstKey = firstListedKey.value
   if (enabling && !firstKey) {
     message.warning('请先添加 API Key')
     return
@@ -533,18 +572,17 @@ async function confirmToggleGateway(): Promise<void> {
   Modal.confirm({
     title: enabling ? '开启 API Key 网关' : '关闭 API Key 网关',
     content: enabling
-      ? `开启后会将 Kiro IDE 的 AI 请求端点切换到本地网关，并默认使用列表中的第一个 API Key：${firstKey ? keyConfirmationLabel(firstKey) : ''}`
+      ? `开启后会将 Kiro IDE 的 AI 请求端点切换到本地网关，并使用列表最上方的第一个 API Key：${firstKey ? keyConfirmationLabel(firstKey) : ''}`
       : '关闭后会停止接管 Kiro IDE 的 AI 请求，并还原官方端点。',
     okText: enabling ? '开启网关' : '关闭网关',
     okType: 'primary',
     okButtonProps: { danger: !enabling },
     cancelText: '取消',
-    onOk: () => toggleGateway(enabling)
+    onOk: () => toggleGateway(enabling, firstKey)
   })
 }
 
 function openConfig(): void {
-  configRegion.value = data.value.region
   configKrs.value = data.value.ports.krs
   configCps.value = data.value.ports.cps
   configOpen.value = true
@@ -553,12 +591,39 @@ function openConfig(): void {
 async function saveConfig(): Promise<void> {
   savingConfig.value = true
   try {
-    const error = await store.configure(configRegion.value, configKrs.value, configCps.value)
+    const error = await store.configure(configKrs.value, configCps.value)
     if (error) return void message.error(error)
     configOpen.value = false
     message.success('网关配置已保存')
   } finally {
     savingConfig.value = false
+  }
+}
+
+// ============ 单个 Key 换区 ============
+
+function openRegion(entry: KeyEntry): void {
+  regionTarget.value = entry
+  regionValue.value = entry.region
+}
+
+async function submitRegion(): Promise<void> {
+  const target = regionTarget.value
+  if (!target) return
+  const next = regionValue.value.trim()
+  if (!next) return void message.warning('请选择或填写区域')
+  if (next === target.region) {
+    regionTarget.value = null
+    return
+  }
+  savingRegion.value = true
+  try {
+    const error = await store.setRegion(target.id, next)
+    if (error) return void message.error(error)
+    regionTarget.value = null
+    message.success(`区域已改为 ${next}，已重新同步额度`)
+  } finally {
+    savingRegion.value = false
   }
 }
 
@@ -600,13 +665,20 @@ onMounted(() => void store.load())
           <div class="gateway-title">
             <KeyOutlined />
             <strong>API Key 接管</strong>
-            <a-tag :color="status?.running && status?.endpointsBound ? 'success' : data.enabled ? 'warning' : 'default'">
-              {{ status?.running && status?.endpointsBound ? '运行中' : data.enabled ? '启动中' : '未开启' }}
+            <a-tag :color="status?.ideTakenOver ? 'success' : data.enabled ? 'warning' : 'default'">
+              {{ status?.ideTakenOver ? '运行中' : data.enabled ? '启动中' : '未开启' }}
             </a-tag>
+            <a-tooltip
+              v-if="status?.endpointsHijacked"
+              title="Kiro IDE 把 settings.json 里的端点改回去了，应用已自动改写回本地网关。若该提示长期不消失，请检查该文件是否可写。"
+            >
+              <a-tag color="warning">端点被回写，已自动恢复</a-tag>
+            </a-tooltip>
           </div>
           <div class="gateway-desc">
             当前：{{ activeKey?.note || (activeKey ? maskKey(activeKey.key) : '未选择 Key') }}
-            · {{ data.region }} · KRS {{ data.ports.krs }} / CPS {{ data.ports.cps }}
+            · {{ activeKey?.region || status?.region || DEFAULT_REGION }}
+            · KRS {{ data.ports.krs }} / CPS {{ data.ports.cps }}
           </div>
           <div class="gateway-hint">
             API Key 不会替换 IDE 登录账号；开启后仅将 AI 请求额度切换为当前 Key。
@@ -622,19 +694,12 @@ onMounted(() => void store.load())
           <template #icon><PoweroffOutlined /></template>
           {{ data.enabled ? '关闭网关' : '开启网关' }}
         </a-button>
-        <a-tooltip :title="data.enabled ? '关闭接管后才能修改' : 'Region 与本地端口'">
+        <a-tooltip :title="data.enabled ? '关闭接管后才能修改' : '本地网关端口'">
           <a-button :disabled="data.enabled || loading" @click="openConfig">
             <template #icon><SettingOutlined /></template>
           </a-button>
         </a-tooltip>
       </div>
-      <a-alert
-        v-if="status?.message"
-        class="status-message"
-        :message="status.message"
-        :type="status.enabled ? 'info' : 'warning'"
-        show-icon
-      />
     </a-card>
 
     <div class="keys-header">
@@ -643,10 +708,10 @@ onMounted(() => void store.load())
           <template #prefix><SearchOutlined /></template>
         </a-input>
         <span class="spacer" />
-        <a-button type="primary" @click="addOpen = true">
+        <a-button type="primary" @click="openAdd">
           <template #icon><PlusOutlined /></template>添加 API Key
         </a-button>
-        <a-button @click="importOpen = true"><template #icon><UploadOutlined /></template>导入</a-button>
+        <a-button @click="openImport"><template #icon><UploadOutlined /></template>导入</a-button>
         <a-button :disabled="!data.keys.length" @click="exportKeys">
           <template #icon><DownloadOutlined /></template>导出
         </a-button>
@@ -729,6 +794,10 @@ onMounted(() => void store.load())
                 class="key-value mono"
                 :title="privacyMode ? undefined : entry.key"
               >{{ displayKey(entry.key) }}</span>
+              <span
+                class="key-email muted"
+                :title="entry.email && !privacyMode ? entry.email : undefined"
+              >邮箱：{{ entry.email ? displayEmail(entry.email) : '-' }}</span>
               <span class="key-note muted">备注：{{ entry.note || '-' }}</span>
             </div>
           </div>
@@ -741,6 +810,12 @@ onMounted(() => void store.load())
           <a-tag :color="subscriptionColor(entry)" :bordered="false">
             {{ entry.subscription || '等级未知' }}
           </a-tag>
+          <a-tooltip :title="`${regionLabel(entry.region)}，点击修改所属区域`">
+            <button class="region-chip mono" @click.stop="openRegion(entry)">
+              <GlobalOutlined />
+              {{ entry.region }}
+            </button>
+          </a-tooltip>
         </div>
 
         <div
@@ -785,9 +860,12 @@ onMounted(() => void store.load())
           </div>
         </div>
         <div class="error-slot">
-          <div v-if="entry.lastError" class="error-line" :title="entry.lastError">
-            {{ entry.lastError }}
-          </div>
+          <a-tooltip v-if="entry.lastError" placement="topLeft">
+            <template #title>
+              <span class="error-tip">{{ entry.lastError }}</span>
+            </template>
+            <div class="error-line">{{ entry.lastError }}</div>
+          </a-tooltip>
         </div>
 
         <div class="key-actions" @click.stop>
@@ -846,10 +924,20 @@ onMounted(() => void store.load())
     </div>
     <a-empty v-else class="empty" :description="data.keys.length ? '没有匹配的 Key' : '还没有 API Key，请先添加'" />
 
-    <a-modal v-model:open="addOpen" title="添加 Kiro API Key" :confirm-loading="adding" @ok="submitAdd">
+    <a-modal
+      v-model:open="addOpen"
+      title="添加 Kiro API Key"
+      centered
+      :confirm-loading="adding"
+      @ok="submitAdd"
+    >
       <a-form layout="vertical">
         <a-form-item label="API Key" required>
           <a-input-password v-model:value="addValue" placeholder="ksk_..." />
+        </a-form-item>
+        <a-form-item label="区域" required>
+          <RegionSelect v-model:value="addRegion" />
+          <div class="field-hint muted">不同 Key 可能属于不同区域，选错会导致额度查询与请求失败</div>
         </a-form-item>
         <a-form-item label="备注">
           <a-input v-model:value="addNote" placeholder="例如：主力 Key" @press-enter="submitAdd" />
@@ -857,8 +945,49 @@ onMounted(() => void store.load())
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="importOpen" title="批量导入 API Key" :confirm-loading="importing" @ok="submitImport">
-      <a-textarea v-model:value="importText" :rows="10" placeholder="每行一个 ksk_ 开头的 API Key，自动忽略空行和重复项" />
+    <a-modal
+      v-model:open="importOpen"
+      title="批量导入 API Key"
+      centered
+      :confirm-loading="importing"
+      @ok="submitImport"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="区域" required>
+          <RegionSelect v-model:value="importRegion" />
+          <div class="field-hint muted">本批 Key 共用该区域，导入后可在卡片上逐个调整</div>
+        </a-form-item>
+        <a-form-item label="API Key" required>
+          <a-textarea
+            v-model:value="importText"
+            :rows="9"
+            placeholder="每行一个 ksk_ 开头的 API Key，自动忽略空行和重复项"
+          />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal
+      :open="!!regionTarget"
+      title="修改所属区域"
+      centered
+      :confirm-loading="savingRegion"
+      @ok="submitRegion"
+      @cancel="regionTarget = null"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="API Key">
+          <div class="token-box mono">{{ regionTarget ? displayKey(regionTarget.key) : '' }}</div>
+        </a-form-item>
+        <a-form-item label="区域" required>
+          <RegionSelect v-model:value="regionValue" />
+        </a-form-item>
+      </a-form>
+      <a-alert
+        type="warning"
+        show-icon
+        message="换区后该 Key 已缓存的订阅、额度与积分历史会被清空，需要重新同步。"
+      />
     </a-modal>
 
     <a-modal v-model:open="editOpen" title="修改备注" @ok="submitEdit">
@@ -870,6 +999,7 @@ onMounted(() => void store.load())
       @close="detailTarget = null"
       @test="(entry) => { detailTarget = null; testTarget = entry }"
       @edit="openEdit"
+      @select="select"
     />
     <ApiKeyTestModal :key-entry="testTarget" @close="testTarget = null" />
     <UsageHistoryModal :subject="usageSubject" @close="usageTarget = null" />
@@ -971,11 +1101,14 @@ onMounted(() => void store.load())
       </a-space>
     </a-modal>
 
-    <a-modal v-model:open="configOpen" title="网关配置" :confirm-loading="savingConfig" @ok="saveConfig">
+    <a-modal
+      v-model:open="configOpen"
+      title="网关配置"
+      centered
+      :confirm-loading="savingConfig"
+      @ok="saveConfig"
+    >
       <a-form layout="vertical">
-        <a-form-item label="Region" required>
-          <RegionSelect v-model:value="configRegion" :disabled="data.enabled" />
-        </a-form-item>
         <div class="port-row">
           <a-form-item label="KRS 生成面端口" required>
             <a-input-number v-model:value="configKrs" :min="1024" :max="65535" />
@@ -1002,7 +1135,6 @@ onMounted(() => void store.load())
 .gateway-title { display: flex; align-items: center; gap: 9px; font-size: 17px; }
 .gateway-desc { margin-top: 7px; font-size: 13px; }
 .gateway-hint { margin-top: 4px; color: var(--kal-muted); font-size: 12px; }
-.status-message { margin-top: 14px; }
 .keys-header { flex: 0 0 auto; }
 .toolbar, .meta-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .toolbar { margin-bottom: 10px; }
@@ -1017,16 +1149,23 @@ onMounted(() => void store.load())
 .key-card.active { border-color: #52c41a; box-shadow: none; }
 .key-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .key-name { display: flex; flex: 1 1 auto; align-items: flex-start; gap: 7px; min-width: 0; }
-.key-identity { flex: 1 1 auto; min-width: 0; line-height: 1.4; }
+.key-identity { flex: 1 1 auto; min-width: 0; line-height: 1.4; cursor: pointer; }
 .key-switch-action { display: flex; flex: 1 1 auto; align-items: center; min-width: 0; min-height: 24px; }
 .current-key-label { display: inline-flex; align-items: center; gap: 5px; color: #52c41a; font-size: 12px; font-weight: 600; }
 .switch-key-btn { height: 24px; padding: 0; font-size: 12px; }
-.key-value, .key-note { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.key-value { font-size: 13px; font-weight: 600; }
+.key-value, .key-email, .key-note { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.key-value { font-size: 13px; font-weight: 600; transition: color 0.15s ease; }
+/* 悬停 key 区域时高亮 key 值，与账户卡片悬停邮箱一致 */
+.key-identity:hover .key-value { color: var(--kal-primary); }
+.key-email { margin-top: 2px; font-size: 12px; }
 .key-note { margin-top: 2px; font-size: 12px; }
 .status-tag { flex: 0 0 auto; margin: 0; }
 .tag-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 22px; margin-top: 10px; }
 .tag-row :deep(.ant-tag) { margin: 0; }
+/* 区域靠右对齐，与左侧的状态、等级标签同一行 */
+.region-chip { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 4px; margin-left: auto; padding: 1px 8px; border: 1px solid var(--kal-border); border-radius: 10px; background: transparent; color: var(--kal-muted); font-size: 11.5px; line-height: 18px; cursor: pointer; transition: border-color 0.15s ease, color 0.15s ease; }
+.region-chip:hover { border-color: var(--kal-primary); color: var(--kal-primary); }
+.field-hint { margin-top: 4px; font-size: 12px; line-height: 1.6; }
 .usage-block { display: flex; flex-direction: column; gap: 4px; height: 105px; margin-top: 12px; padding: 12px; box-sizing: border-box; border-radius: 12px; background: var(--kal-block-bg); cursor: pointer; transition: background 0.16s ease; }
 .usage-block:hover { background: var(--kal-code-bg); }
 .usage-head, .usage-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; }
@@ -1039,7 +1178,9 @@ onMounted(() => void store.load())
 .bar.on { background: var(--bar-on); }
 .usage-number { font-weight: 600; }
 .error-slot { height: 27px; margin-top: 8px; }
-.error-line { padding: 5px 8px; overflow: hidden; color: #ff4d4f; border-radius: 8px; background: rgba(255, 77, 79, 0.08); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.error-line { padding: 5px 8px; overflow: hidden; color: #ff4d4f; border-radius: 8px; background: rgba(255, 77, 79, 0.08); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
+/* 卡片里一行截断，Tooltip 里完整换行展示 */
+.error-tip { white-space: pre-wrap; word-break: break-all; }
 .key-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 18px; padding: 8px 0 0; border-top: 1px solid var(--kal-border); }
 .action-row { display: flex; flex: 0 0 auto; align-items: center; gap: 0; }
 .action-btn { width: 24px; min-width: 24px; height: 24px; padding: 0; }

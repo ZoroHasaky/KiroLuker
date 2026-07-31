@@ -19,14 +19,3 @@ export function isCredentialRejected(message: string): boolean {
   if (!m.includes('401') && !m.includes('400')) return false
   return m.includes('credential') || m.includes('unauthorized') || m.includes('token')
 }
-
-/**
- * 凭证失效错误的可读文案：保留状态码便于排查，去掉原始响应体。
- * 非凭证类错误原样返回，避免掩盖真实原因。
- */
-export function describeRefreshError(message: string): string {
-  const raw = String(message || '')
-  if (!isCredentialRejected(raw)) return raw
-  const status = raw.match(/HTTP\s+(\d{3})/i)?.[1]
-  return `刷新凭证已失效，可能已被 Kiro IDE 或其它设备刷新，请重新登录该账号${status ? `（HTTP ${status}）` : ''}`
-}
