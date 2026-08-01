@@ -21,7 +21,7 @@ import { useAccountsStore } from '@/stores/accounts'
 import { useSettingsStore } from '@/stores/settings'
 import {
   IDP_META,
-  SUBSCRIPTION_META,
+  subscriptionMeta,
   formatCredits,
   formatCreditsPair,
   formatDate,
@@ -421,7 +421,7 @@ function previewOf(list: Account[]): string {
               <div class="muted" style="font-size: 13px">{{ displayEmail(active.email) }}</div>
             </div>
           </div>
-          <a-tag :color="SUBSCRIPTION_META[active.subscription.type].color" :bordered="false">
+          <a-tag :color="subscriptionMeta(active.subscription.type).color" :bordered="false">
             {{ subscriptionLabel(active.subscription) }}
           </a-tag>
         </div>

@@ -110,6 +110,7 @@ export const useAccountsStore = defineStore('accounts', () => {
   async function load(): Promise<void> {
     loading.value = true
     try {
+      // 订阅档位的历史值由主进程在读取时统一对齐，这里拿到的已是规范值
       const res = await window.api.loadAccounts()
       if (res.success && res.data) {
         accounts.value = res.data.accounts ?? []
@@ -151,16 +152,19 @@ export const useAccountsStore = defineStore('accounts', () => {
       if (statuses.length && !statuses.includes(a.status)) return false
       if (subscriptions.length && !subscriptions.includes(a.subscription.type)) return false
       if (idps.length && !idps.includes(a.idp)) return false
+      // 范围条件一律用 != null 判断「是否已设置」：输入框清空后给过来的是 null，
+      // 若按 !== undefined 判断，null 会被当成已设置，比较时又被转成 0，
+      // 于是 days > 0 / used > 0 把几乎所有条目都滤掉，列表看起来是空的
       const days = a.subscription.daysRemaining
-      if (daysRemainingMax !== undefined && (days ?? Number.POSITIVE_INFINITY) > daysRemainingMax) {
+      if (daysRemainingMax != null && (days ?? Number.POSITIVE_INFINITY) > daysRemainingMax) {
         return false
       }
-      if (daysRemainingMin !== undefined && (days ?? Number.NEGATIVE_INFINITY) < daysRemainingMin) {
+      if (daysRemainingMin != null && (days ?? Number.NEGATIVE_INFINITY) < daysRemainingMin) {
         return false
       }
       const used = a.usage.percentUsed || 0
-      if (usageMin !== undefined && used < usageMin) return false
-      if (usageMax !== undefined && used > usageMax) return false
+      if (usageMin != null && used < usageMin) return false
+      if (usageMax != null && used > usageMax) return false
       return true
     })
   })
@@ -193,7 +197,8 @@ export const useAccountsStore = defineStore('accounts', () => {
       Free: 0,
       Pro: 0,
       Pro_Plus: 0,
-      Enterprise: 0,
+      Pro_Max: 0,
+      Power: 0,
       Teams: 0
     }
     const byIdp: Record<IdpType, number> = { BuilderId: 0, Github: 0, Google: 0, Enterprise: 0 }

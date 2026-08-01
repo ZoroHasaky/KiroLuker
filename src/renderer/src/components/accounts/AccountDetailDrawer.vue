@@ -13,7 +13,7 @@ import { useSettingsStore } from '@/stores/settings'
 import {
   IDP_META,
   STATUS_META,
-  SUBSCRIPTION_META,
+  subscriptionMeta,
   formatCreditsPair,
   formatDate,
   formatDateTime,
@@ -152,7 +152,7 @@ async function act(kind: 'refresh' | 'check' | 'switch'): Promise<void> {
       <div class="section-title">订阅</div>
       <a-descriptions :column="1" size="small" bordered style="margin-bottom: 18px">
         <a-descriptions-item label="套餐">
-          <a-tag :color="SUBSCRIPTION_META[account.subscription.type].color">
+          <a-tag :color="subscriptionMeta(account.subscription.type).color">
             {{ subscriptionLabel(account.subscription) }}
           </a-tag>
         </a-descriptions-item>

@@ -256,6 +256,21 @@ export interface AccountInfo {
   email: string | null
   /** 账号唯一标识，形如 d-<目录ID>.<用户UUID> */
   userId: string | null
+  /** 额度下次重置时间戳（ms），上游未返回时为 null */
+  nextResetAt: number | null
+}
+
+/**
+ * 解析上游的额度重置时间。
+ * 与账号侧同一个 Get-Usage-Limits 字段：数字按秒级 Unix 时间戳，字符串按日期串。
+ */
+function parseResetAt(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value * 1000
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = new Date(value).getTime()
+    return Number.isNaN(parsed) ? null : parsed
+  }
+  return null
 }
 export async function fetchAccountInfo(region: string, key: string): Promise<AccountInfo> {
   const data = await fetchUsageRaw(region, key)
@@ -272,7 +287,15 @@ export async function fetchAccountInfo(region: string, key: string): Promise<Acc
     if (p.used != null) used = (used || 0) + p.used
     if (p.limit != null) total = (total || 0) + p.limit
   }
-  return { subscriptionTitle: title, tier: tierFromTitle(title), used, total, email, userId }
+  return {
+    subscriptionTitle: title,
+    tier: tierFromTitle(title),
+    used,
+    total,
+    email,
+    userId,
+    nextResetAt: parseResetAt(data?.nextDateReset)
+  }
 }
 
 // ---------------------------------------------------------------------------

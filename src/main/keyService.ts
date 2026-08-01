@@ -294,6 +294,7 @@ export async function updateKeyRegion(
   entry.tier = undefined
   entry.usedCredits = undefined
   entry.totalCredits = undefined
+  entry.nextResetAt = undefined
   entry.email = undefined
   entry.userId = undefined
   entry.lastCheckedAt = undefined
@@ -441,6 +442,7 @@ export async function syncKey(id: string): Promise<KeyGatewayData> {
   current.tier = info.tier
   current.usedCredits = info.used ?? undefined
   current.totalCredits = info.total ?? undefined
+  current.nextResetAt = info.nextResetAt ?? undefined
   // 上游按 isEmailRequired=true 返回的账号信息；查不到时保留旧值，不用 undefined 覆盖
   if (info.email) current.email = info.email
   if (info.userId) current.userId = info.userId

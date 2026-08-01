@@ -19,6 +19,8 @@ import {
   ReloadOutlined,
   SearchOutlined,
   SettingOutlined,
+  CalendarOutlined,
+  FilterOutlined,
   SortAscendingOutlined,
   SwapOutlined,
   SyncOutlined,
@@ -27,16 +29,31 @@ import {
 } from '@ant-design/icons-vue'
 import { useKeysStore } from '@/stores/keys'
 import { useSettingsStore } from '@/stores/settings'
-import { confirmDelete, confirmUseApiKey } from '@/utils/ui'
+import { bodyPopupContainer, confirmDelete, confirmUseApiKey } from '@/utils/ui'
 import { displayEmail as maskedEmail, displayKey as maskedKey } from '@/utils/display'
-import { formatCreditsPair, formatDateTime, usageColor } from '@/utils/format'
+import {
+  KEY_STATUS_META,
+  formatCreditsPair,
+  formatDate,
+  formatDateTime,
+  subscriptionMeta,
+  usageColor
+} from '@/utils/format'
+import { normalizeSubscriptionType } from '@shared/subscription'
 import RegionSelect from '@/components/common/RegionSelect.vue'
 import UsageHistoryModal from '@/components/accounts/UsageHistoryModal.vue'
 import ApiKeyDetailDrawer from '@/components/keys/ApiKeyDetailDrawer.vue'
 import ApiKeyTestModal from '@/components/keys/ApiKeyTestModal.vue'
 import ApiKeyBatchTestModal from '@/components/keys/ApiKeyBatchTestModal.vue'
+import ApiKeyFilterPanel from '@/components/keys/ApiKeyFilterPanel.vue'
 import { DEFAULT_REGION, regionLabel } from '@shared/regions'
-import type { KeyEntry, KeyGatewayConflict } from '@shared/types'
+import type {
+  KeyEntry,
+  KeyFilter,
+  KeyGatewayConflict,
+  KeyStatus,
+  SubscriptionType
+} from '@shared/types'
 
 const store = useKeysStore()
 const settingsStore = useSettingsStore()
@@ -62,6 +79,67 @@ const batchTestOpen = ref(false)
 const usageTarget = ref<KeyEntry | null>(null)
 const selectedIds = ref<string[]>([])
 const sortKey = ref<'createdAt' | 'usage' | 'checked' | 'note'>('createdAt')
+
+const filterOpen = ref(false)
+/** 筛选条件常驻本页：面板收起后条件仍然生效 */
+const filter = ref<KeyFilter>({ subscriptions: [], statuses: [] })
+
+/** 筛选面板里生效的条件数量，显示在筛选按钮的角标上 */
+const activeFilterCount = computed(() => {
+  const f = filter.value
+  return (
+    f.subscriptions.length +
+    f.statuses.length +
+    // != null：输入框清空时给的是 null，按 !== undefined 判断会把它算成一个生效条件
+    (f.usageMin != null ? 1 : 0) +
+    (f.usageMax != null ? 1 : 0) +
+    (f.daysRemainingMin != null ? 1 : 0) +
+    (f.daysRemainingMax != null ? 1 : 0)
+  )
+})
+
+function resetFilter(): void {
+  filter.value = { subscriptions: [], statuses: [] }
+}
+
+/**
+ * 订阅档位：直接从上游返回的标题算，与账号管理共用同一个判定口径。
+ * 不读历史的 tier 字段——那套小写分层没有 Pro Max，且早前把 pro max 并进了 pro+。
+ */
+function keyTier(entry: KeyEntry): SubscriptionType {
+  return normalizeSubscriptionType(entry.subscription || '')
+}
+
+function keyStatusKey(entry: KeyEntry): KeyStatus {
+  if (keyIssue(entry)) return 'error'
+  return entry.lastCheckedAt ? 'normal' : 'unchecked'
+}
+
+/** 额度重置剩余天数；上游没给重置时间时返回 undefined（该 Key 不参与天数筛选） */
+function keyDaysRemaining(entry: KeyEntry): number | undefined {
+  if (!entry.nextResetAt) return undefined
+  return Math.max(0, Math.ceil((entry.nextResetAt - Date.now()) / 86_400_000))
+}
+
+/** 筛选面板的命中计数：按全部 Key 统计，不受当前筛选影响 */
+const keyStats = computed(() => {
+  const bySubscription: Record<SubscriptionType, number> = {
+    Free: 0,
+    Pro: 0,
+    Pro_Plus: 0,
+    Pro_Max: 0,
+    Power: 0,
+    Teams: 0
+  }
+  const byStatus: Record<KeyStatus, number> = { normal: 0, error: 0, unchecked: 0 }
+  for (const entry of data.value.keys) {
+    const tier = keyTier(entry)
+    bySubscription[tier] = (bySubscription[tier] ?? 0) + 1
+    const status = keyStatusKey(entry)
+    byStatus[status] = (byStatus[status] ?? 0) + 1
+  }
+  return { bySubscription, byStatus }
+})
 const configOpen = ref(false)
 const configKrs = ref(19830)
 const configCps = ref(19831)
@@ -136,10 +214,31 @@ const sortLabel = computed(() => sortOptions.find((item) => item.value === sortK
 
 const filteredKeys = computed(() => {
   const needle = search.value.trim().toLowerCase()
+  const { subscriptions, statuses, usageMin, usageMax, daysRemainingMin, daysRemainingMax } =
+    filter.value
   return [...data.value.keys]
     .filter((entry) => {
-      if (!needle) return true
-      return (entry.note || '').toLowerCase().includes(needle) || entry.key.toLowerCase().includes(needle)
+      if (needle) {
+        const hit =
+          (entry.note || '').toLowerCase().includes(needle) ||
+          entry.key.toLowerCase().includes(needle)
+        if (!hit) return false
+      }
+      if (subscriptions.length && !subscriptions.includes(keyTier(entry))) return false
+      if (statuses.length && !statuses.includes(keyStatusKey(entry))) return false
+      // 范围条件一律用 != null 判断「是否已设置」：输入框清空后给的是 null，
+      // 按 !== undefined 判断会把 null 当成已设置，比较时又转成 0，把列表筛成空
+      const used = usageRatio(entry)
+      if (usageMin != null && used < usageMin) return false
+      if (usageMax != null && used > usageMax) return false
+      const days = keyDaysRemaining(entry)
+      if (daysRemainingMax != null && (days ?? Number.POSITIVE_INFINITY) > daysRemainingMax) {
+        return false
+      }
+      if (daysRemainingMin != null && (days ?? Number.NEGATIVE_INFINITY) < daysRemainingMin) {
+        return false
+      }
+      return true
     })
     .sort((a, b) => {
       const active = Number(b.id === data.value.activeKeyId) - Number(a.id === data.value.activeKeyId)
@@ -178,10 +277,9 @@ const batchScopeSuffix = computed(() =>
 )
 const allVisibleSelected = computed(() => filteredKeys.value.length > 0 && visibleSelectedCount.value === filteredKeys.value.length)
 const someVisibleSelected = computed(() => visibleSelectedCount.value > 0 && !allVisibleSelected.value)
-const normalCount = computed(
-  () => data.value.keys.filter((entry) => entry.lastCheckedAt && !keyIssue(entry)).length
-)
-const errorCount = computed(() => data.value.keys.filter((entry) => !!keyIssue(entry)).length)
+// 复用筛选面板那一次遍历的结果，口径与状态 chip 完全一致
+const normalCount = computed(() => keyStats.value.byStatus.normal)
+const errorCount = computed(() => keyStats.value.byStatus.error)
 
 function toggleSelect(id: string, checked: boolean): void {
   const next = new Set(selectedIds.value)
@@ -259,17 +357,12 @@ function keyIssue(entry: KeyEntry): string | undefined {
 }
 
 function keyStatus(entry: KeyEntry): { color: string; text: string } {
-  if (keyIssue(entry)) return { color: 'red', text: '异常' }
-  if (entry.lastCheckedAt) return { color: 'green', text: '正常' }
-  return { color: 'default', text: '未检查' }
+  return KEY_STATUS_META[keyStatusKey(entry)]
 }
 
+/** 档位配色与账号管理共用同一张表：同一个订阅在两个页面看到同样的颜色 */
 function subscriptionColor(entry: KeyEntry): string {
-  if (entry.tier === 'power') return 'gold'
-  if (entry.tier === 'pro+') return 'purple'
-  if (entry.tier === 'pro') return 'blue'
-  if (entry.tier === 'free') return 'default'
-  return 'cyan'
+  return subscriptionMeta(keyTier(entry)).color
 }
 
 type BusyAction = 'select' | 'sync'
@@ -745,7 +838,36 @@ onMounted(() => void store.load())
         <span class="count-text">共 {{ filteredKeys.length }} 个 API Key</span>
         <a-tag v-if="normalCount" color="green" :bordered="false">正常 {{ normalCount }}</a-tag>
         <a-tag v-if="errorCount" color="red" :bordered="false">异常 {{ errorCount }}</a-tag>
+        <a-tag v-if="activeFilterCount" color="purple" closable @close="resetFilter">
+          筛选中 {{ activeFilterCount }} 项
+        </a-tag>
         <span class="spacer" />
+
+        <a-popover
+          v-model:open="filterOpen"
+          trigger="click"
+          placement="bottomRight"
+          :get-popup-container="bodyPopupContainer"
+        >
+          <template #title>
+            <span>筛选条件</span>
+          </template>
+          <template #content>
+            <ApiKeyFilterPanel
+              :filter="filter"
+              :by-subscription="keyStats.bySubscription"
+              :by-status="keyStats.byStatus"
+              :matched="filteredKeys.length"
+              @reset="resetFilter"
+            />
+          </template>
+          <a-badge :count="activeFilterCount" :offset="[-4, 4]">
+            <a-button size="small" :type="activeFilterCount ? 'primary' : 'default'">
+              <template #icon><FilterOutlined /></template>
+              筛选
+            </a-button>
+          </a-badge>
+        </a-popover>
 
         <a-dropdown>
           <a-button size="small">
@@ -882,7 +1004,12 @@ onMounted(() => void store.load())
             <span class="usage-number">
               {{ formatCreditsPair(entry.usedCredits ?? 0, entry.totalCredits ?? 0, precision) }}
             </span>
-            <span class="muted">已用 / 总额度</span>
+            <!-- 与账号卡片同一位置的口径：有重置时间就显示它，否则退回额度说明 -->
+            <span v-if="entry.nextResetAt" class="muted" :title="`额度重置剩余 ${keyDaysRemaining(entry)} 天`">
+              <CalendarOutlined />
+              {{ formatDate(entry.nextResetAt) }} 重置
+            </span>
+            <span v-else class="muted">已用 / 总额度</span>
           </div>
         </div>
         <div class="error-slot">
@@ -1206,6 +1333,8 @@ onMounted(() => void store.load())
 .bar { flex: 1 1 0; border-radius: 2px; background: var(--kal-bar-off); transition: background 0.2s ease; }
 .bar.on { background: var(--bar-on); }
 .usage-number { font-weight: 600; }
+/* 右侧的重置日期不允许折行，与账号卡片一致 */
+.usage-foot span:last-child { white-space: nowrap; }
 .error-slot { height: 27px; margin-top: 8px; }
 .error-line { padding: 5px 8px; overflow: hidden; color: #ff4d4f; border-radius: 8px; background: rgba(255, 77, 79, 0.08); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
 /* 卡片里一行截断，Tooltip 里完整换行展示 */

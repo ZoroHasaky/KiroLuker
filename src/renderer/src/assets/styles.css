@@ -237,3 +237,82 @@ body {
 .ant-col-xl-24.ant-form-item-label {
   padding-bottom: 2px;
 }
+
+/* ============================================================
+   筛选面板：账号管理与 API Key 管理共用同一套外观。
+   选择器一律限定在 .filter-panel 之内，避免 .chip 这类通用类名污染全局。
+   ============================================================ */
+
+.filter-panel {
+  width: 460px;
+  max-width: 70vw;
+}
+
+.filter-panel .filter-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 0;
+}
+
+.filter-panel .filter-label {
+  flex: 0 0 62px;
+  padding-top: 3px;
+  font-size: 13px;
+  color: var(--kal-muted);
+}
+
+.filter-panel .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.filter-panel .chip {
+  padding: 2px 9px;
+  font-size: 12px;
+  line-height: 20px;
+  border-radius: 999px;
+  border: 1px solid var(--kal-border);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.filter-panel .chip:hover {
+  border-color: var(--kal-primary);
+}
+
+.filter-panel .chip.on {
+  border-color: var(--kal-primary);
+  background: var(--kal-primary);
+  color: #fff;
+}
+
+/* 没有条目命中的选项弱化显示，但仍可点 */
+.filter-panel .chip.empty:not(.on) {
+  color: var(--kal-muted);
+}
+
+.filter-panel .chip-count {
+  margin-left: 3px;
+  opacity: 0.7;
+}
+
+.filter-panel .range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-panel .filter-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--kal-border);
+  font-size: 12px;
+}

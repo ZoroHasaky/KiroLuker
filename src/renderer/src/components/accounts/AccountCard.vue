@@ -17,7 +17,7 @@ import { useSettingsStore } from '@/stores/settings'
 import {
   IDP_META,
   STATUS_META,
-  SUBSCRIPTION_META,
+  subscriptionMeta,
   formatCheckedAt,
   formatCreditsPair,
   formatDate,
@@ -86,7 +86,7 @@ const barColor = computed(() => usageColor(props.account.usage.percentUsed || 0)
 
 const status = computed(() => STATUS_META[props.account.status])
 const idp = computed(() => IDP_META[props.account.idp])
-const subscription = computed(() => SUBSCRIPTION_META[props.account.subscription.type])
+const subscription = computed(() => subscriptionMeta(props.account.subscription.type))
 /** 订阅展示名：优先接口给的标题 */
 const subscriptionText = computed(() => subscriptionLabel(props.account.subscription))
 

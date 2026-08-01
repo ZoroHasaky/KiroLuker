@@ -1,17 +1,29 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useAccountsStore } from '@/stores/accounts'
-import { IDP_META, STATUS_META, SUBSCRIPTION_META } from '@/utils/format'
-import type { AccountStatus, IdpType, SubscriptionType } from '@shared/types'
-
-const accountsStore = useAccountsStore()
-
-const filter = computed(() => accountsStore.filter)
-
 /**
- * chip 列表：选项来自元数据表，数量直接复用 store 里已经算好的 stats，
- * 不再为筛选面板单独遍历一遍账号。
+ * API Key 列表的筛选面板。
+ *
+ * 与账号管理的筛选面板同构（chip 带命中计数 + 范围输入），外观样式共用
+ * assets/styles.css 里的 .filter-panel 段。维度上没有「登录方式」——
+ * API Key 不涉及登录，取而代之的是额度重置剩余天数。
+ *
+ * filter 由父级传入并直接就地修改：面板本身不持有状态，关掉再打开条件仍在。
  */
+import { computed } from 'vue'
+import { KEY_STATUS_META, SUBSCRIPTION_META } from '@/utils/format'
+import type { KeyFilter, KeyStatus, SubscriptionType } from '@shared/types'
+
+const props = defineProps<{
+  filter: KeyFilter
+  /** 各档位命中数，由父级按当前全部 Key 统计 */
+  bySubscription: Record<SubscriptionType, number>
+  byStatus: Record<KeyStatus, number>
+  /** 当前条件命中的 Key 数，展示在底部 */
+  matched: number
+}>()
+const emit = defineEmits<{ reset: [] }>()
+
+const filter = computed(() => props.filter)
+
 function buildChips<K extends string>(
   meta: Record<K, { text: string }>,
   counts: Record<K, number>
@@ -24,12 +36,20 @@ function buildChips<K extends string>(
 }
 
 const subscriptionChips = computed(() =>
-  buildChips<SubscriptionType>(SUBSCRIPTION_META, accountsStore.stats.bySubscription)
+  buildChips<SubscriptionType>(SUBSCRIPTION_META, props.bySubscription)
 )
-const statusChips = computed(() =>
-  buildChips<AccountStatus>(STATUS_META, accountsStore.stats.byStatus)
-)
-const idpChips = computed(() => buildChips<IdpType>(IDP_META, accountsStore.stats.byIdp))
+const statusChips = computed(() => buildChips<KeyStatus>(KEY_STATUS_META, props.byStatus))
+
+function toggle<T extends string>(list: T[], value: T): T[] {
+  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
+}
+
+function toggleSubscription(value: SubscriptionType): void {
+  filter.value.subscriptions = toggle(filter.value.subscriptions, value)
+}
+function toggleStatus(value: KeyStatus): void {
+  filter.value.statuses = toggle(filter.value.statuses, value)
+}
 
 /**
  * 数字输入框都要经过中转再写进筛选条件。
@@ -64,24 +84,6 @@ const daysRemainingMax = computed<number | null>({
     filter.value.daysRemainingMax = v == null ? undefined : Math.max(0, v)
   }
 })
-
-function toggle<T extends string>(list: T[], value: T): T[] {
-  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
-}
-
-function toggleSubscription(value: SubscriptionType): void {
-  filter.value.subscriptions = toggle(filter.value.subscriptions, value)
-}
-function toggleStatus(value: AccountStatus): void {
-  filter.value.statuses = toggle(filter.value.statuses, value)
-}
-function toggleIdp(value: IdpType): void {
-  filter.value.idps = toggle(filter.value.idps, value)
-}
-
-function reset(): void {
-  accountsStore.applyFilter({ search: filter.value.search })
-}
 </script>
 
 <template>
@@ -110,21 +112,6 @@ function reset(): void {
           class="chip"
           :class="{ on: filter.statuses.includes(item.key), empty: !item.count }"
           @click="toggleStatus(item.key)"
-        >
-          {{ item.label }}<span class="chip-count">({{ item.count }})</span>
-        </button>
-      </div>
-    </div>
-
-    <div class="filter-row">
-      <span class="filter-label">登录方式</span>
-      <div class="chips">
-        <button
-          v-for="item in idpChips"
-          :key="item.key"
-          class="chip"
-          :class="{ on: filter.idps.includes(item.key), empty: !item.count }"
-          @click="toggleIdp(item.key)"
         >
           {{ item.label }}<span class="chip-count">({{ item.count }})</span>
         </button>
@@ -178,10 +165,10 @@ function reset(): void {
     </div>
 
     <div class="filter-footer">
-      <span class="muted">命中 {{ accountsStore.filtered.length }} 个账号</span>
-      <a-button type="link" size="small" @click="reset">重置筛选</a-button>
+      <span class="muted">命中 {{ props.matched }} 个 API Key</span>
+      <a-button type="link" size="small" @click="emit('reset')">重置筛选</a-button>
     </div>
   </div>
 </template>
 
-<!-- 外观样式在 assets/styles.css 的 .filter-panel 段，与 API Key 筛选面板共用 -->
+<!-- 外观样式在 assets/styles.css 的 .filter-panel 段，与账号筛选面板共用 -->

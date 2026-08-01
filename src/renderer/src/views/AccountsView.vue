@@ -48,6 +48,12 @@ const addOpen = ref(false)
 /** 导入拆成两个入口：拖拽文件、粘贴文本 */
 const importFileOpen = ref(false)
 const importTextOpen = ref(false)
+
+/** 「添加账号」弹窗里的导入入口：它会先关掉自己，这里只负责打开对应的导入弹窗 */
+function openImport(kind: 'file' | 'text'): void {
+  if (kind === 'file') importFileOpen.value = true
+  else importTextOpen.value = true
+}
 const exportOpen = ref(false)
 const editTarget = ref<Account | null>(null)
 const detailTarget = ref<Account | null>(null)
@@ -99,10 +105,11 @@ const activeFilterCount = computed(() => {
     f.statuses.length +
     f.subscriptions.length +
     f.idps.length +
-    (f.usageMin !== undefined ? 1 : 0) +
-    (f.usageMax !== undefined ? 1 : 0) +
-    (f.daysRemainingMin !== undefined ? 1 : 0) +
-    (f.daysRemainingMax !== undefined ? 1 : 0)
+    // != null：输入框清空时给的是 null，按 !== undefined 判断会把它算成一个生效条件
+    (f.usageMin != null ? 1 : 0) +
+    (f.usageMax != null ? 1 : 0) +
+    (f.daysRemainingMin != null ? 1 : 0) +
+    (f.daysRemainingMax != null ? 1 : 0)
   )
 })
 
@@ -581,7 +588,7 @@ function logoutIde(account: Account): void {
       没有匹配筛选条件的账号
     </div>
 
-    <AddAccountModal v-model:open="addOpen" />
+    <AddAccountModal v-model:open="addOpen" @open-import="openImport" />
     <ImportAccountsFileModal v-model:open="importFileOpen" />
     <ImportAccountsTextModal v-model:open="importTextOpen" />
     <ExportAccountsModal v-model:open="exportOpen" :selected-ids="accountsStore.selectedIds" />

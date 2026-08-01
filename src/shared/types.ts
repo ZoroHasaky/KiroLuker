@@ -5,7 +5,11 @@ import { DEFAULT_REGION } from './regions'
 
 export type IdpType = 'BuilderId' | 'Github' | 'Google' | 'Enterprise'
 
-export type SubscriptionType = 'Free' | 'Pro' | 'Pro_Plus' | 'Enterprise' | 'Teams'
+/**
+ * 订阅档位。不含 Enterprise —— 那是登录方式（见 IdpType），
+ * 一个账号可以「订阅 Power + 用 Enterprise 登录」，两者是正交的。
+ */
+export type SubscriptionType = 'Free' | 'Pro' | 'Pro_Plus' | 'Pro_Max' | 'Power' | 'Teams'
 
 export type AccountStatus = 'active' | 'expired' | 'error' | 'banned' | 'unknown'
 
@@ -619,8 +623,14 @@ export interface KeyEntry {
   createdAt: number
   /** 最近一次查询到的订阅名称，如 Kiro Pro */
   subscription?: string
-  /** 订阅粗分层：free / pro / pro+ / power / other */
+  /**
+   * 订阅粗分层：free / pro / pro+ / power / other。
+   * 渲染层的档位判定与筛选统一走 shared/subscription 的 normalizeSubscriptionType(subscription)，
+   * 这个字段只作为历史数据保留。
+   */
   tier?: string
+  /** 额度下次重置时间戳（ms），用于算剩余天数 */
+  nextResetAt?: number
   /** 已用积分 */
   usedCredits?: number
   /** 总积分额度 */
@@ -639,6 +649,24 @@ export interface KeyEntry {
   lastChatError?: string
   /** 最近一次真实对话测活的时间戳（ms） */
   lastChatCheckedAt?: number
+}
+
+/** API Key 的检查状态，与账号的 AccountStatus 不同：Key 只关心「查得通不通」 */
+export type KeyStatus = 'normal' | 'error' | 'unchecked'
+
+/** API Key 列表的筛选条件 */
+export interface KeyFilter {
+  /** 订阅档位，判定口径与账号一致（见 shared/subscription） */
+  subscriptions: SubscriptionType[]
+  statuses: KeyStatus[]
+  /** 用量占比下限（0-1） */
+  usageMin?: number
+  /** 用量占比上限（0-1） */
+  usageMax?: number
+  /** 额度重置剩余天数下限（含） */
+  daysRemainingMin?: number
+  /** 额度重置剩余天数上限（含） */
+  daysRemainingMax?: number
 }
 
 /** Key 网关持久化数据 */

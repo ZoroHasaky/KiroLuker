@@ -1,4 +1,4 @@
-import type { AccountStatus, IdpType, SubscriptionType } from '@shared/types'
+import type { AccountStatus, IdpType, KeyStatus, SubscriptionType } from '@shared/types'
 
 /** 打码结果缓存：账号多、重渲染频繁，避免反复算 md5 */
 const maskedEmailCache = new Map<string, string>()
@@ -153,8 +153,21 @@ export const SUBSCRIPTION_META: Record<SubscriptionType, { text: string; color: 
   Free: { text: 'Free', color: 'default' },
   Pro: { text: 'Pro', color: 'blue' },
   Pro_Plus: { text: 'Pro+', color: 'purple' },
-  Enterprise: { text: 'Enterprise', color: 'gold' },
+  Pro_Max: { text: 'Pro Max', color: 'magenta' },
+  // Enterprise 从订阅档位移除后 gold 空了出来，Power 沿用它，与 API Key 页原本的配色一致
+  Power: { text: 'Power', color: 'gold' },
   Teams: { text: 'Teams', color: 'cyan' }
+}
+
+/**
+ * 取订阅档位的展示元数据。
+ *
+ * 各处都要走这里，不要直接索引 SUBSCRIPTION_META：磁盘上可能留着已废弃的档位值
+ * （例如早前把 Power 存成的 'Enterprise'），直接索引会得到 undefined，
+ * 紧接着取 .color / .text 就会让整张卡片渲染失败。
+ */
+export function subscriptionMeta(type: SubscriptionType): { text: string; color: string } {
+  return SUBSCRIPTION_META[type] ?? SUBSCRIPTION_META.Free
 }
 
 /** 订阅展示名：优先用接口给的标题，缺失时回退到内部枚举文案 */
@@ -162,7 +175,14 @@ export function subscriptionLabel(subscription: {
   type: SubscriptionType
   title?: string
 }): string {
-  return subscription.title || SUBSCRIPTION_META[subscription.type].text
+  return subscription.title || subscriptionMeta(subscription.type).text
+}
+
+/** API Key 的检查状态：卡片标签与筛选 chip 共用 */
+export const KEY_STATUS_META: Record<KeyStatus, { text: string; color: string }> = {
+  normal: { text: '正常', color: 'green' },
+  error: { text: '异常', color: 'red' },
+  unchecked: { text: '未检查', color: 'default' }
 }
 
 export const IDP_META: Record<IdpType, { text: string; color: string }> = {

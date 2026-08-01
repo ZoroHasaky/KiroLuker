@@ -7,9 +7,11 @@ import {
   CheckCircleFilled,
   CloudDownloadOutlined,
   CopyOutlined,
+  FileTextOutlined,
   GlobalOutlined,
   GoogleOutlined,
   GithubOutlined,
+  InboxOutlined,
   LoadingOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined
@@ -29,7 +31,11 @@ import type {
 } from '@shared/types'
 
 const props = defineProps<{ open: boolean }>()
-const emit = defineEmits<{ 'update:open': [boolean] }>()
+const emit = defineEmits<{
+  'update:open': [boolean]
+  /** 转交给导入弹窗：本弹窗会先关掉自己 */
+  'open-import': ['file' | 'text']
+}>()
 
 const accountsStore = useAccountsStore()
 const settingsStore = useSettingsStore()
@@ -91,6 +97,30 @@ const methods = [
   }
 ]
 
+/**
+ * 批量导入的入口。这两项不在本弹窗里完成，点击后关掉自己、把场子交给对应的导入弹窗，
+ * 与工具栏「导入」下拉里的两个入口指向同一处。
+ */
+const importEntries = [
+  {
+    key: 'file' as const,
+    title: '从文件导入',
+    desc: '拖拽或选择 JSON 文件，可一次多选',
+    icon: InboxOutlined
+  },
+  {
+    key: 'text' as const,
+    title: '输入 JSON 导入',
+    desc: '粘贴卡密、JSON、CSV 等文本',
+    icon: FileTextOutlined
+  }
+]
+
+function gotoImport(kind: 'file' | 'text'): void {
+  close()
+  emit('open-import', kind)
+}
+
 const providers: {
   key: OnlineLoginMethod
   title: string
@@ -135,6 +165,15 @@ const STEP_TEXT: Record<Step, { title: string; sub: string }> = {
   oidc: { title: '凭证信息', sub: '确认凭证后会联网校验并拉取用量' },
   local: { title: '凭证信息', sub: '确认凭证后会联网校验并拉取用量' }
 }
+
+/**
+ * 只有停在「选择添加方式」这一步时允许点遮罩关闭。
+ *
+ * 再往后每一步都带着状态：在线登录已经拉起浏览器、正在等回调，
+ * Enterprise 与 OIDC 则有填了一半的表单，误触遮罩就全白做了。
+ * 从这些步骤返回到 method 后会自动恢复可关。
+ */
+const maskClosable = computed(() => step.value === 'method')
 
 const stepTitle = computed(() => STEP_TEXT[step.value].title)
 const stepSub = computed(() =>
@@ -416,7 +455,7 @@ async function submitCredentials(): Promise<void> {
     :width="step === 'oidc' ? 620 : 480"
     :title="null"
     :closable="false"
-    :mask-closable="false"
+    :mask-closable="maskClosable"
     centered
     @cancel="close"
   >
@@ -454,6 +493,20 @@ async function submitCredentials(): Promise<void> {
           <span class="option-desc">{{ item.desc }}</span>
         </span>
         <LoadingOutlined v-if="item.key === 'local' && loadingLocal" />
+      </button>
+
+      <div class="option-group-label">或批量导入已有账号</div>
+      <button
+        v-for="item in importEntries"
+        :key="item.key"
+        class="option"
+        @click="gotoImport(item.key)"
+      >
+        <span class="option-icon"><component :is="item.icon" /></span>
+        <span class="option-text">
+          <span class="option-title">{{ item.title }}</span>
+          <span class="option-desc">{{ item.desc }}</span>
+        </span>
       </button>
     </div>
 
@@ -671,6 +724,13 @@ async function submitCredentials(): Promise<void> {
 .back,
 .close {
   margin-top: 2px;
+}
+
+/* 分组小标题：把「新增一个账号」与「批量导入已有账号」两类入口隔开 */
+.option-group-label {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--kal-muted);
 }
 
 .option {

@@ -15,6 +15,7 @@ import {
 } from './kiroEndpoints'
 import { httpRequest } from './net'
 import { DEFAULT_REGION } from '../shared/regions'
+import { normalizeSubscriptionType } from '../shared/subscription'
 import type {
   AccountSubscription,
   AccountUsage,
@@ -323,16 +324,6 @@ export function isAuthScopeError(message: string): boolean {
 }
 
 // ============ 响应解析 ============
-
-function normalizeSubscriptionType(title: string): SubscriptionType {
-  const t = title.toUpperCase()
-  // 顺序敏感：先判更具体的 PRO+
-  if (t.includes('PRO+') || t.includes('PRO_PLUS') || t.includes('PROPLUS')) return 'Pro_Plus'
-  if (t.includes('POWER') || t.includes('ENTERPRISE')) return 'Enterprise'
-  if (t.includes('TEAMS')) return 'Teams'
-  if (t.includes('PRO')) return 'Pro'
-  return 'Free'
-}
 
 export interface ParsedUsage {
   email?: string

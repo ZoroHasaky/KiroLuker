@@ -8,8 +8,10 @@ import {
   DEFAULT_SETTINGS,
   type AccountStoreData,
   type AppSettings,
-  type KeyGatewayData
+  type KeyGatewayData,
+  type SubscriptionType
 } from '../shared/types'
+import { normalizeSubscriptionType } from '../shared/subscription'
 
 /** permissions.yaml 开启前的原始状态 */
 export interface ShellApproveYamlBackup {
@@ -75,10 +77,53 @@ export function setShellApproveBackup(backup: ShellApproveBackup | null): void {
   store.set('shellApproveBackup', backup)
 }
 
+/** 当前有效的订阅档位，用于识别磁盘上遗留的废弃值 */
+const VALID_SUBSCRIPTION_TYPES = new Set<string>([
+  'Free',
+  'Pro',
+  'Pro_Plus',
+  'Pro_Max',
+  'Power',
+  'Teams'
+] satisfies SubscriptionType[])
+
+/**
+ * 按 title 重新对齐订阅档位，就地改写并落盘。
+ *
+ * subscription.type 是从 title 派生出来的持久化值。早前的判定把 POWER 并进了
+ * 'Enterprise'，而 Enterprise 根本不是订阅档位（它是登录方式），于是磁盘上一大批
+ * Power 账号至今存着 'Enterprise'。只改判定逻辑不会动到已存的值，
+ * 筛选面板里的 Power 会一直是 0，除非把每个账号的用量都重新刷一遍。
+ *
+ * 放在这个唯一读取入口上做，比放在渲染进程的 store.load() 里可靠：后者只在 load
+ * 时跑一次，热重载或 store 状态被保留时根本不会执行。
+ * 幂等；title 缺失时无判据，只把已废弃的档位归到 Free，其余保持原值。
+ */
+function alignSubscriptionTypes(data: AccountStoreData): AccountStoreData {
+  let changed = false
+  for (const account of data.accounts) {
+    const sub = account.subscription
+    if (!sub) continue
+    if (!sub.title) {
+      if (VALID_SUBSCRIPTION_TYPES.has(sub.type)) continue
+      sub.type = 'Free'
+      changed = true
+      continue
+    }
+    const next = normalizeSubscriptionType(sub.title)
+    if (next === sub.type) continue
+    sub.type = next
+    changed = true
+  }
+  // 对齐一次就写回，避免每次读取都重算
+  if (changed) store.set('accountData', data)
+  return data
+}
+
 export function getAccountData(): AccountStoreData {
   const data = store.get('accountData') as AccountStoreData | undefined
   if (!data || !Array.isArray(data.accounts)) return EMPTY_DATA
-  return data
+  return alignSubscriptionTypes(data)
 }
 
 export async function setAccountData(data: AccountStoreData): Promise<void> {
