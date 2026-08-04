@@ -51,6 +51,7 @@ const api = {
   syncKey: (id: string) => invoke('keys:sync', id),
   syncAllKeys: (concurrency?: number) => invoke('keys:sync-all', concurrency),
   getKeyGatewayStatus: () => invoke('key-gateway:status'),
+  getKiroCapability: () => invoke('key-gateway:capability'),
   inspectKeyGatewayConflict: () => invoke('key-gateway:inspect-conflict'),
   enableKeyGateway: (keyId?: string, force?: boolean) =>
     invoke('key-gateway:enable', keyId, force),

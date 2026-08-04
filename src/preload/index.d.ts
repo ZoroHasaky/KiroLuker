@@ -16,6 +16,7 @@ import type {
   KeyGatewayConflict,
   KeyGatewayData,
   KeyGatewayStatus,
+  KiroCapability,
   KeyModelInfo,
   KeyTestResult,
   KiroModelInfo,
@@ -83,8 +84,12 @@ export interface Api {
     data: KeyGatewayData
     success: number
     failed: number
+    /** 因凭证确定性失效而被跳过的 Key 数量 */
+    skipped: number
   }>>
   getKeyGatewayStatus: () => Promise<IpcResult<KeyGatewayStatus>>
+  /** 探测当前 Kiro 是否支持 API Key 网关接管 */
+  getKiroCapability: () => Promise<IpcResult<KiroCapability>>
   inspectKeyGatewayConflict: () => Promise<IpcResult<KeyGatewayConflict | null>>
   enableKeyGateway: (keyId?: string, force?: boolean) => Promise<IpcResult<KeyGatewayStatus>>
   disableKeyGateway: () => Promise<IpcResult<KeyGatewayStatus>>

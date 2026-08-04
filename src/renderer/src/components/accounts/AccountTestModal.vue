@@ -15,6 +15,7 @@ import {
 import { useSettingsStore } from '@/stores/settings'
 import { useAccountsStore } from '@/stores/accounts'
 import { displayEmail } from '@/utils/display'
+import { formatRate } from '@/utils/format'
 import { errorMessage } from '@shared/errors'
 import type { Account, ChatTestResult, KiroModelInfo } from '@shared/types'
 
@@ -45,10 +46,13 @@ const accountLabel = computed(() =>
 )
 
 const modelOptions = computed(() =>
-  models.value.map((m) => ({
-    value: m.modelId,
-    label: m.modelName && m.modelName !== m.modelId ? `${m.modelName}（${m.modelId}）` : m.modelId
-  }))
+  models.value.map((m) => {
+    const base =
+      m.modelName && m.modelName !== m.modelId ? `${m.modelName}（${m.modelId}）` : m.modelId
+    const rate = formatRate(m.rate)
+    // 倍率拼进 label，a-select 搜索时也能按倍率匹配
+    return { value: m.modelId, label: rate ? `${base} ${rate}` : base }
+  })
 )
 
 /** 模型列表就绪之前只显示加载态，避免用户对着一份还没确认可用的表单操作 */

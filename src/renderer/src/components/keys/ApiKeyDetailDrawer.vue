@@ -16,7 +16,7 @@ import RegionSelect from '@/components/common/RegionSelect.vue'
 import { useKeysStore } from '@/stores/keys'
 import { useSettingsStore } from '@/stores/settings'
 import { copyText } from '@/utils/ui'
-import { displayEmail as maskedEmail } from '@/utils/display'
+import { displayEmail as maskedEmail, displayUserId } from '@/utils/display'
 import { formatCreditsPair, formatDateTime } from '@/utils/format'
 import { regionLabel } from '@shared/regions'
 import type { KeyEntry } from '@shared/types'
@@ -27,6 +27,14 @@ const keysStore = useKeysStore()
 const settingsStore = useSettingsStore()
 const showSecret = ref(false)
 const busy = ref('')
+
+/**
+ * 抽屉宽度：完整 API Key 与 User ID 都是 40+ 字符的长串，560 太窄会挤成多行。
+ * 窄窗口下退回视口的 92%，避免抽屉宽过窗口本身。
+ */
+const drawerWidth = computed(() => Math.min(680, Math.round(window.innerWidth * 0.92)))
+/** label 列固定宽度：否则「User ID」这种两字词会被压成两行，和右侧值错位 */
+const labelStyle = { width: '92px', whiteSpace: 'nowrap' } as const
 
 const entry = computed(() =>
   props.keyEntry
@@ -44,6 +52,14 @@ const maskedKey = computed(() => {
   if (!key) return '-'
   if (!settingsStore.settings.privacyMode || showSecret.value) return key
   return `${key.slice(0, 8)}${'•'.repeat(24)}${key.slice(-8)}`
+})
+/**
+ * 账号唯一标识，来自 Get-Usage-Limits 响应的 userInfo.userId，随刷新用量一起更新。
+ * 与邮箱同样跟随全局隐私打码，但不受「显示完整凭证」按钮影响：那个按钮只管 API Key 本身。
+ */
+const userIdText = computed(() => {
+  const value = entry.value?.userId
+  return value ? displayUserId(value, settingsStore.settings.privacyMode) : '-'
 })
 const isCurrent = computed(() => entry.value?.id === keysStore.data.activeKeyId)
 /** 与卡片一致：管理面同步错误与对话测活错误取并集 */
@@ -109,6 +125,17 @@ function copyKey(): void {
   if (target) copyText(target.key, '完整 API Key 已复制')
 }
 
+/** 复制的始终是完整原值，与界面是否打码无关 */
+function copyUserId(): void {
+  const value = entry.value?.userId
+  if (value) copyText(value, 'User ID 已复制')
+}
+
+function copyEmail(): void {
+  const value = entry.value?.email
+  if (value) copyText(value, '邮箱已复制')
+}
+
 async function exportKey(): Promise<void> {
   const target = entry.value
   if (!target) return
@@ -130,7 +157,7 @@ function subscriptionColor(tier?: string): string {
   <a-drawer
     :open="!!entry"
     :title="entry?.note || 'API Key 详情'"
-    width="560"
+    :width="drawerWidth"
     placement="right"
     @close="emit('close')"
   >
@@ -170,6 +197,7 @@ function subscriptionColor(tier?: string): string {
 
       <a-alert
         v-if="issue"
+        class="issue-alert"
         type="error"
         show-icon
         :message="issue"
@@ -198,7 +226,13 @@ function subscriptionColor(tier?: string): string {
           {{ showSecret ? '隐藏' : '显示' }}
         </a-button>
       </div>
-      <a-descriptions :column="1" size="small" bordered style="margin-bottom: 18px">
+      <a-descriptions
+        :column="1"
+        size="small"
+        bordered
+        :label-style="labelStyle"
+        style="margin-bottom: 18px"
+      >
         <a-descriptions-item label="完整凭证">
           <div class="cell-row">
             <span class="mono cell-key" :title="showSecret || !settingsStore.settings.privacyMode ? entry.key : undefined">
@@ -210,11 +244,42 @@ function subscriptionColor(tier?: string): string {
             </a-button>
           </div>
         </a-descriptions-item>
-        <a-descriptions-item label="邮箱">{{ emailText }}</a-descriptions-item>
+        <a-descriptions-item label="邮箱">
+          <div v-if="entry.email" class="cell-row">
+            <span
+              class="cell-key"
+              :title="settingsStore.settings.privacyMode ? undefined : entry.email"
+            >{{ emailText }}</span>
+            <a-button type="link" size="small" class="cell-action" @click="copyEmail">
+              <template #icon><CopyOutlined /></template>
+              复制
+            </a-button>
+          </div>
+          <span v-else class="muted">-</span>
+        </a-descriptions-item>
+        <a-descriptions-item label="User ID">
+          <div v-if="entry.userId" class="cell-row">
+            <span
+              class="mono cell-key"
+              :title="settingsStore.settings.privacyMode ? undefined : entry.userId"
+            >{{ userIdText }}</span>
+            <a-button type="link" size="small" class="cell-action" @click="copyUserId">
+              <template #icon><CopyOutlined /></template>
+              复制
+            </a-button>
+          </div>
+          <span v-else class="muted">-</span>
+        </a-descriptions-item>
       </a-descriptions>
 
       <div class="section-title">基本信息</div>
-      <a-descriptions :column="1" size="small" bordered style="margin-bottom: 18px">
+      <a-descriptions
+        :column="1"
+        size="small"
+        bordered
+        :label-style="labelStyle"
+        style="margin-bottom: 18px"
+      >
         <a-descriptions-item label="状态">
           <a-tag :color="issue ? 'red' : entry.lastCheckedAt ? 'green' : 'default'">
             {{ issue ? '异常' : entry.lastCheckedAt ? '正常' : '未检查' }}
@@ -236,7 +301,13 @@ function subscriptionColor(tier?: string): string {
       </a-descriptions>
 
       <div class="section-title">订阅与积分</div>
-      <a-descriptions :column="1" size="small" bordered style="margin-bottom: 12px">
+      <a-descriptions
+        :column="1"
+        size="small"
+        bordered
+        :label-style="labelStyle"
+        style="margin-bottom: 12px"
+      >
         <a-descriptions-item label="套餐">
           <a-tag :color="subscriptionColor(entry.tier)">{{ entry.subscription || '未知' }}</a-tag>
         </a-descriptions-item>
@@ -269,10 +340,17 @@ function subscriptionColor(tier?: string): string {
 
 <style scoped>
 .section-title { display: flex; align-items: center; margin: 4px 0 8px; font-weight: 600; }
-/* 表格单元格里值占满、右侧操作按钮对齐（区域与凭证复用同一布局） */
-.cell-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.cell-key { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cell-action { flex: 0 0 auto; padding: 0; height: auto; }
+/*
+ * 表格单元格里值占满、右侧操作按钮对齐（区域与凭证复用同一布局）。
+ * 值可能是 40+ 字符的长串，用 flex-start 顶部对齐：换成多行时按钮跟着第一行，
+ * 不会因为垂直居中而浮到中间，看起来像错位。
+ */
+.cell-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+/* 完整展示不截断：长串按字符换行，min-width:0 让它能在 flex 里正常收缩 */
+.cell-key { flex: 1 1 auto; min-width: 0; word-break: break-all; white-space: normal; line-height: 1.7; }
+.cell-action { flex: 0 0 auto; padding: 0; height: auto; line-height: 1.7; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
 .muted { color: var(--kal-muted); }
+/* 上游错误是整段 JSON，里面的长 URL 没有可断行的空格，需要按字符断开才不会溢出容器 */
+.issue-alert :deep(.ant-alert-message) { word-break: break-word; overflow-wrap: anywhere; }
 </style>

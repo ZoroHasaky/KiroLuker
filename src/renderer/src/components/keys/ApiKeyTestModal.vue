@@ -10,6 +10,7 @@ import {
 } from '@ant-design/icons-vue'
 import { useKeysStore } from '@/stores/keys'
 import { useSettingsStore } from '@/stores/settings'
+import { formatRate } from '@/utils/format'
 import { errorMessage } from '@shared/errors'
 import type { ChatTestResult, KeyEntry, KeyModelInfo } from '@shared/types'
 
@@ -35,10 +36,17 @@ const label = computed(() => {
   const key = props.keyEntry?.key || ''
   return settingsStore.settings.privacyMode ? mask(key) : key
 })
-const modelOptions = computed(() => models.value.map((model) => ({
-  value: model.id,
-  label: model.name && model.name !== model.id ? `${model.name}（${model.id}）` : model.id
-})))
+const modelOptions = computed(() =>
+  models.value.map((model) => {
+    const base = model.name && model.name !== model.id ? `${model.name}（${model.id}）` : model.id
+    const rate = formatRate(model.rate)
+    return {
+      value: model.id,
+      // 倍率拼进 label，a-select 搜索时也能按倍率匹配
+      label: rate ? `${base} ${rate}` : base
+    }
+  })
+)
 const ready = computed(() => !modelsLoading.value && !modelsError.value && models.value.length > 0)
 
 function mask(key: string): string {

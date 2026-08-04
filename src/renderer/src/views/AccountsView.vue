@@ -39,6 +39,7 @@ import {
   copyText,
   notifyResult
 } from '@/utils/ui'
+import { shouldSkipAccountUsageRefresh } from '@shared/refreshPolicy'
 import type { Account, SwitchAccountResult } from '@shared/types'
 
 const accountsStore = useAccountsStore()
@@ -315,13 +316,22 @@ function removeSelected(): void {
 async function batch(kind: 'refresh' | 'check'): Promise<void> {
   // 按界面当前排序取 id，保证从列表第一个账号开始刷，而不是按内部存储顺序
   const selected = new Set(accountsStore.selectedIds)
-  const ids = (selected.size ? sorted.value.filter((a) => selected.has(a.id)) : sorted.value).map(
-    (a) => a.id
-  )
-  if (ids.length === 0) return void message.info('没有可操作的账号')
+  const scope = selected.size ? sorted.value.filter((a) => selected.has(a.id)) : sorted.value
 
   // 没有勾选时才算「刷了全部」，这种情况刷完把自动刷新整轮往后顺延
   const isFullRun = selected.size === 0
+
+  // 全量刷新时跳过确定性失败的账号（封禁、凭证失效），省下必然白跑的请求。
+  // 勾选场景不跳过：用户已经明确指定了目标，替他做决定反而困惑；
+  // 卡片上的单个刷新按钮同样不受影响，异常账号始终留有手动重试的入口。
+  const runnable = isFullRun ? scope.filter((a) => !shouldSkipAccountUsageRefresh(a)) : scope
+  const skipped = scope.length - runnable.length
+  const ids = runnable.map((a) => a.id)
+  if (ids.length === 0) {
+    return void message.info(
+      skipped ? `${skipped} 个账号处于封禁或凭证失效状态，已全部跳过` : '没有可操作的账号'
+    )
+  }
 
   const label = kind === 'refresh' ? '密钥刷新' : '用量刷新'
   const key = `batch-${kind}`
@@ -343,11 +353,12 @@ async function batch(kind: 'refresh' | 'check'): Promise<void> {
 
   // 收尾时销毁进度提示再弹结果，避免复用同 key 带来的更新不确定性
   message.destroy(key)
+  const skippedText = skipped ? `，跳过 ${skipped}` : ''
   if (res.failed) {
-    message.warning(`${label}完成：成功 ${res.success}，失败 ${res.failed}`)
+    message.warning(`${label}完成：成功 ${res.success}，失败 ${res.failed}${skippedText}`)
     console.warn(res.messages)
   } else {
-    message.success(`${label}完成：成功 ${res.success}`)
+    message.success(`${label}完成：成功 ${res.success}${skippedText}`)
   }
 }
 
@@ -494,7 +505,7 @@ function logoutIde(account: Account): void {
           @click="batch('check')"
         >
           <template #icon><SyncOutlined /></template>
-          {{ usageRefreshing ? '正在刷新用量/积分...' : `刷新用量${batchScopeSuffix}` }}
+          {{ usageRefreshing ? `正在刷新${visibleSelectedCount ? visibleSelectedCount + '个账户' : ''}用量/积分...` : `刷新用量/积分${batchScopeSuffix}` }}
         </a-button>
         <a-button
           size="small"

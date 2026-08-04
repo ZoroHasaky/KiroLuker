@@ -124,6 +124,8 @@ interface RawModel {
   modelId?: string
   modelName?: string
   description?: string
+  /** 该模型消耗额度的倍率，上游 Model schema 里的 rateMultiplier */
+  rateMultiplier?: number
 }
 
 /** 用一个确定的 profileArn 把分页拉完 */
@@ -139,7 +141,12 @@ async function fetchModelsWithArn(
   const add = (m?: RawModel): void => {
     if (!m?.modelId || seen.has(m.modelId)) return
     seen.add(m.modelId)
-    models.push({ modelId: m.modelId, modelName: m.modelName, description: m.description })
+    models.push({
+      modelId: m.modelId,
+      modelName: m.modelName,
+      description: m.description,
+      rate: m.rateMultiplier
+    })
   }
 
   do {

@@ -3,6 +3,64 @@
 本文件记录 Kiro Manager Lite 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.10] - 2026-08-04
+
+本版本修掉一个在旧版 Kiro 上「提示成功但实际没生效」的网关缺陷，并让用量刷新学会跳过
+已经确定失效的账号与 Key，不再把时间花在必然失败的请求上。
+
+### 新增
+
+#### Kiro 版本能力探测
+
+- 新增 Kiro 版本能力探测：判据是「kiro-agent 扩展是否真的读取 krsEndpoints / cpsEndpoints」，
+  而不是比较版本号大小。流式扫描扩展文件（40MB 以上不整体读入内存），按文件体积与修改时间
+  缓存结果，IDE 升级后自动失效
+- 跨平台定位 Kiro 安装目录：macOS、Windows、Linux 各自的常见安装路径都会尝试；
+  探测不到时按「支持」放行，避免因为路径没覆盖到就误拦本来能用的功能
+- 开启网关前做硬校验，不支持的版本直接拦下并说明原因，不再写出一份 IDE 根本不看的配置
+- API Key 管理页检测到不支持的版本时显示醒目提示，开启网关与切换 Key 都会弹窗告知需要升级，
+  并提供 Kiro 官网下载入口
+
+#### 模型倍率
+
+- 账号测活与 API Key 测活的模型下拉新增消耗倍率显示，如 `Claude Opus 5（claude-opus-5） 1x`，
+  取自上游 Model 结构里的 `rateMultiplier`
+- 倍率一并拼入选项文本，搜索模型时也能按倍率匹配；上游未返回倍率的模型（如 auto）自动省略
+
+#### API Key 详情
+
+- 新增 User ID 展示，取自 `Get-Usage-Limits` 响应的 `userInfo.userId`，随刷新用量一起更新。
+  同一账号签发的多个 Key 会共用同一个 User ID，可据此识别「这几个 Key 其实是一个号」
+- User ID 跟随全局隐私打码，打码时保留目录 ID 与 UUID 首段，便于在打码状态下比对归属
+- 邮箱与 User ID 都新增复制按钮，复制得到的始终是完整原值，与界面是否打码无关
+
+### 优化
+
+- 用量 / 积分刷新新增跳过策略：凭证被拒、403、账号封禁这类**重试也不会变好**的确定性失败
+  会被跳过；限流、5xx、超时、网络故障等临时故障一律继续重试，不会因为一次网络抖动
+  就让账号或 Key 永久停在异常状态
+- 跳过策略统一收敛到 `shared/refreshPolicy`，账号自动刷新、账号手动批量、
+  API Key 自动刷新、API Key 手动全量四条路径共用同一份判定，不会再出现
+  「手动跳过了、自动还在刷」的口径漂移
+- 勾选后刷新与卡片上的单个刷新按钮**不跳过**：用户已明确指定目标，异常项始终留有手动重试入口
+- 刷新结果提示带上跳过数量，全部被跳过时明确说明原因，不再静默什么都不做
+- 账号管理与 API Key 管理的刷新按钮文案统一为「刷新用量/积分」；
+  刷新过程中显示实际处理的条数，如「正在刷新 5 个账户用量/积分...」
+- API Key 详情抽屉加宽（窄窗口下按视口比例自适应），完整凭证、邮箱、User ID 等长文本
+  改为按字符换行而非截断，操作按钮顶部对齐，多行时不再错位
+- 上游返回的整段 JSON 错误（内含无空格长 URL）现在会正确断行，不再溢出提示框
+
+### 修复
+
+- 修复在旧版 Kiro（如 0.11.133）上开启 API Key 网关时「弹窗提示写入成功、实际请求仍走官方额度」
+  的问题。根因是旧版 Kiro 仍使用 CodeWhisperer 端点体系（`q.<region>.amazonaws.com`），
+  既不读取 `codewhisperer.config.krsEndpoints` / `cpsEndpoints`，也不会发出可被接管的
+  KRS / CPS 请求，而写入后的回读校验只能证明文件写对了、证明不了 IDE 会采用这两个键
+- 修复 API Key 批量刷新的进度总数把被跳过的 Key 也算进去，导致进度条差着几个刷不满、
+  看起来像卡住的问题
+
+> 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
+
 ## [1.0.9] - 2026-08-01
 
 本版本把订阅档位理清：Enterprise 不再占用一个订阅档位（它是登录方式），Power 独立成档，
@@ -550,6 +608,7 @@
 
 > 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
 
+[1.0.10]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.10
 [1.0.9]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.9
 [1.0.8]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.8
 [1.0.7]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.7

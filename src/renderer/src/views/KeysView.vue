@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, h, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { message, Modal } from 'ant-design-vue'
 import {
@@ -40,6 +40,7 @@ import {
   usageColor
 } from '@/utils/format'
 import { normalizeSubscriptionType } from '@shared/subscription'
+import { keyIssueOf, shouldSkipKeyUsageRefresh } from '@shared/refreshPolicy'
 import RegionSelect from '@/components/common/RegionSelect.vue'
 import UsageHistoryModal from '@/components/accounts/UsageHistoryModal.vue'
 import ApiKeyDetailDrawer from '@/components/keys/ApiKeyDetailDrawer.vue'
@@ -52,6 +53,7 @@ import type {
   KeyFilter,
   KeyGatewayConflict,
   KeyStatus,
+  KiroCapability,
   SubscriptionType
 } from '@shared/types'
 
@@ -61,6 +63,14 @@ const { data, status, activeKey, loading } = storeToRefs(store)
 const precision = computed(() => settingsStore.settings.usagePrecision)
 const privacyMode = computed(() => settingsStore.settings.privacyMode)
 const search = ref('')
+
+// 旧版 Kiro 不读端点覆盖，开启网关会「写成功但请求照旧」，加载时探测一次并给出提示
+const capability = ref<KiroCapability | null>(null)
+const gatewayUnsupported = computed(() => capability.value?.supportsKeyGateway === false)
+async function detectCapability(): Promise<void> {
+  const res = await window.api.getKiroCapability()
+  if (res.success && res.data) capability.value = res.data
+}
 
 const addOpen = ref(false)
 const addValue = ref('')
@@ -352,8 +362,9 @@ const usageSubject = computed(() => {
  * 只看 lastError 会漏掉被封禁的 Key —— 它们在 Get-Usage-Limits 上返回 200，
  * 只有真实对话才会暴露 403。
  */
+/** 异常原因与跳过判定都走 shared/refreshPolicy，与主进程自动刷新保持同一口径 */
 function keyIssue(entry: KeyEntry): string | undefined {
-  return entry.lastError || entry.lastChatError
+  return keyIssueOf(entry)
 }
 
 function keyStatus(entry: KeyEntry): { color: string; text: string } {
@@ -564,6 +575,10 @@ async function forceTakeover(): Promise<void> {
 
 function select(entry: KeyEntry): void {
   if (entry.id === data.value.activeKeyId || actionBusy(entry.id, 'select')) return
+  if (gatewayUnsupported.value) {
+    showUnsupportedModal()
+    return
+  }
   if (!data.value.enabled) {
     void confirmEnableGatewayAndSelect(entry)
     return
@@ -584,16 +599,27 @@ async function sync(entry: KeyEntry): Promise<void> {
 
 async function syncAll(): Promise<void> {
   // 与批量测活共用目标口径：勾选项同样只取界面上可见的那些
-  const targets = batchTargets.value
-  if (!targets.length) return void message.info('没有可刷新的 API Key')
+  const scope = batchTargets.value
+  const isFullRun = !selectedIds.value.length
+
+  // 全量刷新时跳过确定性失败的 Key（凭证被拒、403、封禁），省下必然白跑的请求。
+  // 勾选场景不跳过：用户已经明确指定了目标。单个卡片的刷新按钮同样不受影响。
+  const targets = isFullRun ? scope.filter((entry) => !shouldSkipKeyUsageRefresh(entry)) : scope
+  const skipped = scope.length - targets.length
+  if (!targets.length) {
+    return void message.info(
+      skipped ? `${skipped} 个 API Key 凭证已失效，已全部跳过` : '没有可刷新的 API Key'
+    )
+  }
 
   syncingAll.value = true
   try {
     const result = await store.syncMany(targets.map((entry) => entry.id))
     if (result.error) return void message.error(result.error)
     // 只有刷了当前列表全部才算「刷了全量」，据此把自动刷新整轮往后顺延
-    if (!selectedIds.value.length) store.scheduleUsageRefresh()
-    const text = `用量刷新完成：成功 ${result.success}，失败 ${result.failed}`
+    if (isFullRun) store.scheduleUsageRefresh()
+    const skippedText = skipped ? `，跳过 ${skipped}` : ''
+    const text = `用量刷新完成：成功 ${result.success}，失败 ${result.failed}${skippedText}`
     result.failed ? message.warning(text) : message.success(text)
   } finally {
     syncingAll.value = false
@@ -678,9 +704,36 @@ async function toggleGateway(checked: boolean, target?: KeyEntry): Promise<void>
   }
 }
 
+/** 版本不支持弹窗：切换 Key 和开启网关共用 */
+function showUnsupportedModal(): void {
+  const ver = capability.value?.version
+  Modal.warning({
+    title: '当前 Kiro 版本不支持本地网关',
+    content: h('div', [
+      h('p', `检测到 Kiro ${ver || '(未知版本)'}，当前版本不支持本地网关。`),
+      h('p', '请升级 Kiro 到 0.12.xxx 及以上版本后再使用。'),
+      h(
+        'a',
+        {
+          href: 'https://kiro.dev/downloads/',
+          target: '_blank',
+          rel: 'noopener noreferrer',
+          style: 'display:inline-block;margin-top:8px'
+        },
+        '前往 Kiro 官网下载最新版本 →'
+      )
+    ]),
+    okText: '我知道了'
+  })
+}
+
 async function confirmToggleGateway(): Promise<void> {
   const enabling = !data.value.enabled
   const firstKey = firstListedKey.value
+  if (enabling && gatewayUnsupported.value) {
+    showUnsupportedModal()
+    return
+  }
   if (enabling && !firstKey) {
     message.warning('请先添加 API Key')
     return
@@ -771,7 +824,10 @@ async function confirmRestart(): Promise<void> {
   if (await restartIde()) restartPrompt.value = null
 }
 
-onMounted(() => void store.load())
+onMounted(() => {
+  void store.load()
+  void detectCapability()
+})
 </script>
 
 <template>
@@ -817,6 +873,26 @@ onMounted(() => void store.load())
           </a-button>
         </a-tooltip>
       </div>
+
+      <a-alert
+        v-if="gatewayUnsupported"
+        class="gateway-unsupported"
+        type="warning"
+        show-icon
+        message="当前 Kiro 版本不支持本地网关"
+      >
+        <template #description>
+          <span>
+            检测到 Kiro {{ capability?.version || '(未知版本)' }}，当前版本不支持本地网关。请升级 Kiro 到 0.12.xxx 及以上版本后再使用。
+          </span>
+          <a
+            href="https://kiro.dev/downloads/"
+            target="_blank"
+            rel="noopener noreferrer"
+            style="margin-left: 8px"
+          >前往下载新版本 →</a>
+        </template>
+      </a-alert>
     </a-card>
 
     <div class="keys-header">
@@ -885,7 +961,7 @@ onMounted(() => void store.load())
         <a-divider type="vertical" style="margin: 0 2px" />
         <a-button size="small" :loading="syncing" @click="syncAll">
           <template #icon><SyncOutlined /></template>
-          {{ syncing ? '正在刷新 API Key 用量/积分...' : `刷新${batchScopeSuffix}` }}
+          {{ syncing ? `正在刷新${visibleSelectedCount ? visibleSelectedCount + '个API Key' : ''}用量/积分...` : `刷新用量/积分${batchScopeSuffix}` }}
         </a-button>
         <a-button
           size="small"
@@ -1291,6 +1367,7 @@ onMounted(() => void store.load())
 .gateway-title { display: flex; align-items: center; gap: 9px; font-size: 17px; }
 .gateway-desc { margin-top: 7px; font-size: 13px; }
 .gateway-hint { margin-top: 4px; color: var(--kal-muted); font-size: 12px; }
+.gateway-unsupported { margin-top: 14px; }
 .keys-header { flex: 0 0 auto; }
 .toolbar, .meta-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .toolbar { margin-bottom: 10px; }

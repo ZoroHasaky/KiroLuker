@@ -20,6 +20,28 @@ export function displayKey(key: string, privacy: boolean): string {
 }
 
 /**
+ * 账号唯一标识（形如 d-9067c98495.d49834d8-80b1-70c0-943f-8fbac18f1c23）的打码。
+ *
+ * 保留点号前的目录 ID 与 UUID 首段：同一个账号签发的多个 API Key 会共用同一个 userId，
+ * 留出这两段用户才能在打码状态下肉眼比对出「这几个 Key 其实是一个号」。
+ */
+export function maskUserId(value: string): string {
+  const dot = value.indexOf('.')
+  if (dot <= 0) {
+    if (value.length <= 12) return value
+    return `${value.slice(0, 8)}${'•'.repeat(12)}${value.slice(-4)}`
+  }
+  const directory = value.slice(0, dot)
+  const rest = value.slice(dot + 1)
+  if (rest.length <= 12) return `${directory}.${rest}`
+  return `${directory}.${rest.slice(0, 8)}${'•'.repeat(12)}${rest.slice(-4)}`
+}
+
+export function displayUserId(value: string, privacy: boolean): string {
+  return privacy ? maskUserId(value) : value
+}
+
+/**
  * 账号名：打码时用与邮箱同源的遮罩串，否则取昵称、缺昵称时退回邮箱前缀。
  * 昵称往往就是邮箱前缀，打码时必须一起遮罩，否则等于没打码。
  */

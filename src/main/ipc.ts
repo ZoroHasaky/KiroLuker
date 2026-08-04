@@ -23,6 +23,7 @@ import {
   startSocialLogin
 } from './onlineLogin'
 import { isHttpUrl, openUrl } from './browser'
+import { detectKiroCapability } from './kiroCapability'
 import { setTraySnapshot, setTrayEnabled } from './tray'
 import {
   clearProactiveRenewal,
@@ -239,6 +240,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   handle('keys:sync-all', async (_e, concurrency?: number) => ok(await syncAllKeys(concurrency)))
 
   handle('key-gateway:status', async () => ok(await getGatewayStatus()))
+  handle('key-gateway:capability', async () => ok(await detectKiroCapability()))
   handle('key-gateway:inspect-conflict', async () => ok(await inspectGatewayConflict()))
   handle('key-gateway:enable', async (_e, keyId?: string, force?: boolean) =>
     ok(await enableGateway(keyId, { force: !!force }))

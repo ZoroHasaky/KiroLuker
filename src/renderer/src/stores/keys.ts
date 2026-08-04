@@ -8,6 +8,7 @@ import {
   type KeyModelInfo,
   type KeyTestResult
 } from '@shared/types'
+import { shouldSkipKeyUsageRefresh } from '@shared/refreshPolicy'
 import { useSettingsStore } from '@/stores/settings'
 
 export const useKeysStore = defineStore('keys', () => {
@@ -168,16 +169,18 @@ export const useKeysStore = defineStore('keys', () => {
 
   async function syncAll(
     showProgress = true
-  ): Promise<{ error?: string; success?: number; failed?: number }> {
+  ): Promise<{ error?: string; success?: number; failed?: number; skipped?: number }> {
     if (syncRunning.value) return { error: 'API Key 用量正在同步，请稍候' }
     syncRunning.value = true
-    const total = data.value.keys.length
+    // 主进程会跳过凭证已确定失效的 Key，进度总数要用同一套策略算，
+    // 否则进度条永远差着被跳过的那几个，看起来像卡住没刷完。
+    const total = data.value.keys.filter((entry) => !shouldSkipKeyUsageRefresh(entry)).length
     if (showProgress) usageTask.value = { running: true, type: 'api-key-usage-refresh', total, done: 0 }
     try {
       const res = await window.api.syncAllKeys(settingsStore.settings.apiKeyRefreshConcurrency)
       if (!res.success || !res.data) return { error: res.error || '批量同步失败' }
       replace(res.data.data)
-      return { success: res.data.success, failed: res.data.failed }
+      return { success: res.data.success, failed: res.data.failed, skipped: res.data.skipped }
     } finally {
       if (showProgress) {
         usageTask.value.done = total
@@ -310,7 +313,11 @@ export const useKeysStore = defineStore('keys', () => {
       if (data.value.keys.length) {
         const result = await syncAll()
         if (result.error) console.warn(`[ApiKeyAutoRefresh] ${result.error}`)
-        else console.info(`[ApiKeyAutoRefresh] 完成：成功 ${result.success}，失败 ${result.failed}`)
+        else
+          console.info(
+            `[ApiKeyAutoRefresh] 完成：成功 ${result.success}，失败 ${result.failed}` +
+              (result.skipped ? `，跳过 ${result.skipped} 个凭证已失效的 Key` : '')
+          )
       }
       markRan()
       if (Date.now() >= next) nextUsageRefreshAt.value = Date.now() + intervalMs()

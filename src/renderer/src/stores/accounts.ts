@@ -19,6 +19,7 @@ import {
   type VerifyCredentialsInput
 } from '@shared/types'
 import { errorMessage, isCredentialRejected } from '@shared/errors'
+import { shouldSkipAccountUsageRefresh } from '@shared/refreshPolicy'
 import { DEFAULT_REGION } from '@shared/regions'
 import { runPool } from '@/utils/format'
 import { toPlain } from '@/utils/ipc'
@@ -790,12 +791,23 @@ export const useAccountsStore = defineStore('accounts', () => {
     if (res.success) message.success(`自动刷新密钥完成：成功 ${res.success}，失败 ${res.failed}`)
   }
 
-  /** 覆盖全部非封禁账号，界面上保持静默，只往控制台记录，避免定时弹通知打扰 */
+  /**
+   * 覆盖全部值得刷的账号，界面上保持静默，只往控制台记录，避免定时弹通知打扰。
+   *
+   * 跳过封禁与凭证失效的账号：自动刷新是每隔一段时间就跑一轮的，
+   * 把必然 401 / 403 的账号一直带着刷，只会白耗时间并在日志里堆无效告警。
+   * 临时故障（网络、限流、5xx）不在跳过范围内，下一轮照常重试。
+   */
   async function refreshAllUsage(): Promise<void> {
-    const ids = accounts.value.filter((a) => a.status !== 'banned').map((a) => a.id)
+    const runnable = accounts.value.filter((a) => !shouldSkipAccountUsageRefresh(a))
+    const ids = runnable.map((a) => a.id)
+    const skipped = accounts.value.length - ids.length
     if (!ids.length) return
     const startedAt = Date.now()
-    console.info(`[AutoRefresh] 开始刷新用量：${ids.length} 个账号`)
+    console.info(
+      `[AutoRefresh] 开始刷新用量：${ids.length} 个账号` +
+        (skipped ? `（跳过 ${skipped} 个封禁或凭证失效账号）` : '')
+    )
     const res = await runBatch(ids, 'check')
     // 打印耗时便于对照间隔：耗时接近或超过间隔时下一轮会紧接着开始
     console.info(

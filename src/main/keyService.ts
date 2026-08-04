@@ -20,8 +20,10 @@ import {
   watchEndpointOverride,
   type EndpointSnapshot
 } from './kiroSettings'
+import { assertKeyGatewaySupported } from './kiroCapability'
 import { releasePorts } from './localPorts'
 import { log } from './logger'
+import { shouldSkipKeyUsageRefresh } from '../shared/refreshPolicy'
 import type {
   AccountUsage,
   KeyEntry,
@@ -454,10 +456,20 @@ export async function syncKey(id: string): Promise<KeyGatewayData> {
   return latest
 }
 
+/**
+ * 批量同步全部 Key 的用量。
+ *
+ * 会跳过确定性失败的 Key（凭证被拒、403、账号封禁）：这条路径也被自动刷新调用，
+ * 每隔一段时间就跑一轮，把必然失败的 Key 一直带着刷只是白耗时间。
+ * 临时故障（网络、限流、5xx）不跳过，下一轮照常重试；
+ * 单个 Key 的手动刷新走 syncKey，不受这里影响，异常 Key 始终留有重试入口。
+ */
 export async function syncAllKeys(
   concurrency = 5
-): Promise<{ data: KeyGatewayData; success: number; failed: number }> {
-  const ids = getKeyData().keys.map((entry) => entry.id)
+): Promise<{ data: KeyGatewayData; success: number; failed: number; skipped: number }> {
+  const all = getKeyData().keys
+  const ids = all.filter((entry) => !shouldSkipKeyUsageRefresh(entry)).map((entry) => entry.id)
+  const skipped = all.length - ids.length
   const batchSize = Math.max(1, Math.min(Math.round(Number(concurrency) || 5), 20))
   let success = 0
   let failed = 0
@@ -465,7 +477,8 @@ export async function syncAllKeys(
     const settled = await Promise.allSettled(ids.slice(i, i + batchSize).map((id) => syncKey(id)))
     for (const result of settled) result.status === 'fulfilled' ? success++ : failed++
   }
-  return { data: getKeyData(), success, failed }
+  if (skipped) log('info', `[KeyService] 批量同步跳过 ${skipped} 个凭证已失效的 Key`)
+  return { data: getKeyData(), success, failed, skipped }
 }
 
 /** 查询当前是否被其它本地网关接管；未安装 IDE 时无从判断，按无冲突处理。 */
@@ -503,6 +516,8 @@ export async function enableGateway(
   const selected = data.keys.find((entry) => entry.id === selectedId)
   if (!selected) throw new Error('请先选择一个 API Key，再开启网关')
   if (!isKiroInstalled()) throw new Error('未找到 Kiro IDE 用户数据目录，请先安装并启动一次 Kiro IDE')
+  // 旧版 Kiro 不读端点覆盖，写进去只会得到一个「配置写对了但请求照旧」的假成功
+  await assertKeyGatewaySupported()
 
   const conflict = await endpointConflict(data.ports.krs, data.ports.cps, selected.region)
   if (conflict && !options.force) throw new Error(conflict.message)

@@ -48,6 +48,17 @@ export function formatCredits(value: number | undefined, precision = false): str
 }
 
 /**
+ * 模型消耗倍率，来自上游 Model.rateMultiplier。
+ * 整数去掉多余小数（1 → 1x），小数保留两位以内（0.33 → 0.33x）。
+ * auto 之类不返回倍率的模型返回空串，由调用方决定是否显示。
+ */
+export function formatRate(rate?: number): string {
+  if (rate == null || Number.isNaN(rate)) return ''
+  const text = Number.isInteger(rate) ? String(rate) : String(Number(rate.toFixed(2)))
+  return `${text}x`
+}
+
+/**
  * 「已用 / 总额」的统一写法，界面上到处都在用这个组合。
  * @param compact 去掉斜杠两侧空格，用于空间紧张的表格列
  */

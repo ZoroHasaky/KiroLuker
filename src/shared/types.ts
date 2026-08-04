@@ -356,6 +356,8 @@ export interface KiroModelInfo {
   modelId: string
   modelName?: string
   description?: string
+  /** 消耗额度倍率（上游 rateMultiplier）；auto 等模型可能不返回 */
+  rate?: number
 }
 
 export interface ApiKeyChatTestInput {
@@ -778,4 +780,21 @@ export interface KeyGatewayStatus {
   settingsPath?: string
   /** 过程中的说明信息 */
   message?: string
+}
+
+/**
+ * 当前安装的 Kiro IDE 是否支持 API Key 网关接管。
+ * 判据是扩展 dist 里是否读取 krsEndpoints / cpsEndpoints，而非版本号比较。
+ */
+export interface KiroCapability {
+  /** Kiro 安装目录下的 resources/app；没找到时为 undefined */
+  appRoot?: string
+  /** product.json 里的 IDE 版本 */
+  version?: string
+  /** kiro-agent 扩展版本 */
+  agentVersion?: string
+  /** IDE 是否会读取 krsEndpoints / cpsEndpoints，即能否被本应用接管 */
+  supportsKeyGateway: boolean
+  /** 判定依据说明，用于日志与界面提示 */
+  reason?: string
 }
