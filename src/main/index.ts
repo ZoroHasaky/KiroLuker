@@ -1,4 +1,4 @@
-import { app, dialog, nativeImage, shell, BrowserWindow } from 'electron'
+import { app, dialog, nativeImage, screen, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { applyRuntimeSettings, registerIpc } from './ipc'
@@ -24,6 +24,7 @@ import {
   scheduleForActiveAccount
 } from './proactiveRenewal'
 import { flushUsageHistory } from './usageHistory'
+import { flushGatewayHistory } from './gatewayHistory'
 import { initLogger, installConsoleBridge, log, shutdownLogger } from './logger'
 import { sendToRenderer } from './utils'
 import { initializeKeyService, shutdownKeyServiceSync } from './keyService'
@@ -43,10 +44,23 @@ function appIconPath(name: 'mac-icon' | 'windows-icon'): string {
   return join(dir, `${name}.png`)
 }
 
+/**
+ * 默认窗口尺寸。1600x1200 在 1080p 等较矮的屏幕上会超出工作区，
+ * 因此按当前显示器可用区域收一下，避免窗口一开就被系统裁掉或顶出屏幕。
+ */
+function defaultWindowSize(): { width: number; height: number } {
+  const { width: aw, height: ah } = screen.getPrimaryDisplay().workAreaSize
+  return {
+    width: Math.min(1600, Math.max(940, aw - 80)),
+    height: Math.min(1200, Math.max(620, ah - 80))
+  }
+}
+
 function createWindow(): void {
+  const { width, height } = defaultWindowSize()
   mainWindow = new BrowserWindow({
-    width: 1240,
-    height: 820,
+    width,
+    height,
     minWidth: 940,
     minHeight: 620,
     show: false,
@@ -248,6 +262,7 @@ app.on('will-quit', () => {
   unregisterProtocol()
   clearProactiveRenewal('app quitting')
   flushUsageHistory()
+  flushGatewayHistory()
   // 同步还原 Kiro IDE 端点后再退出，避免 IDE 指向已停止的本地网关。
   shutdownKeyServiceSync()
   destroyTray()

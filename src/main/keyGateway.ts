@@ -10,12 +10,20 @@
 // 本地代理默认使用 KRS 19830 / CPS 19831。
 import * as http from 'http'
 import * as https from 'https'
+import * as zlib from 'zlib'
+import { PassThrough } from 'stream'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as crypto from 'crypto'
 import { URL } from 'url'
 import { app } from 'electron'
 import { log } from './logger'
+import {
+  QUOTA_EXHAUSTED_REASONS,
+  normalizeRetryStatuses,
+  retryStatusLabel
+} from '../shared/retryPolicy'
+import { clearRpmWindows, createUsageCollector, recordRequest, recordResponse } from './gatewayStats'
 
 const HEALTH_PATH = '/__kiro_key_health'
 const HEALTH_MARKER = 'kiro-manager-key-ok'
@@ -74,6 +82,119 @@ function maskKey(k: string): string {
   return k.slice(0, 8) + '…' + k.slice(-4)
 }
 
+// ---------------------------------------------------------------------------
+// 错误自动续接
+//
+// Kiro 服务端限流会回 429 ThrottlingException，kiro-agent 把它转成
+// 「Too many requests, please wait before trying again.」并中断对话，
+// 用户得手动点继续。5xx 同理。开关打开后由网关自己退避重发，IDE 完全感知不到。
+//
+// 拦哪些状态码由用户在常用工具页勾选，候选与说明见 shared/retryPolicy。
+// 唯一的硬保护是额度耗尽：那种情况重试必然失败，无论用户怎么勾都直接透传。
+// ---------------------------------------------------------------------------
+
+/**
+ * 重试用固定间隔，不做指数退避。
+ *
+ * Kiro 的速率限流恢复得很快，实测退避到几秒纯属白等，反而让对话明显卡顿。
+ * 固定短间隔配合较大的次数上限体验更好，两者都由用户在常用工具页配置。
+ */
+const MIN_ATTEMPTS = 1
+const MAX_ATTEMPTS_LIMIT = 100
+const MIN_DELAY_MS = 0
+const MAX_DELAY_MS = 60_000
+
+let autoRetryEnabled = false
+let retryStatuses = new Set<number>()
+let maxAttempts = 10
+let retryDelayMs = 100
+
+/** 由设置页写入；关闭时转发行为与改造前完全一致 */
+export function setGatewayRetryPolicy(
+  enabled: boolean,
+  statuses: number[],
+  attempts: number,
+  delayMs: number
+): void {
+  autoRetryEnabled = !!enabled
+  retryStatuses = new Set(normalizeRetryStatuses(statuses))
+  const n = Math.round(Number(attempts) || 0)
+  maxAttempts = Math.min(MAX_ATTEMPTS_LIMIT, Math.max(MIN_ATTEMPTS, n))
+  // 注意不能写成 Number(delayMs)：Number(null) 是 0，会被当成「间隔 0ms」而疯狂重试。
+  // 只有真正的数字才采纳，其余（null / undefined / 空串 / NaN）一律回落默认值。
+  const d = typeof delayMs === 'number' && Number.isFinite(delayMs) ? Math.round(delayMs) : 100
+  retryDelayMs = Math.min(MAX_DELAY_MS, Math.max(MIN_DELAY_MS, d))
+}
+
+/**
+ * 该状态码是否需要拦下来判断重试。
+ * 只有用户勾选过的错误状态码才拦；其余一律保持原样流式转发。
+ */
+function shouldInterceptStatus(status: number): boolean {
+  return autoRetryEnabled && retryStatuses.has(status)
+}
+
+/**
+ * 把上游的失败响应体压成一行可读说明写进日志。
+ * 上游错误统一是 { message, reason } 形状，非 JSON 时截断原文兜底。
+ */
+function describeFailure(body: Buffer): string {
+  if (!body.length) return ''
+  const text = body.toString('utf8')
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>
+    const parts = [parsed.message, parsed.reason, parsed.__type]
+      .filter((v): v is string => typeof v === 'string' && !!v.trim())
+      .map((v) => v.trim())
+    if (parts.length) return parts.join(' / ').slice(0, 240)
+  } catch {
+    /* 非 JSON，走下面的原文兜底 */
+  }
+  return text.replace(/\s+/g, ' ').trim().slice(0, 240)
+}
+
+/** 从限流响应体里取 reason 字段，取不到返回 undefined */
+function throttleReasonOf(body: Buffer): string | undefined {
+  try {
+    const parsed = JSON.parse(body.toString('utf8')) as Record<string, unknown>
+    const reason = parsed.reason ?? parsed.Reason
+    return typeof reason === 'string' && reason.trim() ? reason.trim() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * 状态码已经是用户勾选的了，这里只做最后一道硬保护：
+ * 若响应里的 reason 表明本周期额度已用尽，重试 100% 失败，直接透传。
+ * 402 不带 reason 时按额度用尽处理——这个状态码在 Kiro 语义里就是额度问题。
+ */
+function isRetryableResponse(status: number, reason?: string): boolean {
+  if (reason && QUOTA_EXHAUSTED_REASONS.has(reason)) return false
+  if (status === 402 && !reason) return false
+  return true
+}
+
+
+
+/**
+ * 只有对话接口的响应才是带用量事件的 event-stream。
+ * 模型列表、用量查询、/mcp 这些不会有 tokenUsage / meteringEvent，无需解析。
+ */
+function isChatPath(cleanPath: string): boolean {
+  return /generateAssistantResponse|SendMessage|converse/i.test(cleanPath)
+}
+
+/** 读完一个响应流；仅用于限流这类小响应体 */
+function collectBody(stream: http.IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const parts: Buffer[] = []
+    stream.on('data', (c) => parts.push(Buffer.isBuffer(c) ? c : Buffer.from(c)))
+    stream.on('end', () => resolve(Buffer.concat(parts)))
+    stream.on('error', reject)
+  })
+}
+
 function stripHopByHop(headers: http.IncomingHttpHeaders): Record<string, string | string[]> {
   const out: Record<string, string | string[]> = {}
   for (const [k, v] of Object.entries(headers || {})) {
@@ -84,6 +205,9 @@ function stripHopByHop(headers: http.IncomingHttpHeaders): Record<string, string
 }
 
 // ---- profileArn 剥离 ----
+
+/** InvokeMCP 用这个请求头携带 profileArn，必须与 body 里的一样剥掉 */
+const PROFILE_ARN_HEADER = 'x-amzn-kiro-profile-arn'
 function scrubProfileArn(node: unknown): boolean {
   if (!node || typeof node !== 'object') return false
   let changed = false
@@ -121,6 +245,12 @@ function injectAuthHeaders(
   for (const [k, v] of Object.entries(incoming || {})) {
     const lk = k.toLowerCase()
     if (lk === 'host' || lk === 'authorization' || lk === 'content-length' || lk === 'tokentype') continue
+    // InvokeMCP（POST /mcp）把 profileArn 放在请求头而不是请求体里：
+    //   InvokeMCPRequest.profileArn → httpHeader: "x-amzn-kiro-profile-arn"
+    // 它属于 IDE 的 OAuth 登录身份，和 ksk_ 一起发过去会被判定
+    // 「The bearer token included in the request is invalid.」并回 403。
+    // body 里的 profileArn 已由 stripProfileArnFromBody 处理，这里补上请求头这一路。
+    if (lk === PROFILE_ARN_HEADER) continue
     if (HOP_BY_HOP.includes(lk)) continue
     if (v !== undefined) headers[k] = v as string | string[]
   }
@@ -366,46 +496,154 @@ function forwardGeneric(
     const headers = injectAuthHeaders(req.headers, target.host, credential.key)
     if (bodyBuf.length) headers['content-length'] = String(Buffer.byteLength(bodyBuf))
     const keyTag = 'key (' + maskKey(credential.key) + ')'
-    log('info', `[KeyGateway] -> [${label}] ${keyTag} ${req.method} ${(req.url || '').split('?')[0]} region=${region}`)
+    const cleanPath = (req.url || '').split('?')[0]
+    const chat = isChatPath(cleanPath)
 
-    // 到这里凭证已经注入即将发往上游，记录本次真实转发使用的不可变快照。
-    recordForwarded(credential)
-    const upReq = https.request(
-      {
-        method: req.method,
-        hostname: target.hostname,
-        port: 443,
-        path: target.pathname + target.search,
-        headers,
-        timeout: 300000
-      },
-      (upRes) => {
-        const status = upRes.statusCode || 0
-        const okStatus = status >= 200 && status < 300
-        log(okStatus ? 'info' : 'warn', `[KeyGateway] <- [${label}] ${keyTag} HTTP ${status}`)
-        res.writeHead(status || 502, stripHopByHop(upRes.headers))
-        upRes.pipe(res)
-        upRes.on('error', () => {
-          try {
-            res.end()
-          } catch {
-            /* ignore */
+    /**
+     * 发起一次上游请求。attempt 从 1 开始，仅在命中可重试的限流时递增。
+     *
+     * 重试是安全的：限流响应表示请求被拒、上游没有产生副作用也没有计费，
+     * 而且此时一个字节都还没写给 Kiro（res.writeHead 尚未调用），
+     * 对 IDE 来说这次请求只是"慢了几秒"，不会中断对话。
+     */
+    const attempt = (n: number): void => {
+      // 本次尝试的发起时间：统计按它归入分钟桶，保证请求与结果落在同一桶
+      const startedAt = Date.now()
+      log(
+        'info',
+        `[KeyGateway] -> [${label}] ${keyTag} ${req.method} ${cleanPath} region=${region}` +
+          (n > 1 ? ` (第 ${n} 次尝试)` : '')
+      )
+
+      // 到这里凭证已经注入即将发往上游，记录本次真实转发使用的不可变快照。
+      recordForwarded(credential)
+      recordRequest(credential.id, chat)
+      const upReq = https.request(
+        {
+          method: req.method,
+          hostname: target.hostname,
+          port: 443,
+          path: target.pathname + target.search,
+          headers,
+          timeout: 300000
+        },
+        (upRes) => {
+          const status = upRes.statusCode || 0
+          const okStatus = status >= 200 && status < 300
+
+          // 限流响应体很小且不是流，可以整体读出来判断 reason 再决定重试或透传。
+          // 其余状态一律保持原样流式转发，绝不缓冲，避免影响对话的流式输出。
+          // 失败响应一律先缓冲：错误体都是很小的 JSON，缓冲代价可以忽略，
+          // 换来的是日志里能看到失败的真实原因（上游的 message / reason），
+          // 而不是只有一个状态码全靠猜。缓冲后再决定重试或透传。
+          if (!okStatus) {
+            collectBody(upRes)
+              .then((body) => {
+                const reason = throttleReasonOf(body)
+                const detail = describeFailure(body)
+                const tag = `${retryStatusLabel(status)}${reason ? `（${reason}）` : ''}`
+
+                // 自动续接只服务于「别让对话中断」。辅助接口（/mcp 等）失败不影响对话，
+                // 对它们重试只会让每次对话白等十几秒。
+                const mayRetry = chat && shouldInterceptStatus(status)
+                if (mayRetry && isRetryableResponse(status, reason) && n < maxAttempts) {
+                  log(
+                    'warn',
+                    `[KeyGateway] <- [${label}] ${keyTag} ${cleanPath} ${tag}，` +
+                      `${retryDelayMs}ms 后重试（${n}/${maxAttempts}）` +
+                      (detail ? ` — ${detail}` : '')
+                  )
+                  // 这次尝试确实失败了，要计入统计：否则 recordRequest 已经把
+                  // 每次尝试都算进 requests，而失败数只在最后一次才记，
+                  // 累计值就会出现 requests > succeeded + failed 的缺口。
+                  recordResponse(credential.id, status, chat, startedAt)
+                  setTimeout(() => attempt(n + 1), retryDelayMs)
+                  return
+                }
+
+                log(
+                  'warn',
+                  `[KeyGateway] <- [${label}] ${keyTag} ${cleanPath} ${tag}` +
+                    (mayRetry && n > 1 ? `，已重试 ${n - 1} 次仍失败` : '') +
+                    (detail ? ` — ${detail}` : '')
+                )
+                // 透传缓冲下来的响应体：content-length 需与实际长度一致
+                recordResponse(credential.id, status, chat, startedAt)
+                const passHeaders = stripHopByHop(upRes.headers)
+                delete passHeaders['content-length']
+                if (body.length) passHeaders['content-length'] = String(body.length)
+                res.writeHead(status || 502, passHeaders)
+                res.end(body)
+              })
+              .catch(() => {
+                recordResponse(credential.id, status, chat, startedAt)
+                if (!res.headersSent) res.writeHead(status || 502, stripHopByHop(upRes.headers))
+                try {
+                  res.end()
+                } catch {
+                  /* ignore */
+                }
+              })
+            return
           }
-        })
-      }
-    )
-    upReq.on('error', (e) => {
-      log('error', `[KeyGateway] !! [${label}] upstream error: ${e.message}`)
-      if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json' })
-      try {
-        res.end(JSON.stringify({ message: 'upstream error: ' + e.message }))
-      } catch {
-        /* ignore */
-      }
-    })
-    upReq.on('timeout', () => upReq.destroy(new Error('upstream timeout')))
-    if (bodyBuf.length) upReq.write(bodyBuf)
-    upReq.end()
+
+          log(okStatus ? 'info' : 'warn', `[KeyGateway] <- [${label}] ${keyTag} HTTP ${status}`)
+          recordResponse(credential.id, status, chat, startedAt)
+          res.writeHead(status || 502, stripHopByHop(upRes.headers))
+
+          // 成功的对话响应里带着服务端回传的 token 与计费用量，顺路统计。
+          // 只旁听不拦截：给 IDE 的数据照常原样 pipe，流式输出的实时性不受影响。
+          const collector = okStatus && chat
+            ? createUsageCollector(credential.id, label, startedAt)
+            : null
+          if (collector) {
+            // 用独立的 PassThrough 分流，而不是在 upRes 上挂 data 监听：
+            // 后者会让流立刻进入 flowing 模式，在 pipe(res) 注册前就可能吃掉开头的数据块。
+            const tap = new PassThrough()
+            upRes.pipe(tap)
+
+            // 关键：accept-encoding 是透传给上游的，响应可能是压缩的。
+            // 压缩字节喂给帧解析器只会一无所获（曾导致统计恒为 0），必须先解压。
+            // 给 IDE 的那一路不受影响——它拿到的仍是原始压缩流，由 IDE 自己解压。
+            const encoding = String(upRes.headers['content-encoding'] || '').toLowerCase()
+            let source: NodeJS.ReadableStream = tap
+            if (encoding.includes('br')) source = tap.pipe(zlib.createBrotliDecompress())
+            else if (encoding.includes('gzip')) source = tap.pipe(zlib.createGunzip())
+            else if (encoding.includes('deflate')) source = tap.pipe(zlib.createInflate())
+            collector.noteEncoding(encoding)
+
+            source.on('data', (c: Buffer) => collector.feed(Buffer.isBuffer(c) ? c : Buffer.from(c)))
+            source.on('end', () => collector.finish())
+            // 解压失败不能影响转发，也不能让 finish 丢掉已累计的数据
+            source.on('error', () => collector.finish())
+          }
+
+          upRes.pipe(res)
+          upRes.on('error', () => {
+            try {
+              res.end()
+            } catch {
+              /* ignore */
+            }
+          })
+        }
+      )
+      upReq.on('error', (e) => {
+        log('error', `[KeyGateway] !! [${label}] upstream error: ${e.message}`)
+        recordResponse(credential.id, 0, chat, startedAt)
+        if (!res.headersSent) res.writeHead(502, { 'Content-Type': 'application/json' })
+        try {
+          res.end(JSON.stringify({ message: 'upstream error: ' + e.message }))
+        } catch {
+          /* ignore */
+        }
+      })
+      upReq.on('timeout', () => upReq.destroy(new Error('upstream timeout')))
+      if (bodyBuf.length) upReq.write(bodyBuf)
+      upReq.end()
+    }
+
+    attempt(1)
   })
 }
 
@@ -588,6 +826,8 @@ export function stopGateway(): void {
   }
   clearObservation()
   observationChanged = null
+  // 累计统计与历史要长期保留，这里只清 RPM 的内存窗口
+  clearRpmWindows()
 }
 
 export function gatewayRunning(): boolean {

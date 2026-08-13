@@ -56,7 +56,40 @@ const categories = ref<string[]>([])
 const loading = ref(false)
 
 // 泛型组件拿不到 InstanceType，按暴露出的方法声明即可（与 VirtualGrid 的用法一致）
-const listRef = ref<{ scrollToBottom: () => void; scrollToTop: () => void } | null>(null)
+const listRef = ref<{
+  scrollToBottom: (smooth?: boolean) => void
+  scrollToTop: () => void
+} | null>(null)
+
+/**
+ * 用户是否已经向上翻离了底部。
+ *
+ * 阈值取一屏的一小段（80px，约 3~4 行）：手指轻微抖动或行高实测导致的
+ * 几像素误差不该被判成「离开底部」，否则跟随会时开时关。
+ */
+const AWAY_THRESHOLD_PX = 80
+const distanceToBottom = ref(0)
+const awayFromBottom = computed(() => distanceToBottom.value > AWAY_THRESHOLD_PX)
+
+function onScrollState(state: { distanceToBottom: number }): void {
+  distanceToBottom.value = state.distanceToBottom
+}
+
+/** 回到底部：平滑滚动，滚完自然重新进入跟随状态 */
+function backToBottom(): void {
+  listRef.value?.scrollToBottom(true)
+}
+
+const followTip = computed(() => {
+  if (!autoFollow.value) return '已关闭自动跟随，点击开启'
+  return awayFromBottom.value ? '自动跟随已开启，向上翻看时暂停' : '自动跟随最新日志'
+})
+
+/** 手动开启跟随时顺带回到底部，否则开了却还停在上面会让人困惑 */
+function toggleFollow(): void {
+  autoFollow.value = !autoFollow.value
+  if (autoFollow.value) backToBottom()
+}
 
 const categoryOptions = computed(() => [
   { value: '', label: '全部分类' },
@@ -89,8 +122,12 @@ async function refresh(keepPosition = false): Promise<void> {
     total.value = res.data.total
     counts.value = res.data.counts
     categories.value = res.data.categories
-    // 贴底跟随：只有用户本来就在底部时才自动滚，避免打断向上翻看
-    if (!keepPosition || autoFollow.value) {
+    /*
+     * 贴底跟随的两个前提：手动开关开着，且用户当前就停在底部附近。
+     * 用户向上翻看历史时（awayFromBottom）绝不自动滚，否则视图会被新日志
+     * 不断拽回底部，根本没法看之前的内容。
+     */
+    if (!keepPosition || (autoFollow.value && !awayFromBottom.value)) {
       await Promise.resolve()
       listRef.value?.scrollToBottom()
     }
@@ -212,10 +249,10 @@ onUnmounted(() => {
 
       <!-- 五个操作图标作为一个整体：组内不换行，空间不足时整组一起折到下一行 -->
       <div class="toolbar-actions">
-        <a-tooltip title="自动跟随最新日志">
+        <a-tooltip :title="followTip">
           <a-button
             :type="autoFollow ? 'primary' : 'default'"
-            @click="autoFollow = !autoFollow"
+            @click="toggleFollow"
           >
             <template #icon><VerticalAlignBottomOutlined /></template>
           </a-button>
@@ -255,6 +292,7 @@ onUnmounted(() => {
         :row-height="ROW_HEIGHT"
         dynamic-height
         :item-key="(item: LogEntry) => item.id"
+        @scroll-state="onScrollState"
       >
         <template #default="{ item }">
           <span class="log-dot" :style="{ background: LEVEL_META[item.level].color }" />
@@ -269,6 +307,19 @@ onUnmounted(() => {
       <div v-if="!entries.length" class="logs-empty muted">
         {{ total ? '当前筛选没有匹配的日志' : '暂时还没有日志' }}
       </div>
+
+      <!-- 向上翻看时才出现：提示已暂停跟随，点一下回到最新 -->
+      <Transition name="fade-up">
+        <button
+          v-if="awayFromBottom && entries.length"
+          type="button"
+          class="back-bottom"
+          @click="backToBottom"
+        >
+          <VerticalAlignBottomOutlined class="bb-icon" />
+          <span class="bb-text">回到最新</span>
+        </button>
+      </Transition>
     </div>
   </div>
 </template>
@@ -337,6 +388,42 @@ onUnmounted(() => {
 
 .logs-meta {
   font-size: 12px;
+}
+
+/* 回到最新：日志区右下角悬浮，图标在上文字在下 */
+.back-bottom {
+  position: absolute;
+  /* 往左让开纵向滚动条，避免压在滚动条上不好点 */
+  right: 34px;
+  bottom: 16px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 12px 7px;
+  border: none;
+  border-radius: 12px;
+  background: var(--kal-primary);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  transition: filter 0.16s ease, transform 0.16s ease;
+}
+.back-bottom:hover { filter: brightness(1.08); }
+.back-bottom:active { transform: translateY(1px); }
+.bb-icon { font-size: 16px; line-height: 1; }
+.bb-text { font-size: 11px; line-height: 1.2; white-space: nowrap; }
+
+/* 淡入并轻微上浮，避免突然弹出 */
+.fade-up-enter-active,
+.fade-up-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.fade-up-enter-from,
+.fade-up-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
 }
 
 .logs-body {

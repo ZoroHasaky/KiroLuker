@@ -569,6 +569,25 @@ export interface AppSettings {
    * IDE 内部 refresh loop 不会触发，彻底消除双方同时 refresh 撞车的可能。
    */
   proactiveRenewalEnabled: boolean
+  /**
+   * 网关遇到可恢复错误时自动续接：开启后本地网关碰到指定状态码会自己退避重发，
+   * 不把错误抛给 Kiro IDE，对话不会中断、不需要用户手动点继续。
+   *
+   * 始终使用同一个 Key，不会替换成别的 Key。
+   */
+  gatewayAutoRetryThrottle: boolean
+  /**
+   * 哪些 HTTP 状态码触发自动重试，取值见 shared/retryPolicy 的 RETRYABLE_STATUS_OPTIONS。
+   *
+   * 只能是错误状态码：2xx 一旦开始流式输出就已经有内容写给 IDE，无法重放。
+   * 即使勾选了 402 / 429，若响应里的 reason 表明是本周期额度用尽，仍会直接透传——
+   * 那种情况重试 100% 失败，只会白等。
+   */
+  gatewayRetryStatuses: number[]
+  /** 单个请求最多尝试几次（含首次），超过就把错误透传给 IDE */
+  gatewayRetryMaxAttempts: number
+  /** 两次尝试之间的固定间隔（ms） */
+  gatewayRetryDelayMs: number
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -596,7 +615,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   confirmBeforeDeleteApiKey: true,
   trayEnabled: true,
   closeAction: 'minimize',
-  proactiveRenewalEnabled: true
+  proactiveRenewalEnabled: true,
+  // 默认关闭：自动重试会让请求看起来变慢，且可能掩盖真实的限流问题，交给用户显式开启
+  gatewayAutoRetryThrottle: false,
+  // 默认只勾选纯粹的临时性故障：限流与服务端 5xx。402 / 403 这类要用户自己决定
+  gatewayRetryStatuses: [429, 500, 502, 503, 504],
+  // 固定间隔重试，10 次也只多花 1 秒左右，对话不会有明显卡顿
+  gatewayRetryMaxAttempts: 10,
+  gatewayRetryDelayMs: 100
 }
 
 // ============================================
@@ -780,6 +806,52 @@ export interface KeyGatewayStatus {
   settingsPath?: string
   /** 过程中的说明信息 */
   message?: string
+}
+
+/**
+ * 单个 API Key 经本地网关产生的实际调用统计。
+ *
+ * 全部来自网关对真实请求的观测：请求数与状态码由转发层计数，
+ * 积分消耗来自响应流里的 MeteringEvent（服务端权威值，Kiro 的计费口径）。
+ * 不统计 token——该协议的响应流里不带 tokenUsage，拿不到有效数据。
+ */
+/**
+ * 网关调用的一条时间序列记录，按分钟聚合。
+ * 逐请求存会让长期使用后记录数爆炸，按分钟桶聚合足够画曲线。
+ */
+export interface GatewayCallPoint {
+  /** 该分钟桶的起始时间戳（ms） */
+  at: number
+  /** 该分钟内的对话请求数 */
+  requests: number
+  /** 其中成功的次数 */
+  succeeded: number
+  /** 该分钟内消耗的积分 */
+  credits: number
+}
+
+export interface KeyGatewayUsageStats {
+  /** 对话请求数（generateAssistantResponse），即用户理解的「发了几次对话」 */
+  requests: number
+  /** 对话请求里的 2xx 响应数 */
+  succeeded: number
+  /** 对话请求里的非 2xx 响应数（含网络异常） */
+  failed: number
+  /**
+   * 辅助请求总数与失败数：/mcp、模型列表、用量查询这些。
+   * 单独统计是因为 /mcp 在 API Key 鉴权下稳定返回 403，
+   * 混进成功率会让「对话其实全部成功」显示成 40% 这类误导数字。
+   */
+  auxRequests: number
+  auxFailed: number
+  /** 最近一分钟的请求数，即当前 RPM。只在内存中统计，重启后重新计算 */
+  rpm: number
+  /** MeteringEvent 累计计费用量，即积分消耗 */
+  metered: number
+  /** 计费单位，来自 MeteringEvent.unitPlural／unit，实测为 credits */
+  meteredUnit?: string
+  /** 最近一次对话请求的时间戳（ms） */
+  lastRequestAt?: number
 }
 
 /**

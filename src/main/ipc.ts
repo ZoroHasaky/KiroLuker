@@ -24,6 +24,9 @@ import {
 } from './onlineLogin'
 import { isHttpUrl, openUrl } from './browser'
 import { detectKiroCapability } from './kiroCapability'
+import { setGatewayRetryPolicy } from './keyGateway'
+import { getGatewayStats, resetGatewayStats } from './gatewayStats'
+import { getPoints } from './gatewayHistory'
 import { setTraySnapshot, setTrayEnabled } from './tray'
 import {
   clearProactiveRenewal,
@@ -121,6 +124,12 @@ function handle(
 export function applyRuntimeSettings(settings: AppSettings): void {
   setUsageApiType(settings.usageApiType)
   setProxyConfig(settings.proxyEnabled, settings.proxyUrl)
+  setGatewayRetryPolicy(
+    settings.gatewayAutoRetryThrottle,
+    settings.gatewayRetryStatuses,
+    settings.gatewayRetryMaxAttempts,
+    settings.gatewayRetryDelayMs
+  )
 }
 
 export function registerIpc(getWindow: () => BrowserWindow | null): void {
@@ -241,6 +250,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   handle('key-gateway:status', async () => ok(await getGatewayStatus()))
   handle('key-gateway:capability', async () => ok(await detectKiroCapability()))
+  handle('key-gateway:stats', () => ok(getGatewayStats()))
+  handle('key-gateway:stats-reset', (_e, keyId?: string) => {
+    resetGatewayStats(keyId)
+    return ok(getGatewayStats())
+  })
+  /** 某个 Key 的调用历史（按分钟聚合），用于画请求 / 成功率 / 积分曲线 */
+  handle('key-gateway:history', (_e, keyId: string) => ok(getPoints(keyId)))
   handle('key-gateway:inspect-conflict', async () => ok(await inspectGatewayConflict()))
   handle('key-gateway:enable', async (_e, keyId?: string, force?: boolean) =>
     ok(await enableGateway(keyId, { force: !!force }))

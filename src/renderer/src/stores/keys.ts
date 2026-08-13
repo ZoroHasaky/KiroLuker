@@ -5,11 +5,15 @@ import {
   type KeyGatewayConflict,
   type KeyGatewayData,
   type KeyGatewayStatus,
+  type KeyGatewayUsageStats,
   type KeyModelInfo,
   type KeyTestResult
 } from '@shared/types'
 import { shouldSkipKeyUsageRefresh } from '@shared/refreshPolicy'
 import { useSettingsStore } from '@/stores/settings'
+
+/** 网关统计的轮询间隔：RPM 是一分钟窗口，3 秒一刷足够跟手又不浪费 */
+const STATS_POLL_MS = 3000
 
 export const useKeysStore = defineStore('keys', () => {
   const settingsStore = useSettingsStore()
@@ -22,6 +26,9 @@ export const useKeysStore = defineStore('keys', () => {
   const loading = ref(false)
   const detecting = ref(false)
   const syncRunning = ref(false)
+  /** 网关调用统计，按 keyId 索引；网关未运行时为空对象 */
+  const gatewayStats = ref<Record<string, KeyGatewayUsageStats>>({})
+  let statsTimer: ReturnType<typeof setInterval> | null = null
   const usageTask = ref({
     running: false,
     type: 'api-key-usage-refresh' as const,
@@ -230,6 +237,31 @@ export const useKeysStore = defineStore('keys', () => {
   }
 
   /** 查询 Kiro IDE 是否已被其它本地网关接管；无冲突返回 null。 */
+  /**
+   * 网关调用统计。仅在网关运行期间有意义，关闭后主进程会清空。
+   * 用轮询而非推送：这些数字变化很快，界面上没必要逐条实时刷。
+   */
+  async function refreshStats(): Promise<void> {
+    const res = await window.api.getKeyGatewayStats()
+    if (res.success && res.data) gatewayStats.value = res.data
+  }
+
+  async function resetStats(keyId?: string): Promise<void> {
+    const res = await window.api.resetKeyGatewayStats(keyId)
+    if (res.success && res.data) gatewayStats.value = res.data
+  }
+
+  function startStatsPolling(): void {
+    if (statsTimer) return
+    void refreshStats()
+    statsTimer = setInterval(() => void refreshStats(), STATS_POLL_MS)
+  }
+
+  function stopStatsPolling(): void {
+    if (statsTimer) clearInterval(statsTimer)
+    statsTimer = null
+  }
+
   async function inspectConflict(): Promise<{
     error?: string
     conflict?: KeyGatewayConflict | null
@@ -390,6 +422,11 @@ export const useKeysStore = defineStore('keys', () => {
     sync,
     syncAll,
     syncMany,
+    gatewayStats,
+    refreshStats,
+    resetStats,
+    startStatsPolling,
+    stopStatsPolling,
     startAutoRefresh,
     scheduleUsageRefresh,
     stopAutoRefresh,

@@ -2,6 +2,7 @@
 import { randomUUID } from 'crypto'
 import { getKeyData, setKeyData } from './store'
 import { appendUsagePoint, clearUsageHistory } from './usageHistory'
+import { clearGatewayHistory } from './gatewayHistory'
 import {
   fetchAccountInfo,
   fetchModels,
@@ -307,6 +308,7 @@ export async function updateKeyRegion(
   data.region = next
   setKeyData(data)
   clearUsageHistory(historySubjectId(id))
+  clearGatewayHistory(id)
   log('info', `[KeyGateway] Key ${id} 区域已改为 ${next}`)
 
   const isActive = data.enabled && data.activeKeyId === id
@@ -334,6 +336,7 @@ export function deleteKey(id: string): KeyGatewayData {
   if (data.activeKeyId === id) data.activeKeyId = null
   setKeyData(data)
   clearUsageHistory(historySubjectId(id))
+  clearGatewayHistory(id)
   return data
 }
 

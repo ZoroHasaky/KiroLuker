@@ -802,7 +802,23 @@ async function submitCredentials(): Promise<void> {
   justify-content: center;
   min-height: 240px;
   padding: 16px 0 12px;
+  /* 子项默认按内容撑宽，长错误文本会顶破弹窗；限制成满宽再由内部换行 */
+  width: 100%;
+  min-width: 0;
 }
+
+/*
+ * 授权失败时 a-result 的标题直接放上游错误原文，可能是整段 JSON。
+ * 这类串没有空格可断行，必须按字符断开，否则会横向溢出弹窗。
+ */
+.waiting :deep(.ant-result) { width: 100%; max-width: 100%; padding: 24px 16px; }
+.waiting :deep(.ant-result-title) {
+  font-size: 15px;
+  line-height: 1.7;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.waiting :deep(.ant-result-subtitle) { word-break: break-word; overflow-wrap: anywhere; }
 
 .spinner {
   display: block;

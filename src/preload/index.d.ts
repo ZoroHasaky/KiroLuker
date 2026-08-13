@@ -15,7 +15,9 @@ import type {
   IpcResult,
   KeyGatewayConflict,
   KeyGatewayData,
+  GatewayCallPoint,
   KeyGatewayStatus,
+  KeyGatewayUsageStats,
   KiroCapability,
   KeyModelInfo,
   KeyTestResult,
@@ -90,6 +92,13 @@ export interface Api {
   getKeyGatewayStatus: () => Promise<IpcResult<KeyGatewayStatus>>
   /** 探测当前 Kiro 是否支持 API Key 网关接管 */
   getKiroCapability: () => Promise<IpcResult<KiroCapability>>
+  /** 各 Key 经网关产生的真实调用统计，按 keyId 索引 */
+  getKeyGatewayStats: () => Promise<IpcResult<Record<string, KeyGatewayUsageStats>>>
+  resetKeyGatewayStats: (
+    keyId?: string
+  ) => Promise<IpcResult<Record<string, KeyGatewayUsageStats>>>
+  /** 某个 Key 的网关调用历史，按分钟聚合，用于画曲线 */
+  getKeyGatewayHistory: (keyId: string) => Promise<IpcResult<GatewayCallPoint[]>>
   inspectKeyGatewayConflict: () => Promise<IpcResult<KeyGatewayConflict | null>>
   enableKeyGateway: (keyId?: string, force?: boolean) => Promise<IpcResult<KeyGatewayStatus>>
   disableKeyGateway: () => Promise<IpcResult<KeyGatewayStatus>>

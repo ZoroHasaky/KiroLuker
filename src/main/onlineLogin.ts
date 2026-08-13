@@ -1,5 +1,5 @@
 // 在线添加账号：Builder ID 设备码、Google / GitHub 社交登录、Enterprise IAM Identity Center SSO
-import { BrowserWindow } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import * as crypto from 'crypto'
 import * as http from 'http'
 import { setProtocolClient } from './appProtocol'
@@ -30,11 +30,24 @@ const DEFAULT_EXPIRES_IN = 3600
 
 let protocolRegistered = false
 
-function registerProtocol(): void {
-  if (protocolRegistered) return
-  setProtocolClient(PROTOCOL, true)
-  protocolRegistered = true
-  console.log('[Login] kiro:// protocol registered (temporary)')
+/**
+ * 抢占 kiro:// 协议，并确认真的抢到了。
+ *
+ * 必须验证而不能只看 setAsDefaultProtocolClient 的返回值：
+ * macOS 上只有 Info.plist 声明过该 scheme 才可能成为默认处理者
+ * （见 electron-builder.yml 的 protocols），未声明时调用会静默失效，
+ * 回调依旧被 Kiro IDE 接走——表现就是「登录成功后打开了 Kiro，而不是回到本应用」。
+ *
+ * @returns 是否已成为 kiro:// 的默认处理者
+ */
+function registerProtocol(): boolean {
+  if (!protocolRegistered) {
+    setProtocolClient(PROTOCOL, true)
+    protocolRegistered = true
+  }
+  const owned = app.isDefaultProtocolClient(PROTOCOL)
+  console.log(`[Login] kiro:// protocol registered (temporary), owned=${owned}`)
+  return owned
 }
 
 export function unregisterProtocol(): void {
@@ -174,6 +187,20 @@ async function registerOidcClient(
     if (text.includes('UnauthorizedException') || text.includes('access denied')) {
       throw new Error('授权失败：该组织可能未开通 Amazon Q Developer 权限，请联系 IAM Identity Center 管理员')
     }
+    // AWS 只回一句 invalid_request / Invalid request.，原文对用户毫无指导意义。
+    // 这个错误在企业版登录里几乎只有一个成因：所选区域没有该 Start URL 对应的 IdC 实例。
+    // IAM Identity Center 每个账户只有一个实例，绑定在创建时选定的区域，不能跨区使用；
+    // 而登录填的区域正是用来拼 oidc.<region>.amazonaws.com 的，填错就必然 400。
+    if (/invalid_request/i.test(text)) {
+      if (issuerUrl !== KIRO_START_URL) {
+        throw new Error(
+          `在 ${region} 没有找到该 Start URL 对应的 IAM Identity Center 实例。` +
+            'IdC 实例只存在于创建时选定的那一个区域，请改用目录所在区域后重试' +
+            '（该区域与之后使用哪个区域的 Kiro 服务无关）。'
+        )
+      }
+      throw new Error(`注册 OIDC 客户端失败：${region} 拒绝了该请求，请确认所选区域是否正确。`)
+    }
     throw new Error(`注册 OIDC 客户端失败：${text.slice(0, 200)}`)
   }
   return res.json<{ clientId: string; clientSecret: string }>()
@@ -307,7 +334,19 @@ export async function startSocialLogin(
     expiresAt: Date.now() + LOGIN_TTL_MS
   }
 
-  registerProtocol()
+  /*
+   * 抢不到 kiro:// 就别让用户白走一趟：授权会成功，但回调会被 Kiro IDE 接走，
+   * 本应用永远等不到 code，用户只会看到「浏览器授权完了，然后 Kiro 打开了」。
+   * 这里提前拦下并说明原因，而不是让它静默失败。
+   */
+  if (!registerProtocol()) {
+    cancelLogin()
+    throw new Error(
+      '无法接管 kiro:// 回调协议，社交登录的回调会被 Kiro IDE 接走。' +
+        '这通常发生在开发模式下（Electron 未声明该协议）；' +
+        '请使用正式安装的版本，或改用 Builder ID / 企业版登录。'
+    )
+  }
   const url = loginUrl.toString()
   const opened = await openUrl(url, privateMode)
   return { loginUrl: url, privateMode: opened.privateMode, browser: opened.browser }

@@ -18,6 +18,14 @@ protocols:
     schemes:
       - kiro-manager-lite
       - kml
+  # 社交登录（Google / GitHub）的回调地址被 Kiro 固定成 kiro://，登录期间必须
+  # 临时把该 scheme 抢过来。macOS 的限制是：LSSetDefaultHandlerForURLScheme
+  # 只对 Info.plist 里已声明的 scheme 生效，不在这里声明的话
+  # app.setAsDefaultProtocolClient('kiro') 会静默失效，回调仍被 Kiro IDE 接走。
+  # 仅声明「能处理」，实际是否默认处理者由 onlineLogin 在登录前后动态切换。
+  - name: Kiro Auth Callback
+    schemes:
+      - kiro
 files:
   - '!**/.vscode/*'
   - '!src/*'

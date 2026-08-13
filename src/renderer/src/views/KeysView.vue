@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { message, Modal } from 'ant-design-vue'
 import {
@@ -43,6 +43,7 @@ import { normalizeSubscriptionType } from '@shared/subscription'
 import { keyIssueOf, shouldSkipKeyUsageRefresh } from '@shared/refreshPolicy'
 import RegionSelect from '@/components/common/RegionSelect.vue'
 import UsageHistoryModal from '@/components/accounts/UsageHistoryModal.vue'
+import GatewayHistoryModal from '@/components/keys/GatewayHistoryModal.vue'
 import ApiKeyDetailDrawer from '@/components/keys/ApiKeyDetailDrawer.vue'
 import ApiKeyTestModal from '@/components/keys/ApiKeyTestModal.vue'
 import ApiKeyBatchTestModal from '@/components/keys/ApiKeyBatchTestModal.vue'
@@ -52,6 +53,7 @@ import type {
   KeyEntry,
   KeyFilter,
   KeyGatewayConflict,
+  KeyGatewayUsageStats,
   KeyStatus,
   KiroCapability,
   SubscriptionType
@@ -87,6 +89,8 @@ const detailTarget = ref<KeyEntry | null>(null)
 const testTarget = ref<KeyEntry | null>(null)
 const batchTestOpen = ref(false)
 const usageTarget = ref<KeyEntry | null>(null)
+const gatewayHistoryTarget = ref<KeyEntry | null>(null)
+const gatewayHistoryMetric = ref<'requests' | 'credits'>('requests')
 const selectedIds = ref<string[]>([])
 const sortKey = ref<'createdAt' | 'usage' | 'checked' | 'note'>('createdAt')
 
@@ -365,6 +369,82 @@ const usageSubject = computed(() => {
 /** 异常原因与跳过判定都走 shared/refreshPolicy，与主进程自动刷新保持同一口径 */
 function keyIssue(entry: KeyEntry): string | undefined {
   return keyIssueOf(entry)
+}
+
+// ============ 网关调用统计 ============
+
+/** 该 Key 的网关统计；没跑过请求返回 undefined，各模块显示占位符 */
+function statsOf(entry: KeyEntry): KeyGatewayUsageStats | undefined {
+  const s = store.gatewayStats[entry.id]
+  return s && s.requests > 0 ? s : undefined
+}
+
+/** 数值型指标的展示：无数据统一用 - 占位 */
+function statText(entry: KeyEntry, field: 'requests' | 'rpm'): string {
+  const s = statsOf(entry)
+  return s ? String(s[field]) : '-'
+}
+
+function successRateText(entry: KeyEntry): string {
+  const s = statsOf(entry)
+  if (!s) return '-'
+  return ((s.succeeded / s.requests) * 100).toFixed(2)
+}
+
+/**
+ * 积分消耗：取响应流里 MeteringEvent 的累计值，这是 Kiro 的计费口径。
+ * 上游给的是长浮点（如 2.294253048623549），固定两位小数即可；
+ * 上万后压成 k，避免撑破格子。请求跑过但没有计费事件时显示 0，与"从没跑过"的 - 区分。
+ */
+function creditText(entry: KeyEntry): string {
+  const s = statsOf(entry)
+  if (!s) return '-'
+  if (s.metered >= 10000) return compactNumber(s.metered)
+  return s.metered.toFixed(2)
+}
+
+function requestTip(entry: KeyEntry): string {
+  const s = statsOf(entry)
+  if (!s) return '该 Key 尚未经本地网关发出过请求'
+  return (
+    `对话请求 ${s.requests} 次：成功 ${s.succeeded} / 失败 ${s.failed}` +
+    (s.auxRequests
+      ? `\n另有辅助请求 ${s.auxRequests} 次（/mcp、模型列表等），失败 ${s.auxFailed} 次，不计入成功率`
+      : '')
+  )
+}
+
+function creditTip(entry: KeyEntry): string {
+  const s = statsOf(entry)
+  if (!s) return '该 Key 尚未经本地网关发出过请求'
+  const unit = s.meteredUnit ? ` ${s.meteredUnit}` : ''
+  return (
+    `经网关累计消耗 ${s.metered.toFixed(4)}${unit}（来自服务端计费事件）\n` +
+    '点击查看积分消耗曲线与明细'
+  )
+}
+
+function successColor(entry: KeyEntry): string {
+  const s = statsOf(entry)
+  if (!s) return 'inherit'
+  const rate = s.succeeded / s.requests
+  if (rate >= 0.95) return '#52c41a'
+  if (rate >= 0.8) return '#faad14'
+  return '#ff4d4f'
+}
+
+/** 打开网关调用历史弹窗，metric 决定默认展示哪条曲线 */
+function openGatewayHistory(entry: KeyEntry, metric: 'requests' | 'credits'): void {
+  gatewayHistoryMetric.value = metric
+  gatewayHistoryTarget.value = entry
+}
+
+/** 大数字压成 12.3k / 1.2M，避免撑破卡片上的窄格子 */
+function compactNumber(n: number): string {
+  if (!n) return '0'
+  if (n < 1000) return String(n)
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`
+  return `${(n / 1_000_000).toFixed(1)}M`
 }
 
 function keyStatus(entry: KeyEntry): { color: string; text: string } {
@@ -828,6 +908,24 @@ onMounted(() => {
   void store.load()
   void detectCapability()
 })
+
+/**
+ * 统计已持久化，网关关闭时累计值依然要显示，所以进页面就先拉一次。
+ * 但只有网关运行时才需要持续轮询（RPM 与新增请求会变），关闭后停掉定时器。
+ */
+watch(
+  () => data.value.enabled,
+  (enabled) => {
+    if (enabled) store.startStatsPolling()
+    else {
+      store.stopStatsPolling()
+      void store.refreshStats()
+    }
+  },
+  { immediate: true }
+)
+
+onUnmounted(() => store.stopStatsPolling())
 </script>
 
 <template>
@@ -1088,6 +1186,45 @@ onMounted(() => {
             <span v-else class="muted">已用 / 总额度</span>
           </div>
         </div>
+
+        <!-- 网关实际调用统计：始终占位，没有数据显示 -，保证所有卡片高度一致 -->
+        <div class="stat-grid">
+          <div
+            class="stat-cell clickable"
+            :title="requestTip(entry)"
+            @click.stop="openGatewayHistory(entry, 'requests')"
+          >
+            <span class="stat-label">请求</span>
+            <strong class="stat-value">{{ statText(entry, 'requests') }}</strong>
+          </div>
+          <div
+            class="stat-cell clickable"
+            title="2xx 响应占全部请求的比例，点击查看成功率曲线"
+            @click.stop="openGatewayHistory(entry, 'requests')"
+          >
+            <span class="stat-label">成功率</span>
+            <strong class="stat-value" :style="{ color: successColor(entry) }">
+              {{ successRateText(entry) }}<small v-if="statsOf(entry)">%</small>
+            </strong>
+          </div>
+          <div
+            class="stat-cell clickable"
+            title="最近一分钟经网关发出的请求数（重启后重新计算），点击查看请求量曲线"
+            @click.stop="openGatewayHistory(entry, 'requests')"
+          >
+            <span class="stat-label">RPM</span>
+            <strong class="stat-value">{{ statText(entry, 'rpm') }}</strong>
+          </div>
+          <div
+            class="stat-cell clickable"
+            :title="creditTip(entry)"
+            @click.stop="openGatewayHistory(entry, 'credits')"
+          >
+            <span class="stat-label">积分</span>
+            <strong class="stat-value">{{ creditText(entry) }}</strong>
+          </div>
+        </div>
+
         <div class="error-slot">
           <a-tooltip v-if="keyIssue(entry)" placement="topLeft">
             <template #title>
@@ -1235,6 +1372,11 @@ onMounted(() => {
     />
     <ApiKeyTestModal :key-entry="testTarget" @close="testTarget = null" />
     <UsageHistoryModal :subject="usageSubject" @close="usageTarget = null" />
+    <GatewayHistoryModal
+      :key-entry="gatewayHistoryTarget"
+      :metric="gatewayHistoryMetric"
+      @close="gatewayHistoryTarget = null"
+    />
 
     <a-modal
       :open="!!restartPrompt"
@@ -1412,6 +1554,23 @@ onMounted(() => {
 .usage-number { font-weight: 600; }
 /* 右侧的重置日期不允许折行，与账号卡片一致 */
 .usage-foot span:last-child { white-space: nowrap; }
+/* 网关调用统计：四个等宽圆角小块，无边框，背景与上方使用量区块统一 */
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.stat-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 7px 2px 6px;
+  border-radius: 10px;
+  background: var(--kal-block-bg);
+}
+.stat-cell.clickable { cursor: pointer; transition: background 0.16s ease; }
+.stat-cell.clickable:hover { background: var(--kal-code-bg); }
+.stat-label { color: var(--kal-muted); font-size: 11px; line-height: 1.2; }
+/* 成功率带两位小数后字符变长，格子窄时靠 clamp 缩字号，且禁止折行 */
+.stat-value { font-size: clamp(11px, 1.1vw, 14px); line-height: 1.25; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.stat-value small { margin-left: 1px; font-size: 10px; font-weight: 400; }
 .error-slot { height: 27px; margin-top: 8px; }
 .error-line { padding: 5px 8px; overflow: hidden; color: #ff4d4f; border-radius: 8px; background: rgba(255, 77, 79, 0.08); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; cursor: help; }
 /* 卡片里一行截断，Tooltip 里完整换行展示 */

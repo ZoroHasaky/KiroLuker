@@ -28,6 +28,11 @@ const props = withDefaults(
   { rowHeight: 22, dynamicHeight: false, bufferRows: 8, itemKey: undefined }
 )
 
+const emit = defineEmits<{
+  /** 滚动位置变化：父组件据此判断要不要跟随新内容、要不要显示回底按钮 */
+  'scroll-state': [state: { distanceToBottom: number; atBottom: boolean }]
+}>()
+
 const viewport = ref<HTMLElement | null>(null)
 const viewportHeight = ref(0)
 const scrollTop = ref(0)
@@ -107,12 +112,23 @@ const offsetStyle = computed(() => {
   return { transform: `translateY(${top}px)` }
 })
 
-/** 是否已经贴在底部：决定新日志进来要不要自动跟随 */
-const atBottom = computed(() => {
+/**
+ * 距底部还有多少像素。
+ *
+ * 不能写成依赖 viewport 的 computed：那样读的是 DOM 属性，滚动时不会触发重算。
+ * 这里显式在滚动与内容变化后更新，父组件据此决定是否跟随新内容。
+ */
+const distanceToBottom = ref(0)
+
+function measureDistance(): void {
   const el = viewport.value
-  if (!el) return true
-  return el.scrollHeight - el.scrollTop - el.clientHeight < props.rowHeight * 2
-})
+  if (!el) return
+  distanceToBottom.value = Math.max(0, el.scrollHeight - el.scrollTop - el.clientHeight)
+  emit('scroll-state', {
+    distanceToBottom: distanceToBottom.value,
+    atBottom: distanceToBottom.value < props.rowHeight * 2
+  })
+}
 
 let ticking = false
 function onScroll(): void {
@@ -121,23 +137,30 @@ function onScroll(): void {
   // 合并到一帧，滚动时最多算一次可见区间
   requestAnimationFrame(() => {
     scrollTop.value = viewport.value?.scrollTop ?? 0
+    measureDistance()
     ticking = false
   })
 }
 
-function scrollToBottom(): void {
+/** smooth 用于「回到底部」按钮，自动跟随时用瞬时滚动免得追不上新内容 */
+function scrollToBottom(smooth = false): void {
   const el = viewport.value
   if (!el) return
-  el.scrollTop = el.scrollHeight
+  if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  else el.scrollTop = el.scrollHeight
   scrollTop.value = el.scrollTop
+  // 平滑滚动是异步的，等动画结束再量一次，否则按钮不会及时隐藏
+  if (smooth) setTimeout(measureDistance, 320)
+  else measureDistance()
 }
 
 function scrollToTop(): void {
   viewport.value?.scrollTo({ top: 0 })
   scrollTop.value = 0
+  measureDistance()
 }
 
-defineExpose({ scrollToBottom, scrollToTop, atBottom })
+defineExpose({ scrollToBottom, scrollToTop, distanceToBottom })
 
 // ============ 尺寸观察 ============
 
@@ -183,6 +206,15 @@ watch(
     version.value++
   }
 )
+
+/**
+ * 内容或总高变化后要重新量一次离底距离：
+ * 日志追加会让 scrollHeight 变大，用户原地不动也等于「离底更远了」，
+ * 不重新量的话回底按钮不会出现。
+ */
+watch([() => props.items.length, totalHeight], () => {
+  requestAnimationFrame(measureDistance)
+})
 
 onBeforeUnmount(() => {
   viewportObserver?.disconnect()
