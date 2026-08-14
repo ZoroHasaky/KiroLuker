@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import {
   CheckCircleFilled,
   CheckOutlined,
+  CloseCircleFilled,
   CommentOutlined,
   GithubOutlined,
   HeartFilled,
@@ -10,7 +11,6 @@ import {
   SyncOutlined,
   ThunderboltFilled
 } from '@ant-design/icons-vue'
-import { message } from 'ant-design-vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useUpdateStore } from '@/stores/update'
 import kiroLogo from '@/assets/kiro-logo.png'
@@ -26,18 +26,28 @@ const info = computed(() => settingsStore.appInfo)
 // ============ 检查更新 ============
 const checking = computed(() => updateStore.checking)
 const checkResult = computed(() => updateStore.result)
-const upToDateOpen = ref(false)
+const checkOpen = ref(false)
+const checkError = ref('')
 const groupOpen = ref(false)
 
-/** 手动检查始终访问 GitHub，绕过冷启动缓存。 */
+/** 手动检查始终访问 GitHub；先打开状态弹窗，再在弹窗中呈现最终结果。 */
 async function checkUpdate(): Promise<void> {
   if (checking.value) return
+  checkError.value = ''
+  checkOpen.value = true
   const response = await updateStore.checkNow()
   if (response.error) {
-    message.error(response.error)
+    checkError.value = response.error
     return
   }
-  if (response.data && !response.data.hasUpdate) upToDateOpen.value = true
+  // 发现新版本时关闭状态弹窗，由全局 UpdateAvailableModal 接管更新详情。
+  if (response.data?.hasUpdate) checkOpen.value = false
+  else if (!response.data) checkError.value = '没有收到有效的版本检查结果，请稍后重试'
+}
+
+function manualUpdate(): void {
+  checkOpen.value = false
+  open(REPO_URL)
 }
 
 /** 关于页展示的功能清单，与 README 的功能特性保持一致 */
@@ -204,15 +214,51 @@ function open(url: string): void {
       </a-space>
     </a-card>
 
-    <!-- 已是最新版 -->
-    <a-modal v-model:open="upToDateOpen" title="检查更新" :width="380" centered>
-      <div class="check-result">
-        <CheckCircleFilled class="check-icon ok" />
-        <div class="check-title">已是最新版本</div>
-        <div class="muted">当前版本 v{{ checkResult?.current || info?.version || '-' }}</div>
+    <!-- 手动检查状态：点击后立即打开，加载、失败、已是最新版都在同一弹窗内呈现。 -->
+    <a-modal
+      v-if="checkOpen"
+      v-model:open="checkOpen"
+      title="检查更新"
+      :width="420"
+      centered
+      :closable="!checking"
+      :mask-closable="!checking"
+      :keyboard="!checking"
+    >
+      <div class="check-result" aria-live="polite">
+        <template v-if="checking">
+          <a-spin size="large" class="check-spinner" />
+          <div class="check-title">正在检查更新</div>
+          <div class="check-detail muted">正在连接 GitHub 并获取最新版本，请稍候…</div>
+        </template>
+        <template v-else-if="checkError">
+          <CloseCircleFilled class="check-icon error" />
+          <div class="check-title">检查更新失败</div>
+          <div class="check-error">{{ checkError }}</div>
+          <div class="check-detail muted">可以稍后重试，或前往项目主页手动下载最新版本。</div>
+        </template>
+        <template v-else>
+          <CheckCircleFilled class="check-icon ok" />
+          <div class="check-title">已是最新版本</div>
+          <div class="check-detail muted">
+            当前版本 v{{ checkResult?.current || info?.version || '-' }}
+          </div>
+        </template>
       </div>
       <template #footer>
-        <a-button type="primary" @click="upToDateOpen = false">好的</a-button>
+        <span v-if="checking" class="check-footer-loading muted">正在检查，请勿关闭…</span>
+        <template v-else-if="checkError">
+          <a-button @click="checkOpen = false">关闭</a-button>
+          <a-button @click="checkUpdate">
+            <template #icon><SyncOutlined /></template>
+            重新检查
+          </a-button>
+          <a-button type="primary" @click="manualUpdate">
+            <template #icon><GithubOutlined /></template>
+            手动更新
+          </a-button>
+        </template>
+        <a-button v-else type="primary" @click="checkOpen = false">好的</a-button>
       </template>
     </a-modal>
 
@@ -375,6 +421,37 @@ function open(url: string): void {
 
 .check-icon.ok {
   color: #52c41a;
+}
+
+.check-icon.error {
+  color: #ff4d4f;
+}
+
+.check-spinner {
+  display: inline-flex;
+  margin: 2px 0 4px;
+}
+
+.check-detail {
+  max-width: 340px;
+  margin: 0 auto;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.check-error {
+  max-width: 350px;
+  margin: 0 auto 6px;
+  color: #ff4d4f;
+  font-size: 12.5px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.check-footer-loading {
+  display: inline-block;
+  padding: 5px 0;
+  font-size: 12px;
 }
 
 .check-icon.new {

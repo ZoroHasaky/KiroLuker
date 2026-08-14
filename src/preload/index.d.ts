@@ -62,6 +62,10 @@ export interface Api {
 
   loadAccounts: () => Promise<IpcResult<AccountStoreData>>
   saveAccounts: (data: AccountStoreData) => Promise<IpcResult>
+  deleteAccounts: (ids: string[]) => Promise<IpcResult<{
+    accounts: AccountStoreData
+    removed: number
+  }>>
 
   loadKeys: () => Promise<IpcResult<KeyGatewayData>>
   addKey: (key: string, note?: string, region?: string) => Promise<IpcResult<KeyGatewayData>>

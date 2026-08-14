@@ -52,6 +52,13 @@ export function setLastSwitchedAccountId(id: string | null): void {
   lastSwitchedAccountId = id
 }
 
+/** 删除管理记录后同步清除运行时账号引用，避免后续续期误认已删除账号。 */
+export function forgetSwitchedAccounts(ids: string[]): void {
+  if (lastSwitchedAccountId && new Set(ids).has(lastSwitchedAccountId)) {
+    lastSwitchedAccountId = null
+  }
+}
+
 /** CBOR/REST 接口的 Idp 头取值 */
 function resolveIdp(provider?: string, authMethod?: string, fallback?: string): string {
   if (authMethod === 'social') return provider || fallback || 'Google'

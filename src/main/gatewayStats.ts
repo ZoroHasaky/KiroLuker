@@ -28,6 +28,8 @@ const RPM_WINDOW_MS = 60_000
 
 /** 只有 RPM 需要进程内状态：keyId -> 最近一分钟内的对话请求时间戳 */
 const recentByKey = new Map<string, number[]>()
+/** 已删除的 Key：阻止删除前尚未结束的流式响应把统计重新写回磁盘。 */
+const discardedKeys = new Set<string>()
 let changed: (() => void) | null = null
 
 function recentFor(keyId: string): number[] {
@@ -61,6 +63,7 @@ export function onStatsChanged(handler: (() => void) | null): void {
  * 又不反映对话质量的数字，所以成功率只按对话请求算。
  */
 export function recordRequest(keyId: string, isChat: boolean): void {
+  if (discardedKeys.has(keyId)) return
   if (!isChat) {
     mutate(keyId, (s) => void s.auxRequests++)
     return
@@ -89,6 +92,7 @@ export function recordResponse(
   isChat: boolean,
   startedAt?: number
 ): void {
+  if (discardedKeys.has(keyId)) return
   const ok = status >= 200 && status < 300
   if (!isChat) {
     if (!ok) mutate(keyId, (s) => void s.auxFailed++)
@@ -162,6 +166,7 @@ export function createUsageCollector(
       encoding = value
     },
     feed(chunk: Buffer): void {
+      if (discardedKeys.has(keyId)) return
       try {
         byteCount += chunk.length
         buffer = buffer.length ? Buffer.concat([buffer, chunk]) : chunk
@@ -187,6 +192,7 @@ export function createUsageCollector(
       }
     },
     finish(): void {
+      if (discardedKeys.has(keyId)) return
       if (hit) {
         const s = getTotals(keyId)
         log(
@@ -222,6 +228,18 @@ export function getGatewayStats(): Record<string, KeyGatewayUsageStats> {
     if (out[id]) out[id].rpm = recent.length
   }
   return out
+}
+
+/**
+ * 删除 Key 时彻底丢弃统计，并把 ID 加入墓碑集合。
+ * 墓碑只活到进程退出，用于拦住删除前已经发出的流式响应和延迟重试回写孤儿历史。
+ */
+export function discardGatewayStats(keyId: string): void {
+  if (!keyId) return
+  discardedKeys.add(keyId)
+  recentByKey.delete(keyId)
+  clearGatewayHistory(keyId)
+  changed?.()
 }
 
 /** 清空统计与历史：用户手动重置时调用。关闭网关不再清空，累计值要长期保留 */

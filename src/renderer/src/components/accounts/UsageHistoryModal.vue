@@ -14,6 +14,7 @@ import {
 import { useSettingsStore } from '@/stores/settings'
 import { formatCredits, formatCreditsPair, formatDateTime, usageColor } from '@/utils/format'
 import { displayEmail } from '@/utils/display'
+import { smoothLinePath } from '@/utils/chart'
 import { exportStamp, safeNamePart } from '@/utils/transfer'
 import type { Account, UsageHistoryEntry, XlsxSheet } from '@shared/types'
 
@@ -143,7 +144,7 @@ const plot = computed(() => {
   }))
   if (points.length === 1) points[0].x = PAD.left + innerW / 2
 
-  const line = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')
+  const line = smoothLinePath(points)
   const baseY = PAD.top + innerH
   const area = points.length
     ? `${line} L${points.at(-1)!.x.toFixed(2)},${baseY} L${points[0].x.toFixed(2)},${baseY} Z`
@@ -156,11 +157,13 @@ const plot = computed(() => {
 
   const tickCount = Math.min(5, list.length)
   const xTicks = Array.from({ length: tickCount }, (_, i) => {
-    // 只有一个刻度时放在正中间
+    // 只有一个刻度时放在正中间；首尾标签朝绘图区内侧展开，避免完整时间被 SVG 边缘裁切。
     const ratio = tickCount === 1 ? 0.5 : i / (tickCount - 1)
     const at = minTime + span * ratio
     return {
       x: PAD.left + ratio * innerW,
+      anchor:
+        tickCount === 1 ? 'middle' : i === 0 ? 'start' : i === tickCount - 1 ? 'end' : 'middle',
       label: new Date(at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
     }
   })
@@ -388,7 +391,7 @@ async function exportXlsx(): Promise<void> {
             :key="tick.label"
             :x="tick.x"
             :y="CHART_HEIGHT - 8"
-            text-anchor="middle"
+            :text-anchor="tick.anchor"
           >
             {{ tick.label }}
           </text>

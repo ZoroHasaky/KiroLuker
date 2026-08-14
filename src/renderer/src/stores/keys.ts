@@ -141,6 +141,9 @@ export const useKeysStore = defineStore('keys', () => {
     const res = await window.api.deleteKey(id)
     if (!res.success || !res.data) return res.error || '删除失败'
     replace(res.data)
+    const nextStats = { ...gatewayStats.value }
+    delete nextStats[id]
+    gatewayStats.value = nextStats
     return null
   }
 

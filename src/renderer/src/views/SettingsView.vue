@@ -136,9 +136,10 @@ function clearAll(): void {
     title: '清除所有账号数据',
     content: `会删除本应用保存的全部 ${accountCount.value} 个账号。请先导出备份，该操作不可撤销。`,
     okText: '确认清除',
-    onOk: () => {
-      const count = accountsStore.removeAccounts(accountsStore.accounts.map((a) => a.id))
-      message.success(`已清除 ${count} 个账号`)
+    onOk: async () => {
+      const result = await accountsStore.removeAccounts(accountsStore.accounts.map((a) => a.id))
+      if (result.error) return void message.error(result.error)
+      message.success(`已清除 ${result.removed} 个账号`)
     }
   })
 }

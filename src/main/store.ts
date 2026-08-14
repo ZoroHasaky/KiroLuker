@@ -131,6 +131,34 @@ export async function setAccountData(data: AccountStoreData): Promise<void> {
   await writeBackup(data)
 }
 
+/**
+ * 从主进程最新快照删除账号，避免渲染进程用旧整表覆盖主动续期刚写入的新凭证。
+ * 同时从滚动备份里移除这些账号，保证“删除”不会在历史备份中留下可恢复凭证。
+ */
+export async function deleteAccountData(
+  ids: string[]
+): Promise<{ accounts: AccountStoreData; removed: number }> {
+  const remove = new Set(ids.filter(Boolean))
+  const current = getAccountData()
+  if (!remove.size) return { accounts: current, removed: 0 }
+
+  const remaining = current.accounts.filter((account) => !remove.has(account.id))
+  const removed = current.accounts.length - remaining.length
+  if (!removed) return { accounts: current, removed: 0 }
+
+  const accounts: AccountStoreData = {
+    ...current,
+    accounts: remaining,
+    activeAccountId:
+      current.activeAccountId && remove.has(current.activeAccountId)
+        ? null
+        : current.activeAccountId
+  }
+  await setAccountData(accounts)
+  await purgeAccountsFromBackups(remove)
+  return { accounts, removed }
+}
+
 export function getSettings(): AppSettings {
   return { ...DEFAULT_SETTINGS, ...(store.get('settings') as Partial<AppSettings>) }
 }
@@ -187,6 +215,39 @@ export function getBackupDir(): string {
 }
 
 let lastBackupAt = 0
+
+/** 删除账号时同步净化滚动备份，避免旧备份继续保存已删除账号的凭证与用量快照。 */
+async function purgeAccountsFromBackups(remove: Set<string>): Promise<number> {
+  if (!remove.size) return 0
+  try {
+    const dir = getBackupDir()
+    const files = (await fs.readdir(dir)).filter((name) => name.startsWith('accounts-'))
+    let removed = 0
+    for (const name of files) {
+      const file = path.join(dir, name)
+      try {
+        const parsed = JSON.parse(await fs.readFile(file, 'utf-8')) as AccountStoreData
+        if (!Array.isArray(parsed.accounts)) continue
+        const remaining = parsed.accounts.filter((account) => !remove.has(account.id))
+        const count = parsed.accounts.length - remaining.length
+        if (!count) continue
+        parsed.accounts = remaining
+        if (parsed.activeAccountId && remove.has(parsed.activeAccountId)) {
+          parsed.activeAccountId = null
+        }
+        await fs.writeFile(file, JSON.stringify(parsed, null, 2), 'utf-8')
+        removed += count
+      } catch (error) {
+        console.warn(`[Store] 无法净化账号备份 ${name}:`, error)
+      }
+    }
+    return removed
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code !== 'ENOENT') console.warn('[Store] purge backups failed:', error)
+    return 0
+  }
+}
 
 async function writeBackup(data: AccountStoreData): Promise<void> {
   if (Date.now() - lastBackupAt < BACKUP_INTERVAL_MS) return

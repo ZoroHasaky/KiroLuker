@@ -1,8 +1,9 @@
 // API Key 管理与网关编排层
 import { randomUUID } from 'crypto'
 import { getKeyData, setKeyData } from './store'
-import { appendUsagePoint, clearUsageHistory } from './usageHistory'
-import { clearGatewayHistory } from './gatewayHistory'
+import { appendUsagePoint, clearUsageHistory, pruneKeyUsageHistory } from './usageHistory'
+import { clearGatewayHistory, pruneGatewayHistory } from './gatewayHistory'
+import { discardGatewayStats } from './gatewayStats'
 import {
   fetchAccountInfo,
   fetchModels,
@@ -205,6 +206,10 @@ function stopEndpointWatcher(): void {
 
 export function loadKeys(): KeyGatewayData {
   const data = getKeyData()
+  const keyIds = data.keys.map((entry) => entry.id)
+  // 启动时顺手裁掉旧版本或异常退出遗留的孤儿记录。
+  pruneKeyUsageHistory(keyIds)
+  pruneGatewayHistory(keyIds)
   // 升级兼容：已有额度但尚无历史的旧 Key 会在首次加载时补一条基线。
   for (const entry of data.keys) recordKeyUsage(entry)
   return data
@@ -336,7 +341,8 @@ export function deleteKey(id: string): KeyGatewayData {
   if (data.activeKeyId === id) data.activeKeyId = null
   setKeyData(data)
   clearUsageHistory(historySubjectId(id))
-  clearGatewayHistory(id)
+  // 同时清持久化累计/曲线、RPM 内存窗口，并阻止未结束请求在删除后重新回写。
+  discardGatewayStats(id)
   return data
 }
 

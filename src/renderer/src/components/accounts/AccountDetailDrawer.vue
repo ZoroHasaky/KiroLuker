@@ -244,6 +244,7 @@ async function act(kind: 'refresh' | 'check' | 'switch'): Promise<void> {
 
       <!-- 范围锁定为当前账号，不受列表勾选影响 -->
       <ExportAccountsModal
+        v-if="exportOpen"
         v-model:open="exportOpen"
         :selected-ids="[account.id]"
         scope-locked

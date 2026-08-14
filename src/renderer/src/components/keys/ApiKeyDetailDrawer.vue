@@ -317,6 +317,7 @@ function subscriptionColor(tier?: string): string {
       </a-descriptions>
 
       <a-modal
+        v-if="regionOpen"
         v-model:open="regionOpen"
         title="修改所属区域"
         centered

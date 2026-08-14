@@ -36,6 +36,7 @@ const api = {
   // 数据
   loadAccounts: () => invoke('accounts:load'),
   saveAccounts: (data: unknown) => invoke('accounts:save', data),
+  deleteAccounts: (ids: string[]) => invoke('accounts:delete', ids),
 
   // Kiro API Key 管理 / 本地网关
   loadKeys: () => invoke('keys:load'),

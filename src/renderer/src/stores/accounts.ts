@@ -318,16 +318,26 @@ export const useAccountsStore = defineStore('accounts', () => {
     persist()
   }
 
-  function removeAccounts(ids: string[]): number {
-    const set = new Set(ids)
-    const before = accounts.value.length
-    accounts.value = accounts.value.filter((a) => !set.has(a.id))
-    selectedIds.value = selectedIds.value.filter((id) => !set.has(id))
-    if (activeAccountId.value && set.has(activeAccountId.value)) activeAccountId.value = null
-    persist(true)
-    const removed = before - accounts.value.length
-    if (removed) console.warn(`[Account] 已删除 ${removed} 个账号`)
-    return removed
+  async function removeAccounts(
+    ids: string[]
+  ): Promise<{ removed: number; error?: string }> {
+    const uniqueIds = [...new Set(ids.filter(Boolean))]
+    if (!uniqueIds.length) return { removed: 0 }
+    // 删除必须以主进程最新快照为准；同时取消尚未发出的旧快照保存，避免删后回写复活。
+    if (saveTimer) {
+      clearTimeout(saveTimer)
+      saveTimer = null
+    }
+    const res = await window.api.deleteAccounts(uniqueIds)
+    if (!res.success || !res.data) {
+      return { removed: 0, error: res.error || '删除账号失败' }
+    }
+    accounts.value = res.data.accounts.accounts ?? []
+    activeAccountId.value = res.data.accounts.activeAccountId ?? null
+    const removedSet = new Set(uniqueIds)
+    selectedIds.value = selectedIds.value.filter((id) => !removedSet.has(id))
+    if (res.data.removed) console.warn(`[Account] 已删除 ${res.data.removed} 个账号`)
+    return { removed: res.data.removed }
   }
 
   // ============ 批量导入 ============

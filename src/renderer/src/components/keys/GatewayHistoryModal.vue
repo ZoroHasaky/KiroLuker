@@ -11,6 +11,7 @@ import { ReloadOutlined } from '@ant-design/icons-vue'
 import { useKeysStore } from '@/stores/keys'
 import { useSettingsStore } from '@/stores/settings'
 import { confirmDanger } from '@/utils/ui'
+import { smoothLinePath } from '@/utils/chart'
 import { formatDateTime } from '@/utils/format'
 import type { GatewayCallPoint, KeyEntry } from '@shared/types'
 
@@ -92,7 +93,8 @@ const avgRpm = computed(() =>
 const chartBox = ref<HTMLElement | null>(null)
 const chartWidth = ref(760)
 const CHART_HEIGHT = 220
-const PAD = { top: 14, right: 16, bottom: 26, left: 56 }
+// y 轴标签仍在绘图区外，但比通用用量图更紧凑，给曲线留出更多横向空间。
+const PAD = { top: 14, right: 16, bottom: 26, left: 44 }
 
 const observer = new ResizeObserver((records) => {
   const width = records[0]?.contentRect.width
@@ -165,9 +167,7 @@ const plot = computed(() => {
   }))
   if (plotted.length === 1) plotted[0].x = PAD.left + innerW / 2
 
-  const line = plotted
-    .map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`)
-    .join(' ')
+  const line = smoothLinePath(plotted)
   const baseY = PAD.top + innerH
   const area = `${line} L${plotted.at(-1)!.x.toFixed(2)},${baseY} L${plotted[0].x.toFixed(2)},${baseY} Z`
 
@@ -182,6 +182,8 @@ const plot = computed(() => {
     const at = minTime + span * ratio
     return {
       x: PAD.left + ratio * innerW,
+      anchor:
+        tickCount === 1 ? 'middle' : i === 0 ? 'start' : i === tickCount - 1 ? 'end' : 'middle',
       label: new Date(at).toLocaleString('zh-CN', {
         month: '2-digit',
         day: '2-digit',
@@ -364,7 +366,7 @@ function reset(): void {
           <text
             v-for="tick in plot.yTicks"
             :key="`yt${tick.y}`"
-            :x="PAD.left - 8"
+            :x="PAD.left - 4"
             :y="tick.y + 3"
             class="axis"
             text-anchor="end"
@@ -375,7 +377,7 @@ function reset(): void {
             :x="tick.x"
             :y="CHART_HEIGHT - 8"
             class="axis"
-            text-anchor="middle"
+            :text-anchor="tick.anchor"
           >{{ tick.label }}</text>
 
           <path :d="plot.area" fill="url(#gw-area)" />

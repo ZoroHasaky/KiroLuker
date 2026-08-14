@@ -91,6 +91,8 @@ function buildInit(
 export interface HttpResponse {
   ok: boolean
   status: number
+  /** 跟随重定向后的最终地址，更新检查可据此解析最新 Release tag。 */
+  url: string
   text: () => Promise<string>
   json: <T = unknown>() => Promise<T>
   arrayBuffer: () => Promise<ArrayBuffer>
@@ -164,6 +166,7 @@ export async function httpRequest(
     return {
       ok: res.ok,
       status: res.status,
+      url: res.url,
       text: () => res.text(),
       json: <T>() => res.json() as Promise<T>,
       arrayBuffer: () => res.arrayBuffer()

@@ -111,26 +111,11 @@ watch(
       <div class="app-body">
         <AppTitleBar />
         <main class="app-content">
-          <router-view v-slot="{ Component }">
-            <transition name="fade" mode="out-in">
-              <component :is="Component" />
-            </transition>
-          </router-view>
+          <!-- 不使用 out-in 淡出：旧页面先消失会放大重型页面挂载时的白屏感。 -->
+          <router-view />
         </main>
       </div>
     </div>
     <UpdateAvailableModal />
   </a-config-provider>
 </template>
-
-<style scoped>
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.14s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
-</style>

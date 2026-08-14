@@ -4,6 +4,7 @@ import { existsSync } from 'fs'
 import { dirname } from 'path'
 import {
   checkAccountStatus,
+  forgetSwitchedAccounts,
   refreshAccountToken,
   setLastSwitchedAccountId,
   switchAccount,
@@ -65,6 +66,7 @@ import {
 } from './keyService'
 import { errorMessage } from '../shared/errors'
 import {
+  deleteAccountData,
   getAccountData,
   getBackupDir,
   getSettings,
@@ -141,6 +143,17 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     // 账号被删掉后它的积分日志就没人看了，顺手清掉
     pruneUsageHistory((data.accounts ?? []).map((a) => a.id))
     return ok()
+  })
+
+  handle('accounts:delete', async (_e, ids: string[]) => {
+    const result = await deleteAccountData(Array.isArray(ids) ? ids : [])
+    if (result.removed) {
+      pruneUsageHistory(result.accounts.accounts.map((account) => account.id))
+      forgetSwitchedAccounts(ids)
+      // 删除的若是 IDE 激活账号，立即清掉旧续期 timer；否则按剩余激活账号重新对齐。
+      scheduleForActiveAccount()
+    }
+    return ok(result)
   })
 
   // ============ 积分变化日志 ============

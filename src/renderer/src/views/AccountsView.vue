@@ -287,12 +287,26 @@ async function switchTo(account: Account): Promise<void> {
   })
 }
 
+function clearDeletedAccountUi(ids: string[]): void {
+  const deleted = new Set(ids)
+  if (editTarget.value && deleted.has(editTarget.value.id)) editTarget.value = null
+  if (detailTarget.value && deleted.has(detailTarget.value.id)) detailTarget.value = null
+  if (testTarget.value && deleted.has(testTarget.value.id)) testTarget.value = null
+  if (usageTarget.value && deleted.has(usageTarget.value.id)) usageTarget.value = null
+  const nextBusy = { ...rowBusy.value }
+  for (const id of deleted) delete nextBusy[id]
+  rowBusy.value = nextBusy
+}
+
 function removeOne(account: Account): void {
-  const doRemove = (): void => {
-    accountsStore.removeAccounts([account.id])
+  const doRemove = async (): Promise<void> => {
+    const result = await accountsStore.removeAccounts([account.id])
+    if (result.error) return void message.error(result.error)
+    if (!result.removed) return void message.warning('账号已不存在')
+    clearDeletedAccountUi([account.id])
     message.success('已删除')
   }
-  if (!settingsStore.settings.confirmBeforeDelete) return doRemove()
+  if (!settingsStore.settings.confirmBeforeDelete) return void doRemove()
   confirmDelete({
     title: '删除账号',
     content: h('span', {}, [`确认删除 ${displayEmail(account.email)}？该操作不可撤销。`]),
@@ -306,9 +320,11 @@ function removeSelected(): void {
   confirmDelete({
     title: `删除 ${ids.length} 个账号`,
     content: '删除后无法恢复，建议先导出备份。',
-    onOk: () => {
-      const count = accountsStore.removeAccounts(ids)
-      message.success(`已删除 ${count} 个账号`)
+    onOk: async () => {
+      const result = await accountsStore.removeAccounts(ids)
+      if (result.error) return void message.error(result.error)
+      clearDeletedAccountUi(ids)
+      message.success(`已删除 ${result.removed} 个账号`)
     }
   })
 }
@@ -457,7 +473,7 @@ function logoutIde(account: Account): void {
             <span>筛选条件</span>
           </template>
           <template #content>
-            <AccountFilterPanel />
+            <AccountFilterPanel v-if="filterOpen" />
           </template>
           <a-badge :count="activeFilterCount" :offset="[-4, 4]">
             <a-button size="small" :type="activeFilterCount ? 'primary' : 'default'">
@@ -599,15 +615,29 @@ function logoutIde(account: Account): void {
       没有匹配筛选条件的账号
     </div>
 
-    <AddAccountModal v-model:open="addOpen" @open-import="openImport" />
-    <ImportAccountsFileModal v-model:open="importFileOpen" />
-    <ImportAccountsTextModal v-model:open="importTextOpen" />
-    <ExportAccountsModal v-model:open="exportOpen" :selected-ids="accountsStore.selectedIds" />
-    <EditAccountModal :account="editTarget" @close="editTarget = null" />
-    <AccountDetailDrawer :account="detailTarget" @close="detailTarget = null" />
-    <AccountTestModal :account="testTarget" @close="testTarget = null" />
-    <UsageHistoryModal :account="usageTarget" @close="usageTarget = null" />
+    <!-- 所有重型弹层仅在用户实际打开时挂载，避免列表首帧执行其 setup 与监听逻辑。 -->
+    <AddAccountModal v-if="addOpen" v-model:open="addOpen" @open-import="openImport" />
+    <ImportAccountsFileModal v-if="importFileOpen" v-model:open="importFileOpen" />
+    <ImportAccountsTextModal v-if="importTextOpen" v-model:open="importTextOpen" />
+    <ExportAccountsModal
+      v-if="exportOpen"
+      v-model:open="exportOpen"
+      :selected-ids="accountsStore.selectedIds"
+    />
+    <EditAccountModal v-if="editTarget" :account="editTarget" @close="editTarget = null" />
+    <AccountDetailDrawer
+      v-if="detailTarget"
+      :account="detailTarget"
+      @close="detailTarget = null"
+    />
+    <AccountTestModal v-if="testTarget" :account="testTarget" @close="testTarget = null" />
+    <UsageHistoryModal
+      v-if="usageTarget"
+      :account="usageTarget"
+      @close="usageTarget = null"
+    />
     <SwitchResultModal
+      v-if="switchModalOpen && switchResult"
       v-model:open="switchModalOpen"
       :account-label="switchLabel"
       :result="switchResult"

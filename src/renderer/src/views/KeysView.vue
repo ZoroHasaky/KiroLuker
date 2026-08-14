@@ -42,6 +42,7 @@ import {
 import { normalizeSubscriptionType } from '@shared/subscription'
 import { keyIssueOf, shouldSkipKeyUsageRefresh } from '@shared/refreshPolicy'
 import RegionSelect from '@/components/common/RegionSelect.vue'
+import VirtualGrid from '@/components/common/VirtualGrid.vue'
 import UsageHistoryModal from '@/components/accounts/UsageHistoryModal.vue'
 import GatewayHistoryModal from '@/components/keys/GatewayHistoryModal.vue'
 import ApiKeyDetailDrawer from '@/components/keys/ApiKeyDetailDrawer.vue'
@@ -273,6 +274,11 @@ const filteredKeys = computed(() => {
 const firstListedKey = computed<KeyEntry | undefined>(
   () => filteredKeys.value[0] ?? data.value.keys[0]
 )
+
+/** 虚拟网格使用稳定 ID 复用可见卡片，筛选和排序时不会错位。 */
+function keyItemKey(entry: KeyEntry): string {
+  return entry.id
+}
 
 const selectedSet = computed(() => new Set(selectedIds.value))
 const visibleSelectedCount = computed(() => filteredKeys.value.filter((entry) => selectedSet.value.has(entry.id)).length)
@@ -533,12 +539,33 @@ async function submitEdit(): Promise<void> {
   message.success('备注已保存')
 }
 
+function clearDeletedKeyUi(ids: string[]): void {
+  const deleted = new Set(ids)
+  if (detailTarget.value && deleted.has(detailTarget.value.id)) detailTarget.value = null
+  if (testTarget.value && deleted.has(testTarget.value.id)) testTarget.value = null
+  if (usageTarget.value && deleted.has(usageTarget.value.id)) usageTarget.value = null
+  if (gatewayHistoryTarget.value && deleted.has(gatewayHistoryTarget.value.id)) {
+    gatewayHistoryTarget.value = null
+  }
+  if (regionTarget.value && deleted.has(regionTarget.value.id)) regionTarget.value = null
+  if (editOpen.value && deleted.has(editId.value)) editOpen.value = false
+  if (restartPrompt.value?.keyId && deleted.has(restartPrompt.value.keyId)) {
+    restartPrompt.value = null
+  }
+  if (conflictPrompt.value?.keyId && deleted.has(conflictPrompt.value.keyId)) {
+    conflictPrompt.value = null
+  }
+  busyActions.value = new Set(
+    [...busyActions.value].filter((key) => !deleted.has(key.slice(0, key.lastIndexOf(':'))))
+  )
+}
+
 function remove(entry: KeyEntry): void {
   const doRemove = async (): Promise<void> => {
     const error = await store.remove(entry.id)
     if (error) return void message.error(error)
     selectedIds.value = selectedIds.value.filter((id) => id !== entry.id)
-    if (detailTarget.value?.id === entry.id) detailTarget.value = null
+    clearDeletedKeyUi([entry.id])
     message.success('已删除')
   }
   if (!settingsStore.settings.confirmBeforeDeleteApiKey) {
@@ -714,14 +741,16 @@ function removeSelected(): void {
   const ids = [...selectedIds.value]
   if (!ids.length) return void message.info('请先选择 API Key')
   const execute = async (): Promise<void> => {
-    let removed = 0
+    const deletedIds: string[] = []
     let failed = 0
     for (const id of ids) {
       const error = await store.remove(id)
-      error ? failed++ : removed++
+      if (error) failed++
+      else deletedIds.push(id)
     }
     selectedIds.value = selectedIds.value.filter((id) => data.value.keys.some((entry) => entry.id === id))
-    const text = `已删除 ${removed} 个${failed ? `，失败 ${failed} 个` : ''}`
+    clearDeletedKeyUi(deletedIds)
+    const text = `已删除 ${deletedIds.length} 个${failed ? `，失败 ${failed} 个` : ''}`
     failed ? message.warning(text) : message.success(text)
   }
   if (!settingsStore.settings.confirmBeforeDeleteApiKey) return void execute()
@@ -905,7 +934,7 @@ async function confirmRestart(): Promise<void> {
 }
 
 onMounted(() => {
-  void store.load()
+  // Key 数据由 App 统一加载，避免进入本页时重复 IPC 和整表替换。
   void detectCapability()
 })
 
@@ -1028,6 +1057,7 @@ onUnmounted(() => store.stopStatsPolling())
           </template>
           <template #content>
             <ApiKeyFilterPanel
+              v-if="filterOpen"
               :filter="filter"
               :by-subscription="keyStats.bySubscription"
               :by-status="keyStats.byStatus"
@@ -1095,11 +1125,19 @@ onUnmounted(() => store.stopStatsPolling())
       </div>
     </div>
 
-    <div v-if="filteredKeys.length" class="key-grid">
-      <a-card
-        v-for="entry in filteredKeys"
-        :key="entry.id"
-        class="key-card"
+    <!-- API Key 卡片同样使用虚拟网格：无论总数多少，只挂载视口附近的卡片。 -->
+    <VirtualGrid
+      v-if="filteredKeys.length"
+      class="key-grid"
+      :items="filteredKeys"
+      :item-key="keyItemKey"
+      :min-column-width="350"
+      :gap="14"
+      :estimated-height="320"
+    >
+      <template #default="{ item: entry }">
+        <a-card
+          class="key-card"
         :class="{ active: entry.id === data.activeKeyId, selected: selectedSet.has(entry.id) }"
         hoverable
         @click="detailTarget = entry"
@@ -1286,11 +1324,13 @@ onUnmounted(() => store.stopStatsPolling())
             </a-tooltip>
           </div>
         </div>
-      </a-card>
-    </div>
+        </a-card>
+      </template>
+    </VirtualGrid>
     <a-empty v-else class="empty" :description="data.keys.length ? '没有匹配的 Key' : '还没有 API Key，请先添加'" />
 
     <a-modal
+      v-if="addOpen"
       v-model:open="addOpen"
       title="添加 Kiro API Key"
       centered
@@ -1312,6 +1352,7 @@ onUnmounted(() => store.stopStatsPolling())
     </a-modal>
 
     <a-modal
+      v-if="importOpen"
       v-model:open="importOpen"
       title="批量导入 API Key"
       centered
@@ -1334,7 +1375,8 @@ onUnmounted(() => store.stopStatsPolling())
     </a-modal>
 
     <a-modal
-      :open="!!regionTarget"
+      v-if="regionTarget"
+      :open="true"
       title="修改所属区域"
       centered
       :confirm-loading="savingRegion"
@@ -1356,30 +1398,45 @@ onUnmounted(() => store.stopStatsPolling())
       />
     </a-modal>
 
-    <a-modal v-model:open="editOpen" title="修改备注" @ok="submitEdit">
+    <a-modal v-if="editOpen" v-model:open="editOpen" title="修改备注" @ok="submitEdit">
       <a-input v-model:value="editNote" placeholder="留空表示无备注" @press-enter="submitEdit" />
     </a-modal>
 
     <!-- 目标取自 filteredKeys（勾选时只取勾选项）：顺序与内容都跟界面卡片保持一致 -->
-    <ApiKeyBatchTestModal v-model:open="batchTestOpen" :keys="batchTargets" />
+    <ApiKeyBatchTestModal
+      v-if="batchTestOpen"
+      v-model:open="batchTestOpen"
+      :keys="batchTargets"
+    />
 
     <ApiKeyDetailDrawer
+      v-if="detailTarget"
       :key-entry="detailTarget"
       @close="detailTarget = null"
       @test="(entry) => { detailTarget = null; testTarget = entry }"
       @edit="openEdit"
       @select="select"
     />
-    <ApiKeyTestModal :key-entry="testTarget" @close="testTarget = null" />
-    <UsageHistoryModal :subject="usageSubject" @close="usageTarget = null" />
+    <ApiKeyTestModal
+      v-if="testTarget"
+      :key-entry="testTarget"
+      @close="testTarget = null"
+    />
+    <UsageHistoryModal
+      v-if="usageSubject"
+      :subject="usageSubject"
+      @close="usageTarget = null"
+    />
     <GatewayHistoryModal
+      v-if="gatewayHistoryTarget"
       :key-entry="gatewayHistoryTarget"
       :metric="gatewayHistoryMetric"
       @close="gatewayHistoryTarget = null"
     />
 
     <a-modal
-      :open="!!restartPrompt"
+      v-if="restartPrompt"
+      :open="true"
       width="520px"
       :footer="null"
       :mask-closable="false"
@@ -1428,7 +1485,8 @@ onUnmounted(() => store.stopStatsPolling())
     </a-modal>
 
     <a-modal
-      :open="!!conflictPrompt"
+      v-if="conflictPrompt"
+      :open="true"
       width="560px"
       :footer="null"
       :mask-closable="false"
@@ -1476,6 +1534,7 @@ onUnmounted(() => store.stopStatsPolling())
     </a-modal>
 
     <a-modal
+      v-if="configOpen"
       v-model:open="configOpen"
       title="网关配置"
       centered
@@ -1502,8 +1561,9 @@ onUnmounted(() => store.stopStatsPolling())
 </template>
 
 <style scoped>
-.keys-page { display: flex; flex-direction: column; gap: 16px; min-height: 100%; }
-.gateway-card { border: 1px solid color-mix(in srgb, var(--kal-primary) 35%, var(--kal-border)); background: color-mix(in srgb, var(--kal-primary) 5%, transparent); }
+/* 整页占满内容区：头部固定，Key 卡片区独立虚拟滚动。 */
+.keys-page { display: flex; flex-direction: column; gap: 16px; height: 100%; min-height: 0; }
+.gateway-card { flex: 0 0 auto; border: 1px solid color-mix(in srgb, var(--kal-primary) 35%, var(--kal-border)); background: color-mix(in srgb, var(--kal-primary) 5%, transparent); }
 .gateway-row { display: flex; align-items: center; gap: 12px; }
 .gateway-main { flex: 1 1 auto; min-width: 0; }
 .gateway-title { display: flex; align-items: center; gap: 9px; font-size: 17px; }
@@ -1517,8 +1577,8 @@ onUnmounted(() => store.stopStatsPolling())
 .count-text { color: var(--kal-muted); font-size: 12px; }
 .search-input { width: 100%; max-width: 480px; }
 .spacer { flex: 1 1 auto; }
-.key-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 14px; }
-.key-card { border: 1px solid var(--kal-border); overflow: hidden; cursor: pointer; }
+.key-grid { flex: 1 1 auto; min-height: 0; }
+.key-card { width: 100%; border: 1px solid var(--kal-border); overflow: hidden; cursor: pointer; }
 .key-card :deep(.ant-card-body) { padding-block: 18px; }
 .key-card.selected { border-color: var(--kal-primary); box-shadow: 0 0 0 1px var(--kal-primary) inset; }
 .key-card.active { border-color: #52c41a; box-shadow: none; }
@@ -1595,6 +1655,5 @@ onUnmounted(() => store.stopStatsPolling())
 .muted { color: var(--kal-muted); }
 @media (max-width: 900px) {
   .gateway-row { align-items: flex-start; flex-wrap: wrap; }
-  .key-grid { grid-template-columns: 1fr; }
 }
 </style>
