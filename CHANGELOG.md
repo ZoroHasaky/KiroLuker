@@ -3,6 +3,48 @@
 本文件记录 Kiro Manager Lite 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.13] - 2026-08-16
+
+本版本新增账号级的 API Key 管理：直接用账号凭证向 Kiro 控制面申请 Key、查看该账号已创建的
+Key 列表，同时把账号卡片与工具栏上并列的两个刷新入口收进下拉菜单。
+
+### 新增
+
+#### 账号 API Key 管理
+
+- 账号卡片新增「API Key 管理」入口，用该账号凭证调用 Kiro 控制面的
+  `CreateApiKey` 生成新 Key，并通过 `ListApiKeys` 展示它已创建的全部 Key
+- 弹窗内表格展示名称、Key 前缀与创建时间，可随时刷新；标题带上所属账号邮箱，
+  按视口高度固定为 80%，列表为空时同样保留表格区域高度，弹窗尺寸不随行数跳动
+- 生成成功后单独弹窗展示完整明文并提供一键复制：上游只在创建时返回一次 `rawKey`，
+  因此弹窗关闭即丢弃，之后列表里只剩前缀；未复制就关闭会二次确认
+- 创建时间按上游的秒级浮点时间戳换算为毫秒，统一显示为 `YYYY-MM-DD HH:mm:ss`
+- profileArn 按「账号自带 → 社交账号固定 ARN → Enterprise 真实 profile」依次尝试，
+  只有授权维度的错误才换候选重试；accessToken 过期时自动刷新一次并把轮换后的凭证同步回本地
+
+### 优化
+
+- 账号卡片底部并列的「刷新密钥」「刷新用量与积分」合并为一个下拉菜单，
+  腾出的钥匙图标改用于「API Key 管理」；菜单按钮的加载态取自任一子动作，
+  操作反馈与此前的单个图标一致
+- 账户管理工具栏的两个刷新按钮同样合并为「刷新密钥/用量/积分」下拉菜单，
+  触发按钮上直接显示正在跑的任务进度，不必展开菜单才能看到状态
+- 新增固定格式的日期时间工具，不再依赖 `toLocaleString` 的本地化输出
+  （中文环境下月日不补零，列表里对不齐）
+
+### 修复
+
+- 修复从自定义层级的弹窗里发起二次确认时，确认框被弹窗盖住导致按钮点不到的问题：
+  `Modal.confirm` 固定使用默认层级，现在支持显式传入更高的 `zIndex`
+- 生成结果新增前缀校验：`keyPrefix` 同样以 `ksk_` 开头，一旦被当成完整 Key，
+  用户会复制到一个看起来正常却不可用的短串，现在这种情况直接报错
+
+### 文档
+
+- README 补充账号 API Key 管理的功能说明与截图
+
+> 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
+
 ## [1.0.12] - 2026-08-14
 
 本版本重点优化大量账号与 API Key 场景下的页面切换和列表渲染性能，重做手动检查更新的
@@ -723,6 +765,7 @@
 
 > 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
 
+[1.0.13]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.13
 [1.0.12]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.12
 [1.0.11]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.11
 [1.0.10]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.10

@@ -6,7 +6,6 @@ import {
   CopyOutlined,
   DeleteOutlined,
   EditOutlined,
-  InfoCircleOutlined,
   KeyOutlined,
   LoginOutlined,
   LogoutOutlined,
@@ -50,6 +49,8 @@ const emit = defineEmits<{
   'refresh-usage': []
   'copy-token': []
   test: []
+  /** 用该账号凭证生成一个新的 Kiro API Key */
+  'create-api-key': []
   /** 点用量区域查看积分变化日志 */
   usage: []
 }>()
@@ -154,14 +155,25 @@ type ActionKey =
   | 'refresh-usage'
   | 'copy-token'
   | 'test'
-  | 'detail'
+  | 'create-api-key'
   | 'edit'
   | 'remove'
 
-interface CardAction {
+interface MenuEntry {
   key: ActionKey
+  label: string
+  icon: Component
+}
+
+interface CardAction {
+  /** v-for 用的稳定标识；菜单型按钮自身不对应某个动作 */
+  id: string
   title: string
   icon: Component
+  /** 普通按钮点击后派发的动作 */
+  action?: ActionKey
+  /** 菜单型按钮的子项，与 action 互斥 */
+  menu?: MenuEntry[]
   danger?: boolean
   color?: string
 }
@@ -170,20 +182,39 @@ interface CardAction {
 const actions = computed<CardAction[]>(() => [
   props.account.isActive
     ? {
-        key: 'logout',
+        id: 'logout',
+        action: 'logout',
         title: '退出登录（清理 Kiro IDE 凭证）',
         icon: LogoutOutlined,
         color: '#52c41a'
       }
-    : { key: 'switch', title: '登录此账号（写入 Kiro IDE）', icon: LoginOutlined },
-  { key: 'refresh-key', title: '刷新密钥', icon: KeyOutlined },
-  { key: 'refresh-usage', title: '刷新用量与积分', icon: SyncOutlined },
-  { key: 'copy-token', title: '复制凭证 JSON', icon: CopyOutlined },
-  { key: 'test', title: '测活（发一次真实对话）', icon: ThunderboltOutlined },
-  { key: 'detail', title: '查看详情', icon: InfoCircleOutlined },
-  { key: 'edit', title: '编辑', icon: EditOutlined },
-  { key: 'remove', title: '删除', icon: DeleteOutlined, danger: true }
+    : {
+        id: 'switch',
+        action: 'switch',
+        title: '登录此账号（写入 Kiro IDE）',
+        icon: LoginOutlined
+      },
+  {
+    id: 'refresh',
+    title: '刷新',
+    icon: SyncOutlined,
+    menu: [
+      { key: 'refresh-key', label: '刷新密钥', icon: KeyOutlined },
+      { key: 'refresh-usage', label: '刷新用量与积分', icon: SyncOutlined }
+    ]
+  },
+  { id: 'copy-token', action: 'copy-token', title: '复制凭证 JSON', icon: CopyOutlined },
+  { id: 'test', action: 'test', title: '测活（发一次真实对话）', icon: ThunderboltOutlined },
+  { id: 'create-api-key', action: 'create-api-key', title: 'API Key 管理', icon: KeyOutlined },
+  { id: 'edit', action: 'edit', title: '编辑', icon: EditOutlined },
+  { id: 'remove', action: 'remove', title: '删除', icon: DeleteOutlined, danger: true }
 ])
+
+/** 菜单型按钮的加载态取自其任一子动作 */
+function isLoading(item: CardAction): boolean {
+  const keys = item.menu ? item.menu.map((entry) => entry.key) : item.action ? [item.action] : []
+  return keys.some((key) => props.busyAction === key)
+}
 
 /**
  * 动作按钮统一派发。
@@ -285,20 +316,46 @@ function trigger(key: ActionKey): void {
         </span>
       </div>
       <div class="action-row">
-        <a-tooltip v-for="item in actions" :key="item.key" :title="item.title">
-          <a-button
-            type="text"
-            size="small"
-            class="action-btn"
-            :danger="item.danger"
-            :style="item.color ? { color: item.color } : undefined"
-            :loading="props.busyAction === item.key"
-            :disabled="busy && props.busyAction !== item.key"
-            @click="trigger(item.key)"
-          >
-            <template #icon><component :is="item.icon" /></template>
-          </a-button>
-        </a-tooltip>
+        <template v-for="item in actions" :key="item.id">
+          <a-dropdown v-if="item.menu" :disabled="busy && !isLoading(item)">
+            <a-button
+              type="text"
+              size="small"
+              class="action-btn"
+              :title="item.title"
+              :loading="isLoading(item)"
+              :disabled="busy && !isLoading(item)"
+            >
+              <template #icon><component :is="item.icon" /></template>
+            </a-button>
+            <template #overlay>
+              <a-menu>
+                <a-menu-item
+                  v-for="entry in item.menu"
+                  :key="entry.key"
+                  @click="trigger(entry.key)"
+                >
+                  <component :is="entry.icon" />
+                  {{ entry.label }}
+                </a-menu-item>
+              </a-menu>
+            </template>
+          </a-dropdown>
+          <a-tooltip v-else :title="item.title">
+            <a-button
+              type="text"
+              size="small"
+              class="action-btn"
+              :danger="item.danger"
+              :style="item.color ? { color: item.color } : undefined"
+              :loading="isLoading(item)"
+              :disabled="busy && !isLoading(item)"
+              @click="item.action && trigger(item.action)"
+            >
+              <template #icon><component :is="item.icon" /></template>
+            </a-button>
+          </a-tooltip>
+        </template>
       </div>
     </div>
   </div>

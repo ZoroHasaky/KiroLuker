@@ -101,6 +101,22 @@ export function formatDate(ts?: number | string): string {
   return date.toISOString().slice(0, 10)
 }
 
+/**
+ * 固定格式的年月日时分秒（YYYY-MM-DD HH:mm:ss）。
+ * 与 formatDateTime 的区别是不走 toLocaleString：后者在中文环境下给出
+ * 「2026/8/16 14:00:53」这种月日不补零的形式，列表里对不齐。
+ */
+export function formatFullDateTime(ts?: number | string): string {
+  if (!ts) return '-'
+  const date = new Date(ts)
+  if (Number.isNaN(date.getTime())) return '-'
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return (
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  )
+}
+
 /** 本地时区的完整日期时间，用于悬浮提示里给出精确时间 */
 export function formatDateTime(ts?: number | string): string {
   if (!ts) return '-'

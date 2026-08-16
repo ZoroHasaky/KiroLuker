@@ -34,6 +34,9 @@ export function copyText(text: string, successMessage: string): void {
 /**
  * 危险操作二次确认。默认红色描边确认按钮，
  * 传 okButtonProps 时以它为准（例如需要实心红按钮的场景）。
+ *
+ * zIndex：从自定义了 z-index 的弹窗里发起确认时必须传。Modal.confirm 固定用
+ * 默认层级（1000），比调用方弹窗低就会被盖住，按钮点不到。
  */
 export function confirmDanger(options: {
   title: string
@@ -41,6 +44,7 @@ export function confirmDanger(options: {
   okText: string
   onOk: () => void | Promise<unknown>
   okButtonProps?: { type?: 'primary'; danger?: boolean }
+  zIndex?: number
 }): void {
   const { okButtonProps, ...rest } = options
   Modal.confirm({

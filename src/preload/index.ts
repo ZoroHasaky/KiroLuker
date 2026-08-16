@@ -38,6 +38,12 @@ const api = {
   saveAccounts: (data: unknown) => invoke('accounts:save', data),
   deleteAccounts: (ids: string[]) => invoke('accounts:delete', ids),
 
+  /** 用账号凭证向 Kiro 控制面申请一个新的 API Key */
+  createAccountApiKey: (account: unknown, label: string) =>
+    invoke('accounts:create-api-key', account, label),
+  /** 列出该账号已创建的 API Key（只有前缀，没有完整明文） */
+  listAccountApiKeys: (account: unknown) => invoke('accounts:list-api-keys', account),
+
   // Kiro API Key 管理 / 本地网关
   loadKeys: () => invoke('keys:load'),
   addKey: (key: string, note?: string, region?: string) =>

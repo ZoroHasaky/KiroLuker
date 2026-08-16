@@ -11,6 +11,7 @@ import {
   syncCredentialsToIde,
   verifyCredentials
 } from './accountService'
+import { createAccountApiKey, listAccountApiKeys } from './kiroApiKey'
 import { clearKiroSsoCache, readKiroAuthToken, readLocalKiroCredentials } from './kiroAuth'
 import { isKiroRunning, restartKiroIde } from './kiroProcess'
 import { listKiroModels, streamApiKeyChat, streamKiroChat } from './kiroChat'
@@ -177,6 +178,23 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     // 刷新的正是 IDE 当前激活账号时，基于新 expiresAt 重排主动续期
     if (result.syncedToIde) {
       scheduleProactiveRenewal(account.id, Date.now() + result.expiresIn * 1000)
+    }
+    return ok(result)
+  })
+
+  handle('accounts:create-api-key', async (_e, account: Account, label: string) => {
+    const result = await createAccountApiKey(account, label)
+    // 生成过程中若刷新过凭证，按新的到期时间重排主动续期
+    if (result.refreshed?.syncedToIde) {
+      scheduleProactiveRenewal(account.id, Date.now() + result.refreshed.expiresIn * 1000)
+    }
+    return ok(result)
+  })
+
+  handle('accounts:list-api-keys', async (_e, account: Account) => {
+    const result = await listAccountApiKeys(account)
+    if (result.refreshed?.syncedToIde) {
+      scheduleProactiveRenewal(account.id, Date.now() + result.refreshed.expiresIn * 1000)
     }
     return ok(result)
   })

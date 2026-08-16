@@ -191,6 +191,42 @@ export interface RefreshTokenResult {
   syncSkipReason?: string
 }
 
+/** 用账号凭证向 Kiro 控制面申请到的一个新 API Key */
+export interface CreateApiKeyResult {
+  /** 完整的 ksk_ 明文，取自上游 rawKey，只在创建时返回一次 */
+  apiKey: string
+  /** 提交时填写的名称（上游字段名为 label） */
+  label: string
+  /** 上游返回的 Key 标识（kskid_ 开头），用于和列表对照 */
+  apiKeyId?: string
+  /** 上游返回的 Key 前缀，仅用于展示 */
+  keyPrefix?: string
+  /** 创建时间（ms） */
+  createdAt: number
+  /** 实际生效的区域，决定该 Key 之后查额度用哪个端点 */
+  region: string
+  /** 本次调用实际使用的 profileArn */
+  profileArn?: string
+  /** accessToken 过期触发了刷新时带回轮换后的凭证 */
+  refreshed?: RefreshTokenResult
+}
+
+/** 账号已创建的 API Key，列表接口只返回前缀 */
+export interface AccountApiKeyItem {
+  keyId: string
+  label: string
+  /** ksk_ 开头的前缀，不是可用的完整 Key */
+  keyPrefix: string
+  /** 创建时间（ms） */
+  createdAt: number
+}
+
+export interface AccountApiKeyList {
+  keys: AccountApiKeyItem[]
+  region: string
+  refreshed?: RefreshTokenResult
+}
+
 /** 在线登录拿到的原始凭证 */
 export interface OnlineLoginCredentials {
   accessToken: string

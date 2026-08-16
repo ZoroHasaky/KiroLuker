@@ -27,6 +27,7 @@ import ExportAccountsModal from '@/components/accounts/ExportAccountsModal.vue'
 import EditAccountModal from '@/components/accounts/EditAccountModal.vue'
 import AccountDetailDrawer from '@/components/accounts/AccountDetailDrawer.vue'
 import AccountTestModal from '@/components/accounts/AccountTestModal.vue'
+import CreateApiKeyModal from '@/components/accounts/CreateApiKeyModal.vue'
 import UsageHistoryModal from '@/components/accounts/UsageHistoryModal.vue'
 import SwitchResultModal from '@/components/accounts/SwitchResultModal.vue'
 import { useAccountsStore } from '@/stores/accounts'
@@ -59,6 +60,7 @@ const exportOpen = ref(false)
 const editTarget = ref<Account | null>(null)
 const detailTarget = ref<Account | null>(null)
 const testTarget = ref<Account | null>(null)
+const apiKeyTarget = ref<Account | null>(null)
 const usageTarget = ref<Account | null>(null)
 /** 每个账号当前进行中的操作 key，用于只给被点的按钮加载态 */
 const rowBusy = ref<Record<string, string | undefined>>({})
@@ -83,6 +85,18 @@ const keyRefreshing = computed(
 const usageRefreshing = computed(
   () => busy.value && accountsStore.task.type === 'account-usage-refresh'
 )
+const refreshing = computed(() => keyRefreshing.value || usageRefreshing.value)
+
+/** 菜单按钮上直接反映正在跑的那条任务，不必展开菜单才知道进度 */
+const refreshButtonText = computed(() => {
+  if (keyRefreshing.value) return '正在刷新密钥...'
+  if (usageRefreshing.value) {
+    const scope = visibleSelectedCount.value ? `${visibleSelectedCount.value}个账户` : ''
+    return `正在刷新${scope}用量/积分...`
+  }
+  return `刷新密钥/用量/积分${batchScopeSuffix.value}`
+})
+
 const stats = computed(() => accountsStore.stats)
 
 const sortOptions: { value: SortKey; label: string }[] = [
@@ -504,25 +518,26 @@ function logoutIde(account: Account): void {
 
         <a-divider type="vertical" style="margin: 0 2px" />
 
-        <!-- loading 期间按钮自身已拦下点击，disabled 只留给「另一条任务在跑」的情况 -->
-        <a-button
-          size="small"
-          :loading="keyRefreshing"
-          :disabled="busy && !keyRefreshing"
-          @click="batch('refresh')"
-        >
-          <template #icon><KeyOutlined /></template>
-          {{ keyRefreshing ? '正在刷新密钥...' : `刷新密钥${batchScopeSuffix}` }}
-        </a-button>
-        <a-button
-          size="small"
-          :loading="usageRefreshing"
-          :disabled="busy && !usageRefreshing"
-          @click="batch('check')"
-        >
-          <template #icon><SyncOutlined /></template>
-          {{ usageRefreshing ? `正在刷新${visibleSelectedCount ? visibleSelectedCount + '个账户' : ''}用量/积分...` : `刷新用量/积分${batchScopeSuffix}` }}
-        </a-button>
+        <!-- 两种刷新收进同一个菜单：它们互斥，全局任务状态一次只容得下一条 -->
+        <a-dropdown :disabled="busy">
+          <a-button size="small" :loading="refreshing">
+            <template #icon><SyncOutlined /></template>
+            {{ refreshButtonText }}
+            <DownOutlined v-if="!refreshing" />
+          </a-button>
+          <template #overlay>
+            <a-menu>
+              <a-menu-item key="refresh" @click="batch('refresh')">
+                <KeyOutlined />
+                刷新密钥{{ batchScopeSuffix }}
+              </a-menu-item>
+              <a-menu-item key="check" @click="batch('check')">
+                <SyncOutlined />
+                刷新用量与积分{{ batchScopeSuffix }}
+              </a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
         <a-button
           size="small"
           :type="privacyMode ? 'primary' : 'default'"
@@ -593,6 +608,7 @@ function logoutIde(account: Account): void {
           :busy-action="rowBusy[item.account.id]"
           @toggle-select="(checked) => toggleSelect(item.account.id, checked)"
           @detail="detailTarget = item.account"
+          @create-api-key="apiKeyTarget = item.account"
           @edit="editTarget = item.account"
           @remove="removeOne(item.account)"
           @switch="switchTo(item.account)"
@@ -631,6 +647,11 @@ function logoutIde(account: Account): void {
       @close="detailTarget = null"
     />
     <AccountTestModal v-if="testTarget" :account="testTarget" @close="testTarget = null" />
+    <CreateApiKeyModal
+      v-if="apiKeyTarget"
+      :account="apiKeyTarget"
+      @close="apiKeyTarget = null"
+    />
     <UsageHistoryModal
       v-if="usageTarget"
       :account="usageTarget"

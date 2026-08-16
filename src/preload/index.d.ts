@@ -1,5 +1,6 @@
 import type {
   Account,
+  AccountApiKeyList,
   AccountSnapshot,
   AccountStoreData,
   AccountUsage,
@@ -12,6 +13,7 @@ import type {
   ChatTestChunk,
   ChatTestInput,
   ChatTestResult,
+  CreateApiKeyResult,
   IpcResult,
   KeyGatewayConflict,
   KeyGatewayData,
@@ -116,6 +118,13 @@ export interface Api {
   checkAccountStatus: (
     account: Account
   ) => Promise<IpcResult<AccountSnapshot> & { banned?: boolean }>
+  /** 用账号凭证生成一个新的 Kiro API Key，label 为密钥名称 */
+  createAccountApiKey: (
+    account: Account,
+    label: string
+  ) => Promise<IpcResult<CreateApiKeyResult>>
+  /** 列出该账号已创建的 API Key */
+  listAccountApiKeys: (account: Account) => Promise<IpcResult<AccountApiKeyList>>
 
   readLocalKiroCredentials: () => Promise<IpcResult<LocalKiroCredentials>>
   getActiveKiroToken: () => Promise<IpcResult<KiroActiveToken>>
