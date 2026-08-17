@@ -43,6 +43,8 @@ const api = {
     invoke('accounts:create-api-key', account, label),
   /** 列出该账号已创建的 API Key（只有前缀，没有完整明文） */
   listAccountApiKeys: (account: unknown) => invoke('accounts:list-api-keys', account),
+  /** 用该账号凭证在私密窗口打开 Kiro 官网后台 */
+  openAccountPortal: (account: unknown) => invoke('accounts:open-portal', account),
 
   // Kiro API Key 管理 / 本地网关
   loadKeys: () => invoke('keys:load'),

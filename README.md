@@ -13,8 +13,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.13-6c5ce7" alt="version">
-  <img src="https://img.shields.io/badge/updated-2026--08--16-2f9e44" alt="updated">
+  <img src="https://img.shields.io/badge/version-1.0.14-6c5ce7" alt="version">
+  <img src="https://img.shields.io/badge/updated-2026--08--17-2f9e44" alt="updated">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="platform">
   <img src="https://img.shields.io/badge/Vue-3-42b883" alt="vue">
@@ -34,6 +34,7 @@
 - 真实流式对话测活，可选择模型、实时查看输出并随时中止
 - 账号卡片内置 API Key 管理：直接用该账号凭证向 Kiro 控制面申请新 Key，并查看它已创建的 Key 列表（名称、前缀、创建时间）
 - 新 Key 的完整明文由上游只返回一次，生成后单独弹窗展示并提供复制，未复制就关闭会二次确认；关闭后列表中仅保留前缀
+- 「前往官网」一键用该账号凭证登录 Kiro 官网后台：走应用内的一次性私密会话，退出即清，不影响自己浏览器里的登录身份
 
 ### 🔑 API Key 管理
 
@@ -238,7 +239,7 @@ src/
 
 ## 🔖 更新日志
 
-各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.0.13，最后更新于 2026-08-16。
+各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.0.14，最后更新于 2026-08-17。
 
 ---
 

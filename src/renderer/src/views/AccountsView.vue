@@ -33,6 +33,7 @@ import SwitchResultModal from '@/components/accounts/SwitchResultModal.vue'
 import { useAccountsStore } from '@/stores/accounts'
 import { useSettingsStore } from '@/stores/settings'
 import { displayEmail as maskedEmail } from '@/utils/display'
+import { toPlain } from '@/utils/ipc'
 import {
   bodyPopupContainer,
   confirmDanger,
@@ -265,6 +266,14 @@ async function refreshUsage(account: Account): Promise<void> {
   await withBusy(account.id, 'refresh-usage', async () => {
     const res = await accountsStore.checkStatus(account.id)
     notifyResult(res, { success: '用量与积分已更新', failPrefix: '刷新用量失败' })
+  })
+}
+
+/** 用该账号凭证在私密窗口打开官网后台，与详情抽屉走同一个通道 */
+async function openPortal(account: Account): Promise<void> {
+  await withBusy(account.id, 'portal', async () => {
+    const res = await window.api.openAccountPortal(toPlain(account))
+    if (!res.success) message.error(res.error || '打开官网失败')
   })
 }
 
@@ -609,6 +618,7 @@ function logoutIde(account: Account): void {
           @toggle-select="(checked) => toggleSelect(item.account.id, checked)"
           @detail="detailTarget = item.account"
           @create-api-key="apiKeyTarget = item.account"
+          @portal="openPortal(item.account)"
           @edit="editTarget = item.account"
           @remove="removeOne(item.account)"
           @switch="switchTo(item.account)"

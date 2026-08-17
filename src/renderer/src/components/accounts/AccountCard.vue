@@ -6,6 +6,7 @@ import {
   CopyOutlined,
   DeleteOutlined,
   EditOutlined,
+  GlobalOutlined,
   KeyOutlined,
   LoginOutlined,
   LogoutOutlined,
@@ -51,6 +52,8 @@ const emit = defineEmits<{
   test: []
   /** 用该账号凭证生成一个新的 Kiro API Key */
   'create-api-key': []
+  /** 用该账号凭证打开官网后台 */
+  portal: []
   /** 点用量区域查看积分变化日志 */
   usage: []
 }>()
@@ -156,6 +159,7 @@ type ActionKey =
   | 'copy-token'
   | 'test'
   | 'create-api-key'
+  | 'portal'
   | 'edit'
   | 'remove'
 
@@ -206,6 +210,7 @@ const actions = computed<CardAction[]>(() => [
   { id: 'copy-token', action: 'copy-token', title: '复制凭证 JSON', icon: CopyOutlined },
   { id: 'test', action: 'test', title: '测活（发一次真实对话）', icon: ThunderboltOutlined },
   { id: 'create-api-key', action: 'create-api-key', title: 'API Key 管理', icon: KeyOutlined },
+  { id: 'portal', action: 'portal', title: '前往Kiro.dev官网', icon: GlobalOutlined },
   { id: 'edit', action: 'edit', title: '编辑', icon: EditOutlined },
   { id: 'remove', action: 'remove', title: '删除', icon: DeleteOutlined, danger: true }
 ])

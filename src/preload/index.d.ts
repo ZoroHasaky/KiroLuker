@@ -125,6 +125,8 @@ export interface Api {
   ) => Promise<IpcResult<CreateApiKeyResult>>
   /** 列出该账号已创建的 API Key */
   listAccountApiKeys: (account: Account) => Promise<IpcResult<AccountApiKeyList>>
+  /** 用该账号凭证在私密窗口打开 Kiro 官网后台 */
+  openAccountPortal: (account: Account) => Promise<IpcResult<{ url: string }>>
 
   readLocalKiroCredentials: () => Promise<IpcResult<LocalKiroCredentials>>
   getActiveKiroToken: () => Promise<IpcResult<KiroActiveToken>>

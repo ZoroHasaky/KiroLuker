@@ -5,7 +5,8 @@ import {
   CopyOutlined,
   DownloadOutlined,
   EyeInvisibleOutlined,
-  EyeOutlined
+  EyeOutlined,
+  GlobalOutlined
 } from '@ant-design/icons-vue'
 import ExportAccountsModal from '@/components/accounts/ExportAccountsModal.vue'
 import { useAccountsStore } from '@/stores/accounts'
@@ -21,6 +22,7 @@ import {
   usageColor
 } from '@/utils/format'
 import { displayEmail } from '@/utils/display'
+import { toPlain } from '@/utils/ipc'
 import { copyText, notifyResult } from '@/utils/ui'
 import { regionLabel } from '@shared/regions'
 import type { Account } from '@shared/types'
@@ -34,6 +36,7 @@ const settingsStore = useSettingsStore()
 const showSecrets = ref(false)
 const busy = ref(false)
 const exportOpen = ref(false)
+const portalOpening = ref(false)
 
 // 列表里的行对象在 store 更新后会被替换，这里始终取最新副本
 const account = computed(() =>
@@ -45,6 +48,12 @@ const precision = computed(() => settingsStore.settings.usagePrecision)
 const email = computed(() =>
   displayEmail(account.value?.email ?? '', settingsStore.settings.privacyMode)
 )
+
+/**
+ * 抽屉宽度：与 API Key 详情抽屉同一口径。
+ * 窄窗口下退回视口的 92%，避免抽屉宽过窗口本身。
+ */
+const drawerWidth = computed(() => Math.min(720, Math.round(window.innerWidth * 0.92)))
 
 const tokenExpiry = computed(() => {
   const expiresAt = account.value?.credentials.expiresAt
@@ -82,6 +91,20 @@ const credentialFields = computed(() => {
   ]
 })
 
+/** 用该账号凭证在私密窗口打开官网后台 */
+async function openPortal(): Promise<void> {
+  const target = account.value
+  if (!target) return
+  portalOpening.value = true
+  try {
+    // 响应式代理无法结构化克隆，过 IPC 前先剥成普通对象
+    const res = await window.api.openAccountPortal(toPlain(target))
+    if (!res.success) return void message.error(res.error || '打开官网失败')
+  } finally {
+    portalOpening.value = false
+  }
+}
+
 async function act(kind: 'refresh' | 'check' | 'switch'): Promise<void> {
   const target = account.value
   if (!target) return
@@ -104,7 +127,7 @@ async function act(kind: 'refresh' | 'check' | 'switch'): Promise<void> {
   <a-drawer
     :open="!!account"
     :title="email || '账号详情'"
-    width="560"
+    :width="drawerWidth"
     placement="right"
     @close="emit('close')"
   >
@@ -113,6 +136,12 @@ async function act(kind: 'refresh' | 'check' | 'switch'): Promise<void> {
         <a-button type="primary" :loading="busy" @click="act('switch')">切换到此账号</a-button>
         <a-button :loading="busy" @click="act('refresh')">刷新密钥</a-button>
         <a-button :loading="busy" @click="act('check')">刷新用量</a-button>
+        <a-tooltip title="用该账号凭证在私密窗口登录 Kiro 官网后台">
+          <a-button :loading="portalOpening" @click="openPortal">
+            <template #icon><GlobalOutlined /></template>
+            前往官网
+          </a-button>
+        </a-tooltip>
         <a-button @click="exportOpen = true">
           <template #icon><DownloadOutlined /></template>
           导出

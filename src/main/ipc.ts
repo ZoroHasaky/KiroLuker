@@ -12,6 +12,7 @@ import {
   verifyCredentials
 } from './accountService'
 import { createAccountApiKey, listAccountApiKeys } from './kiroApiKey'
+import { openAccountPortal } from './kiroPortal'
 import { clearKiroSsoCache, readKiroAuthToken, readLocalKiroCredentials } from './kiroAuth'
 import { isKiroRunning, restartKiroIde } from './kiroProcess'
 import { listKiroModels, streamApiKeyChat, streamKiroChat } from './kiroChat'
@@ -190,6 +191,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     }
     return ok(result)
   })
+
+  handle('accounts:open-portal', async (_e, account: Account) =>
+    ok(await openAccountPortal(account))
+  )
 
   handle('accounts:list-api-keys', async (_e, account: Account) => {
     const result = await listAccountApiKeys(account)

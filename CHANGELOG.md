@@ -3,6 +3,35 @@
 本文件记录 Kiro Manager Lite 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.14] - 2026-08-17
+
+本版本新增「前往官网」：用账号自己的凭证在应用内的私密窗口直接登录 Kiro 官网后台，
+不必先切号再手动登录。
+
+### 新增
+
+#### 前往官网
+
+- 账号卡片底部（编辑左侧）与账号详情抽屉（导出左侧）各新增入口，
+  点击即用该账号的凭证打开 Kiro 官网后台
+- 使用应用内的一次性会话：分区不带持久化前缀，只存在内存中，应用退出即清，
+  既不与主窗口共用登录态，也不会碰用户自己浏览器里的身份
+- 每次打开前先清空该会话的 cookie。残留的上一个账号 cookie 会让门户继续按旧身份渲染，
+  表现就是「点了 A 账号却进了 B 账号的后台」
+- 窗口按第三方页面对待：开启上下文隔离与沙箱、关闭 Node 集成；
+  站外链接交给系统浏览器打开，只在窗口内放行 kiro.dev
+- 请求头伪装成普通 Chrome：默认 UA 会带上应用名与 `Electron/<版本>`，
+  是显眼的自动化特征。同时改写 `sec-ch-ua` 等客户端提示并清掉残留标识，
+  只改 UA 字符串并不够。版本号取内置 Chromium 的真实主版本，
+  声称版本与实际引擎能力对不上本身也是破绽
+
+### 优化
+
+- 账号详情抽屉加宽到 720px，窄窗口下按视口 92% 自适应，
+  与 API Key 详情抽屉同一口径，长凭证不再挤成多行
+
+> 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
+
 ## [1.0.13] - 2026-08-16
 
 本版本新增账号级的 API Key 管理：直接用账号凭证向 Kiro 控制面申请 Key、查看该账号已创建的
@@ -765,6 +794,7 @@ Key 列表，同时把账号卡片与工具栏上并列的两个刷新入口收�
 
 > 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
 
+[1.0.14]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.14
 [1.0.13]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.13
 [1.0.12]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.12
 [1.0.11]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.11
