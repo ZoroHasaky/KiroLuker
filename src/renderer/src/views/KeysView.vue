@@ -49,6 +49,7 @@ import ApiKeyDetailDrawer from '@/components/keys/ApiKeyDetailDrawer.vue'
 import ApiKeyTestModal from '@/components/keys/ApiKeyTestModal.vue'
 import ApiKeyBatchTestModal from '@/components/keys/ApiKeyBatchTestModal.vue'
 import ApiKeyFilterPanel from '@/components/keys/ApiKeyFilterPanel.vue'
+import ExportApiKeysModal from '@/components/keys/ExportApiKeysModal.vue'
 import { DEFAULT_REGION, regionLabel } from '@shared/regions'
 import type {
   KeyEntry,
@@ -86,6 +87,7 @@ const importing = ref(false)
 const editOpen = ref(false)
 const editId = ref('')
 const editNote = ref('')
+const exportOpen = ref(false)
 const detailTarget = ref<KeyEntry | null>(null)
 const testTarget = ref<KeyEntry | null>(null)
 const batchTestOpen = ref(false)
@@ -767,23 +769,7 @@ function copy(entry: KeyEntry): void {
 }
 
 function exportKeys(): void {
-  const selected = new Set(selectedIds.value)
-  const targets = selected.size
-    ? data.value.keys.filter((entry) => selected.has(entry.id))
-    : filteredKeys.value
-  if (!targets.length) return void message.info('没有可导出的 API Key')
-  Modal.confirm({
-    title: `导出 ${targets.length} 个完整 API Key`,
-    content: '导出文件包含可直接使用的完整凭证，请妥善保管。',
-    okText: '继续导出',
-    cancelText: '取消',
-    onOk: async () => {
-      const content = targets.map((entry) => entry.key).join('\n') + '\n'
-      const result = await window.api.exportToFile(content, `kiro-api-keys-${Date.now()}.txt`)
-      if (!result.success) return void message.error(result.error || '导出失败')
-      if (result.data?.saved) message.success('已导出')
-    }
-  })
+  exportOpen.value = true
 }
 
 /** target 由确认弹窗传入，确保最终启用的就是弹窗里确认过的那个 Key */
@@ -1401,6 +1387,8 @@ onUnmounted(() => store.stopStatsPolling())
     <a-modal v-if="editOpen" v-model:open="editOpen" title="修改备注" @ok="submitEdit">
       <a-input v-model:value="editNote" placeholder="留空表示无备注" @press-enter="submitEdit" />
     </a-modal>
+
+    <ExportApiKeysModal v-if="exportOpen" v-model:open="exportOpen" :selected-ids="selectedIds" />
 
     <!-- 目标取自 filteredKeys（勾选时只取勾选项）：顺序与内容都跟界面卡片保持一致 -->
     <ApiKeyBatchTestModal

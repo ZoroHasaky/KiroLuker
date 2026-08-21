@@ -58,7 +58,7 @@ function scheduleFlush(): void {
   flushTimer.unref?.()
 }
 
-export function blankStats(): KeyGatewayUsageStats {
+function blankStats(): KeyGatewayUsageStats {
   return {
     requests: 0,
     succeeded: 0,

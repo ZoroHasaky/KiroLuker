@@ -13,6 +13,12 @@ import {
 } from '@ant-design/icons-vue'
 import { DEFAULT_SETTINGS } from '@shared/types'
 import type { AppSettings } from '@shared/types'
+import {
+  PORTAL_LOCALE_CUSTOM,
+  PORTAL_LOCALE_PRESETS,
+  isPresetPortalLocale,
+  normalizePortalLocale
+} from '@shared/portalLocale'
 import { useSettingsStore } from '@/stores/settings'
 import SettingSwitch from '@/components/common/SettingSwitch.vue'
 import { useAccountsStore } from '@/stores/accounts'
@@ -75,6 +81,68 @@ const closeActionOptions: { value: AppSettings['closeAction']; label: string }[]
   { value: 'minimize', label: '最小化到托盘' },
   { value: 'quit', label: '退出程序' }
 ]
+
+const portalLocale = computed(
+  () => settings.value.portalLocale ?? DEFAULT_SETTINGS.portalLocale
+)
+
+/** 预设与主进程共用同一份，末尾追加「自定义」入口 */
+const localeSelectOptions = [
+  ...PORTAL_LOCALE_PRESETS,
+  { value: PORTAL_LOCALE_CUSTOM, label: '自定义…' }
+]
+
+/**
+ * 是否处于自定义模式。
+ * 初值看当前取值是否落在预设里：手输过 zh-Hant-HK 这类值时，重新进设置页要保持自定义态。
+ */
+const localeCustomMode = ref(!isPresetPortalLocale(portalLocale.value))
+
+/** 自定义输入走本地草稿，回车或点保存才提交，避免每敲一个字母写一次设置 */
+const localeDraft = ref(portalLocale.value)
+
+watch(
+  () => settingsStore.settings.portalLocale,
+  (value) => {
+    if (value !== localeDraft.value) localeDraft.value = value
+    // 设置被外部改成非预设值（如恢复默认后再手改）时同步切换模式
+    if (!isPresetPortalLocale(value)) localeCustomMode.value = true
+  }
+)
+
+/** 自定义模式下下拉固定停在「自定义」，否则跟随当前预设 */
+const localeSelectValue = computed(() =>
+  localeCustomMode.value ? PORTAL_LOCALE_CUSTOM : portalLocale.value
+)
+
+/** 支持按地区名或语言标签搜索，输入 ru 或「俄」都能筛到 */
+function filterLocaleOption(input: string, option: { value: string; label: string }): boolean {
+  const keyword = input.trim().toLowerCase()
+  if (!keyword) return true
+  return (
+    option.value.toLowerCase().includes(keyword) || option.label.toLowerCase().includes(keyword)
+  )
+}
+
+function onLocaleSelect(value: string): void {
+  if (value === PORTAL_LOCALE_CUSTOM) {
+    // 只切模式、不动已生效的值：等用户填完再提交，避免中途把地区改成空
+    localeCustomMode.value = true
+    localeDraft.value = portalLocale.value
+    return
+  }
+  localeCustomMode.value = false
+  update({ portalLocale: value })
+}
+
+/** 提交前规范化：与主进程同一套实现，避免界面显示的和实际生效的不一致 */
+function savePortalLocale(): void {
+  const normalized = normalizePortalLocale(localeDraft.value)
+  localeDraft.value = normalized
+  // 填的正好是预设值时收起输入框，回到下拉直选的状态
+  if (isPresetPortalLocale(normalized)) localeCustomMode.value = false
+  if (normalized !== portalLocale.value) update({ portalLocale: normalized })
+}
 
 /** 设置缺失时回落到默认的「最小化到托盘」，避免下拉显示空白 */
 const closeAction = computed(
@@ -329,6 +397,41 @@ function clearAll(): void {
       </a-form>
     </a-card>
 
+    <a-card size="small" title="内置浏览器" style="margin-bottom: 16px">
+      <a-form v-bind="FORM_LAYOUT">
+        <a-form-item label="浏览器地区" class="field-inline">
+          <a-select
+            :value="localeSelectValue"
+            :options="localeSelectOptions"
+            show-search
+            :filter-option="filterLocaleOption"
+            :get-popup-container="bodyPopupContainer"
+            style="width: 260px"
+            @change="(v: unknown) => onLocaleSelect(String(v))"
+          />
+          <span class="restart-hint">修改地区后需要重启应用才能完全生效</span>
+        </a-form-item>
+        <a-form-item v-if="localeCustomMode" label="自定义标签" class="field-inline">
+          <a-input-group compact>
+            <a-input
+              v-model:value="localeDraft"
+              placeholder="例如 zh-Hant-HK"
+              style="width: 180px"
+              @press-enter="savePortalLocale"
+            />
+            <a-button type="primary" @click="savePortalLocale">保存</a-button>
+          </a-input-group>
+          <span class="muted">当前生效：{{ portalLocale }}</span>
+        </a-form-item>
+      </a-form>
+      <ul class="tips">
+        <li>作用于应用内打开的所有网页（含「前往官网」及其弹出的窗口），决定 Accept-Language 与页面区域，影响显示的语言与价格币种。</li>
+        <li>下拉支持搜索，可按地区名或语言标签筛选；选「自定义」后可填任意 BCP 47 标签。</li>
+        <li>Accept-Language 保存后立即生效；页面内 navigator.language 由 Chromium 启动参数决定，需重启应用。</li>
+        <li>不改变本应用自身的界面语言，也不影响账号所属的 AWS 区域。</li>
+      </ul>
+    </a-card>
+
     <a-card size="small" title="批量导入" style="margin-bottom: 16px">
       <a-form v-bind="FORM_LAYOUT">
         <a-form-item label="并发数" class="field-inline">
@@ -496,9 +599,17 @@ function clearAll(): void {
 }
 
 /* 说明文字与控件间距统一，且可换行、不挤压前面的控件 */
-.field-inline :deep(.ant-form-item-control-input-content) > .muted {
+.field-inline :deep(.ant-form-item-control-input-content) > .muted,
+.field-inline :deep(.ant-form-item-control-input-content) > .restart-hint {
   min-width: 0;
   margin-left: 10px;
+}
+
+/* 需要重启才完全生效的设置，用红色把代价说在前面 */
+.restart-hint {
+  color: #ff4d4f;
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 /* 下次刷新时间单独占一行，跟在说明文字下方 */

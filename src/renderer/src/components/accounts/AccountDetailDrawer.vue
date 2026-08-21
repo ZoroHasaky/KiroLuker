@@ -271,12 +271,11 @@ async function act(kind: 'refresh' | 'check' | 'switch'): Promise<void> {
         </div>
       </a-space>
 
-      <!-- 范围锁定为当前账号，不受列表勾选影响 -->
+      <!-- 只传当前账号，导出范围即当前账号，不受列表勾选影响 -->
       <ExportAccountsModal
         v-if="exportOpen"
         v-model:open="exportOpen"
         :selected-ids="[account.id]"
-        scope-locked
       />
     </template>
   </a-drawer>

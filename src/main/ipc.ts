@@ -37,6 +37,7 @@ import {
   scheduleProactiveRenewal
 } from './proactiveRenewal'
 import { setUsageApiType } from './kiroApi'
+import { setInAppLocale } from './kiroPortal'
 import { setProxyConfig } from './net'
 import { checkForUpdate } from './updater'
 import {
@@ -128,6 +129,7 @@ function handle(
 export function applyRuntimeSettings(settings: AppSettings): void {
   setUsageApiType(settings.usageApiType)
   setProxyConfig(settings.proxyEnabled, settings.proxyUrl)
+  setInAppLocale(settings.portalLocale)
   setGatewayRetryPolicy(
     settings.gatewayAutoRetryThrottle,
     settings.gatewayRetryStatuses,

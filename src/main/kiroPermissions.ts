@@ -79,7 +79,7 @@ function settingsDir(): string {
   return path.join(os.homedir(), '.kiro', 'settings')
 }
 
-export function permissionsYamlPath(): string {
+function permissionsYamlPath(): string {
   return path.join(settingsDir(), 'permissions.yaml')
 }
 
@@ -530,9 +530,4 @@ export async function disableShellAutoApprove(): Promise<ShellAutoApproveStatus>
  */
 export function shellApproveTargetPath(kind: ShellAutoApproveTarget['kind']): string {
   return kind === 'permissionsYaml' ? permissionsYamlPath() : kiroSettingsPath()
-}
-
-/** 退出前不做任何还原：权限配置由用户显式开关控制，不应随应用退出而改变 */
-export function permissionsFileExists(): boolean {
-  return existsSync(permissionsYamlPath())
 }

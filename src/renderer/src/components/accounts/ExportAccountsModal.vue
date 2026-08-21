@@ -17,10 +17,11 @@ import { buildExportContent, exportFilename, type ExportFormat } from '@/utils/t
 import { copyText } from '@/utils/ui'
 
 /**
- * selectedIds 为调用方当前勾选的账号，不传（如设置页入口）则只能导出全部。
- * scopeLocked 用于详情抽屉这类只导出指定账号的入口，不给切换到全部的机会。
+ * selectedIds 为调用方当前勾选的账号。
+ * 导出范围不给用户选：有勾选就导出勾选的，没勾选就导出全部。
+ * 详情抽屉这类单账号入口只要传入该账号的 id，走的是同一条规则。
  */
-const props = defineProps<{ open: boolean; selectedIds?: string[]; scopeLocked?: boolean }>()
+const props = defineProps<{ open: boolean; selectedIds?: string[] }>()
 const emit = defineEmits<{ 'update:open': [boolean] }>()
 
 const accountsStore = useAccountsStore()
@@ -28,26 +29,19 @@ const settingsStore = useSettingsStore()
 
 const format = ref<ExportFormat>('json')
 const includeCredentials = ref(true)
-const scope = ref<'selected' | 'all'>('all')
 
 /** 勾选集合，账号上千时用 Set 过滤 */
 const selectedSet = computed(() => new Set(props.selectedIds ?? []))
 
-/** 勾选可能包含已被删除的 id，按现有账号过滤后才是真实可导出数量 */
-const selectedCount = computed(
-  () => accountsStore.accounts.filter((a) => selectedSet.value.has(a.id)).length
-)
+/** 勾选可能包含已被删除的 id，按现有账号过滤后才是真实要导出的那批 */
+const selected = computed(() => accountsStore.accounts.filter((a) => selectedSet.value.has(a.id)))
 
-/** 范围被锁定：只导出传入的账号，标题只做展示 */
-const lockScope = computed(() => !!props.scopeLocked && selectedCount.value > 0)
+/** 有勾选导勾选的，没勾选导全部 */
+const targets = computed(() => (selected.value.length ? selected.value : accountsStore.accounts))
 
-/** 有勾选且未锁定时才给出「已选 / 全部」切换 */
-const canScope = computed(() => !lockScope.value && selectedCount.value > 0)
-
-const targets = computed(() =>
-  lockScope.value || (canScope.value && scope.value === 'selected')
-    ? accountsStore.accounts.filter((a) => selectedSet.value.has(a.id))
-    : accountsStore.accounts
+/** 标题上只说明这次会导出什么，不提供切换 */
+const scopeText = computed(
+  () => `${selected.value.length ? '已选' : '全部'} ${targets.value.length} 个`
 )
 
 const formats = computed<{ value: ExportFormat; label: string; icon: Component; desc: string }[]>(() => [
@@ -92,8 +86,6 @@ watch(
     if (open) {
       format.value = 'json'
       includeCredentials.value = true
-      // 有勾选就默认只导出勾选的账号，避免误导出全部
-      scope.value = selectedCount.value > 0 ? 'selected' : 'all'
     }
   }
 )
@@ -137,12 +129,7 @@ function submit(): void {
       <span class="export-title">
         <DownloadOutlined />
         导出账号
-        <a-radio-group v-if="canScope" v-model:value="scope" size="small" button-style="solid">
-          <a-radio-button value="selected">已选 {{ selectedCount }} 个</a-radio-button>
-          <a-radio-button value="all">全部 {{ accountsStore.accounts.length }} 个</a-radio-button>
-        </a-radio-group>
-        <a-tag v-else-if="lockScope" style="margin: 0">当前账号 {{ targets.length }} 个</a-tag>
-        <a-tag v-else style="margin: 0">全部 {{ targets.length }} 个</a-tag>
+        <a-tag style="margin: 0">{{ scopeText }}</a-tag>
       </span>
     </template>
 

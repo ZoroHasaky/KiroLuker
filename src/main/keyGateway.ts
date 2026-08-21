@@ -368,7 +368,7 @@ function collectUsagePairs(node: unknown, out: { used: number | null; limit: num
   if (used != null || limit != null) out.push({ used, limit })
   for (const k of Object.keys(obj)) collectUsagePairs(obj[k], out)
 }
-export function tierFromTitle(title: string): string {
+function tierFromTitle(title: string): string {
   const t = String(title || '').toLowerCase()
   if (!t) return ''
   if (t.includes('power')) return 'power'

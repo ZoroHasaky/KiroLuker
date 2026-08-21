@@ -25,7 +25,7 @@ export function displayKey(key: string, privacy: boolean): string {
  * 保留点号前的目录 ID 与 UUID 首段：同一个账号签发的多个 API Key 会共用同一个 userId，
  * 留出这两段用户才能在打码状态下肉眼比对出「这几个 Key 其实是一个号」。
  */
-export function maskUserId(value: string): string {
+function maskUserId(value: string): string {
   const dot = value.indexOf('.')
   if (dot <= 0) {
     if (value.length <= 12) return value

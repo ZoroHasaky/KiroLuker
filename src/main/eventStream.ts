@@ -29,7 +29,7 @@ function headerValueSize(buf: Buffer, offset: number, type: number): number {
   }
 }
 
-export function parseHeaders(buf: Buffer): Record<string, string> {
+function parseHeaders(buf: Buffer): Record<string, string> {
   const out: Record<string, string> = {}
   let i = 0
   while (i < buf.length) {

@@ -82,15 +82,5 @@ export function confirmUseApiKey(label: string, onOk: () => Promise<unknown>): v
   })
 }
 
-/** API Key 退出当前：保留网关开关，并明确无凭证期间的鉴权影响。 */
-export function confirmExitCurrentApiKey(label: string, onOk: () => Promise<unknown>): void {
-  confirmDanger({
-    title: '退出当前 API Key',
-    content: `确认退出当前 API Key ${label}？退出后不会自动选择其它 Key；如果 API Key 接管仍开启，重新选择前的请求将无法正常鉴权。`,
-    okText: '退出当前',
-    onOk
-  })
-}
-
 /** 弹层挂到 body，避免被顶栏或滚动容器裁剪 */
 export const bodyPopupContainer = (): HTMLElement => document.body

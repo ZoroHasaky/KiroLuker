@@ -1,6 +1,6 @@
 {
   "name": "kiro-account-lite",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "description": "Kiro Manager Lite - Kiro 多账号管理器轻量版",
   "main": "./out/main/index.js",
   "author": "kiro-account-lite",
@@ -22,7 +22,6 @@
     "build:unpack": "npm run prepack:dist && electron-builder --dir"
   },
   "dependencies": {
-    "@electron-toolkit/preload": "3.0.2",
     "@electron-toolkit/utils": "4.0.0",
     "cbor-x": "1.6.0",
     "electron-store": "8.2.0",

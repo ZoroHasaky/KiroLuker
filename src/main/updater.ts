@@ -26,7 +26,7 @@ function normalizeVersion(raw: string): string {
  * 语义化版本比较，返回 a-b 的符号。
  * 数字段逐位比较；带 -beta 之类预发布标记的一方在数字段相同时视为更旧。
  */
-export function compareVersions(a: string, b: string): number {
+function compareVersions(a: string, b: string): number {
   const split = (v: string): { nums: number[]; pre: string } => {
     const [core, ...rest] = normalizeVersion(v).split('-')
     return {

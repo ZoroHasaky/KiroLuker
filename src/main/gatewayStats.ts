@@ -30,7 +30,6 @@ const RPM_WINDOW_MS = 60_000
 const recentByKey = new Map<string, number[]>()
 /** 已删除的 Key：阻止删除前尚未结束的流式响应把统计重新写回磁盘。 */
 const discardedKeys = new Set<string>()
-let changed: (() => void) | null = null
 
 function recentFor(keyId: string): number[] {
   let list = recentByKey.get(keyId)
@@ -47,11 +46,6 @@ function mutate(keyId: string, fn: (s: KeyGatewayUsageStats) => void): KeyGatewa
   fn(s)
   setTotals(keyId, s)
   return s
-}
-
-/** 变更回调：用于把最新统计推给界面 */
-export function onStatsChanged(handler: (() => void) | null): void {
-  changed = handler
 }
 
 /**
@@ -104,7 +98,6 @@ export function recordResponse(
   })
   // 请求数与成功数一起写，天然保证同桶内 requests >= succeeded
   addPoint(keyId, { requests: 1, succeeded: ok ? 1 : 0 }, startedAt)
-  changed?.()
 }
 
 function trimRecent(recent: number[], now: number): void {
@@ -199,7 +192,6 @@ export function createUsageCollector(
           'info',
           `[GatewayStats] [${label}] 累计积分 ${s.metered.toFixed(4)}${s.meteredUnit ? ' ' + s.meteredUnit : ''}`
         )
-        changed?.()
         return
       }
       // 没解析出积分：把线索留在日志里，便于判断是压缩没解开、
@@ -239,7 +231,6 @@ export function discardGatewayStats(keyId: string): void {
   discardedKeys.add(keyId)
   recentByKey.delete(keyId)
   clearGatewayHistory(keyId)
-  changed?.()
 }
 
 /** 清空统计与历史：用户手动重置时调用。关闭网关不再清空，累计值要长期保留 */
@@ -247,7 +238,6 @@ export function resetGatewayStats(keyId?: string): void {
   if (keyId) recentByKey.delete(keyId)
   else recentByKey.clear()
   clearGatewayHistory(keyId)
-  changed?.()
 }
 
 /** 清掉 RPM 的内存窗口，累计值不动。网关停止时调用 */

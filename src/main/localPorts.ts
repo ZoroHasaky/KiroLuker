@@ -44,7 +44,7 @@ function parseWindowsPids(stdout: string, port: number): number[] {
 }
 
 /** 查询正在监听某个本地端口的进程（不含本应用自身） */
-export async function listListeningPids(port: number): Promise<number[]> {
+async function listListeningPids(port: number): Promise<number[]> {
   if (process.platform === 'win32') {
     const res = await run('netstat', ['-ano', '-p', 'tcp'])
     return parseWindowsPids(res.stdout, port)
@@ -70,7 +70,7 @@ async function terminate(pid: number, force: boolean): Promise<void> {
  * 释放单个本地端口：先优雅终止，未退出再强杀。
  * 端口上没有其它进程时直接视为已释放。
  */
-export async function releasePort(port: number): Promise<KeyGatewayReleaseResult> {
+async function releasePort(port: number): Promise<KeyGatewayReleaseResult> {
   const pids = await listListeningPids(port)
   if (!pids.length) {
     return { port, pids: [], stopped: true, message: `端口 ${port} 没有其它进程占用` }

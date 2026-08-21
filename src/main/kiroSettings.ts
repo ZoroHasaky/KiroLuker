@@ -161,12 +161,6 @@ function listsEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(normalizeList(a)) === JSON.stringify(normalizeList(b))
 }
 
-/** 读取当前两个端点，并规范化成可持久化的快照。 */
-export async function readEndpointSnapshot(file = kiroSettingsPath()): Promise<EndpointSnapshot> {
-  const obj = await readSettings(file)
-  return { krs: normalizeList(obj[KRS_KEY]), cps: normalizeList(obj[CPS_KEY]) }
-}
-
 const LOCAL_ENDPOINT_RE = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?/i
 
 function isLocalEndpoint(endpoint: string): boolean {

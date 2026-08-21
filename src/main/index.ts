@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { applyRuntimeSettings, registerIpc } from './ipc'
 import { getSettings } from './store'
+import { normalizePortalLocale } from '../shared/portalLocale'
 import {
   cancelLogin,
   handleProtocolUrl,
@@ -28,6 +29,15 @@ import { flushGatewayHistory } from './gatewayHistory'
 import { initLogger, installConsoleBridge, log, shutdownLogger } from './logger'
 import { sendToRenderer } from './utils'
 import { initializeKeyService, shutdownKeyServiceSync } from './keyService'
+
+/*
+ * 按设置里的地区指定 Chromium 区域。
+ *
+ * 会话级的 Accept-Language 只影响请求头，页面内的 navigator.language 跟应用全局
+ * locale 走，门户若按前端语言判断就只有这个开关管用。它必须在 app ready 之前设置，
+ * ready 之后再调用不生效——所以这里同步读一次设置，也因此改地区需要重启应用。
+ */
+app.commandLine.appendSwitch('lang', normalizePortalLocale(getSettings().portalLocale))
 
 let mainWindow: BrowserWindow | null = null
 /** 是否正在真正退出应用（区别于「关闭按钮最小化到托盘」） */
