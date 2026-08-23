@@ -30,7 +30,11 @@ import {
 import { useKeysStore } from '@/stores/keys'
 import { useSettingsStore } from '@/stores/settings'
 import { bodyPopupContainer, confirmDelete, confirmUseApiKey } from '@/utils/ui'
-import { displayEmail as maskedEmail, displayKey as maskedKey } from '@/utils/display'
+import {
+  displayEmail as maskedEmail,
+  displayKey as maskedKey,
+  displayNote as maskedNote
+} from '@/utils/display'
 import {
   KEY_STATUS_META,
   formatCreditsPair,
@@ -328,6 +332,11 @@ function displayEmail(email: string): string {
   return maskedEmail(email, privacyMode.value)
 }
 
+/** 备注同样跟随隐私打码：里面常写着用途、渠道等不比邮箱次要的信息 */
+function displayNote(note?: string): string {
+  return maskedNote(note, privacyMode.value)
+}
+
 function togglePrivacy(): void {
   void settingsStore.update({ privacyMode: !privacyMode.value })
 }
@@ -576,14 +585,15 @@ function remove(entry: KeyEntry): void {
   }
   confirmDelete({
     title: '删除 API Key',
-    content: `确认删除 ${entry.note || displayKey(entry.key)}？此操作不可撤销。`,
+    content: `确认删除 ${displayNote(entry.note) || displayKey(entry.key)}？此操作不可撤销。`,
     onOk: doRemove
   })
 }
 
 function keyConfirmationLabel(entry: KeyEntry): string {
   const key = displayKey(entry.key)
-  return entry.note ? `${entry.note}（${key}）` : key
+  const note = displayNote(entry.note)
+  return note ? `${note}（${key}）` : key
 }
 
 async function applySelection(entry: KeyEntry): Promise<void> {
@@ -962,7 +972,10 @@ onUnmounted(() => store.stopStatsPolling())
             </a-tooltip>
           </div>
           <div class="gateway-desc">
-            当前：{{ activeKey?.note || (activeKey ? displayKey(activeKey.key) : '未选择 Key') }}
+            当前：{{
+              displayNote(activeKey?.note) ||
+              (activeKey ? displayKey(activeKey.key) : '未选择 Key')
+            }}
             · {{ activeKey?.region || status?.region || DEFAULT_REGION }}
             · KRS {{ data.ports.krs }} / CPS {{ data.ports.cps }}
           </div>
@@ -1144,7 +1157,10 @@ onUnmounted(() => store.stopStatsPolling())
                 class="key-email muted"
                 :title="entry.email && !privacyMode ? entry.email : undefined"
               >邮箱：{{ entry.email ? displayEmail(entry.email) : '-' }}</span>
-              <span class="key-note muted">备注：{{ entry.note || '-' }}</span>
+              <span
+                class="key-note muted"
+                :title="entry.note && !privacyMode ? entry.note : undefined"
+              >备注：{{ displayNote(entry.note) || '-' }}</span>
             </div>
           </div>
         </div>

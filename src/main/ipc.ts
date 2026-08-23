@@ -425,6 +425,26 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     return [...matched, ...rest, { name: '全部文件', extensions: ['*'] }]
   }
 
+  /**
+   * 落盘后在文件管理器里定位该文件，由设置项「导出后」控制。
+   *
+   * 导出的多是凭证类文件，用户下一步基本都要去拿它，省掉自己翻目录这一步。
+   * 用 showItemInFolder 而不是 openPath：后者会直接用默认程序打开文件内容，
+   * 凭证文件被自动弹开并不是我们想要的效果。
+   *
+   * 每次现读设置而不是缓存：这个开关随时可改，且导出本身是低频操作，
+   * 读一次 store 的开销可以忽略。
+   */
+  function revealExported(filePath: string): void {
+    if (!getSettings().revealExportedFile) return
+    // 定位失败不该让导出本身算失败，文件已经写成功了
+    try {
+      shell.showItemInFolder(filePath)
+    } catch {
+      /* ignore */
+    }
+  }
+
   handle('file:export', async (_e, content: string, filename: string) => {
     const result = await dialog.showSaveDialog(getWindow()!, {
       title: filename.endsWith('.log') ? '导出日志' : '导出账号数据',
@@ -434,6 +454,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     })
     if (result.canceled || !result.filePath) return ok({ saved: false })
     await writeFile(result.filePath, content, 'utf-8')
+    revealExported(result.filePath)
     return ok({ saved: true, path: result.filePath })
   })
 
@@ -446,6 +467,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     })
     if (result.canceled || !result.filePath) return ok({ saved: false })
     await writeFile(result.filePath, buildXlsx(sheet))
+    revealExported(result.filePath)
     return ok({ saved: true, path: result.filePath })
   })
 

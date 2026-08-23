@@ -21,7 +21,7 @@ import {
   subscriptionLabel,
   usageColor
 } from '@/utils/format'
-import { displayEmail } from '@/utils/display'
+import { displayEmail, displayNote } from '@/utils/display'
 import { toPlain } from '@/utils/ipc'
 import { copyText, notifyResult } from '@/utils/ui'
 import { regionLabel } from '@shared/regions'
@@ -47,6 +47,11 @@ const precision = computed(() => settingsStore.settings.usagePrecision)
 
 const email = computed(() =>
   displayEmail(account.value?.email ?? '', settingsStore.settings.privacyMode)
+)
+
+/** 备注同样跟随隐私打码，否则卡片遮住了、点开详情又露出来 */
+const note = computed(() =>
+  displayNote(account.value?.note, settingsStore.settings.privacyMode)
 )
 
 /**
@@ -167,7 +172,7 @@ async function act(kind: 'refresh' | 'check' | 'switch'): Promise<void> {
           <span class="muted">{{ account.credentials.authMethod }}</span>
         </a-descriptions-item>
         <a-descriptions-item label="昵称">{{ account.nickname || '-' }}</a-descriptions-item>
-        <a-descriptions-item label="备注">{{ account.note || '-' }}</a-descriptions-item>
+        <a-descriptions-item label="备注">{{ note || '-' }}</a-descriptions-item>
         <a-descriptions-item label="User ID">
           <span class="mono">{{ account.userId || '-' }}</span>
         </a-descriptions-item>

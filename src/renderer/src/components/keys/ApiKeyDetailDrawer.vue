@@ -16,7 +16,11 @@ import RegionSelect from '@/components/common/RegionSelect.vue'
 import { useKeysStore } from '@/stores/keys'
 import { useSettingsStore } from '@/stores/settings'
 import { copyText } from '@/utils/ui'
-import { displayEmail as maskedEmail, displayUserId } from '@/utils/display'
+import {
+  displayEmail as maskedEmail,
+  displayNote as maskedNote,
+  displayUserId
+} from '@/utils/display'
 import { formatCreditsPair, formatDateTime } from '@/utils/format'
 import { regionLabel } from '@shared/regions'
 import type { KeyEntry } from '@shared/types'
@@ -47,6 +51,13 @@ const emailText = computed(() => {
   const value = entry.value?.email
   return value ? maskedEmail(value, settingsStore.settings.privacyMode) : '-'
 })
+/** 备注同样跟随隐私打码，否则卡片遮住了、点开详情又露出来 */
+const noteMasked = computed(() =>
+  maskedNote(entry.value?.note, settingsStore.settings.privacyMode)
+)
+const noteText = computed(() => noteMasked.value || '-')
+/** 标题也用打码后的备注，否则遮了正文却从标题露出去 */
+const drawerTitle = computed(() => noteMasked.value || 'API Key 详情')
 const maskedKey = computed(() => {
   const key = entry.value?.key || ''
   if (!key) return '-'
@@ -156,7 +167,7 @@ function subscriptionColor(tier?: string): string {
 <template>
   <a-drawer
     :open="!!entry"
-    :title="entry?.note || 'API Key 详情'"
+    :title="drawerTitle"
     :width="drawerWidth"
     placement="right"
     @close="emit('close')"
@@ -286,7 +297,7 @@ function subscriptionColor(tier?: string): string {
           </a-tag>
           <a-tag v-if="entry.id === keysStore.data.activeKeyId" color="green">当前使用</a-tag>
         </a-descriptions-item>
-        <a-descriptions-item label="备注">{{ entry.note || '-' }}</a-descriptions-item>
+        <a-descriptions-item label="备注">{{ noteText }}</a-descriptions-item>
         <a-descriptions-item label="区域">
           <div class="cell-row">
             <span>{{ regionLabel(entry.region) }}</span>

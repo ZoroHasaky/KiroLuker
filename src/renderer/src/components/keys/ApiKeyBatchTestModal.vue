@@ -19,6 +19,7 @@ import {
 } from '@ant-design/icons-vue'
 import { useKeysStore } from '@/stores/keys'
 import { useSettingsStore } from '@/stores/settings'
+import { displayNote as maskedNote } from '@/utils/display'
 import { errorMessage } from '@shared/errors'
 import type { KeyEntry } from '@shared/types'
 
@@ -60,6 +61,11 @@ const finished = computed(() => !running.value && stat.value.pending === 0 && st
 function displayKey(key: string): string {
   if (!settingsStore.settings.privacyMode) return key
   return `${key.slice(0, 8)}…${key.slice(-6)}`
+}
+
+/** 备注跟随隐私打码；在渲染时算而不是建行时算，中途切开关也能立即生效 */
+function displayNote(note?: string): string {
+  return maskedNote(note, settingsStore.settings.privacyMode)
 }
 
 function reset(): void {
@@ -206,7 +212,7 @@ function close(): void {
       >
         <div class="row-main">
           <div class="row-key mono">{{ displayKey(row.key) }}</div>
-          <div v-if="row.note" class="row-note">{{ row.note }}</div>
+          <div v-if="row.note" class="row-note">{{ displayNote(row.note) }}</div>
         </div>
         <div class="row-state">
           <template v-if="row.state === 'pending'">

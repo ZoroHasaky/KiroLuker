@@ -26,7 +26,7 @@ import {
   tokenLife,
   usageColor
 } from '@/utils/format'
-import { displayEmail, displayName } from '@/utils/display'
+import { displayEmail, displayName, displayNote } from '@/utils/display'
 import { now } from '@/utils/now'
 import type { Account } from '@shared/types'
 
@@ -67,8 +67,8 @@ const privacy = computed(() => settingsStore.settings.privacyMode)
 const email = computed(() => displayEmail(props.account.email, privacy.value))
 const nickname = computed(() => displayName(props.account, privacy.value))
 
-/** 备注为用户自己写的内容，不打码；留空时显示占位符，保证同排卡片高度一致 */
-const note = computed(() => (props.account.note || '').trim())
+/** 备注在隐私模式下整段遮住；留空时显示占位符，保证同排卡片高度一致 */
+const note = computed(() => displayNote(props.account.note, privacy.value))
 
 /** 使用率百分比原始值，用量条与文案各自再做取整 */
 const rawPercent = computed(() => (props.account.usage.percentUsed || 0) * 100)
@@ -249,7 +249,10 @@ function trigger(key: ActionKey): void {
       <div class="identity" @click="emit('detail')">
         <span class="email" :title="privacy ? undefined : props.account.email">{{ email }}</span>
         <span class="nickname">{{ nickname }}</span>
-        <span class="note" :title="note || undefined">备注：{{ note || '-' }}</span>
+        <span
+          class="note"
+          :title="props.account.note && !privacy ? props.account.note : undefined"
+        >备注：{{ note || '-' }}</span>
       </div>
       <a-tag :color="status.color" class="status-tag">{{ status.text }}</a-tag>
     </div>

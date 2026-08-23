@@ -44,6 +44,18 @@ const FORM_LAYOUT = {
   wrapperCol: { flex: '1 1 auto' }
 } as const
 
+/**
+ * 「数据管理」卡片专用栅格：标签按内容宽度并左对齐。
+ * 该卡片其余行是 .data-row（标题贴着卡片左边），沿用 130px 右对齐的标签列
+ * 会让这一行的标签缩到卡片中间，和下面几行对不齐。
+ */
+const DATA_FORM_LAYOUT = {
+  layout: 'horizontal',
+  labelAlign: 'left',
+  labelCol: { flex: '0 0 auto' },
+  wrapperCol: { flex: '1 1 auto' }
+} as const
+
 /** 下次刷新的时间与倒计时，跟着共享时钟每 5 秒重算 */
 function nextRefreshText(at: number | null): string {
   if (!at) return '未开启，不会自动执行'
@@ -80,6 +92,11 @@ const closeActionOptions: { value: AppSettings['closeAction']; label: string }[]
   { value: 'ask', label: '每次询问' },
   { value: 'minimize', label: '最小化到托盘' },
   { value: 'quit', label: '退出程序' }
+]
+
+const revealExportedOptions: { value: boolean; label: string }[] = [
+  { value: true, label: '打开文件夹并选中文件' },
+  { value: false, label: '不打开文件夹' }
 ]
 
 const portalLocale = computed(
@@ -481,6 +498,19 @@ function clearAll(): void {
     </a-card>
 
     <a-card size="small" title="数据管理" style="margin-bottom: 16px">
+      <a-form v-bind="DATA_FORM_LAYOUT">
+        <a-form-item label="导出后" class="field-inline">
+          <a-select
+            :value="settings.revealExportedFile"
+            :options="revealExportedOptions"
+            :get-popup-container="bodyPopupContainer"
+            style="width: 260px"
+            @change="(v: unknown) => update({ revealExportedFile: v as boolean })"
+          />
+          <span class="muted">导出成功后是否定位到文件</span>
+        </a-form-item>
+      </a-form>
+
       <div class="data-row">
         <div class="data-row-text">
           <div class="data-row-title">导出数据</div>

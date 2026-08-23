@@ -42,6 +42,20 @@ export function displayUserId(value: string, privacy: boolean): string {
 }
 
 /**
+ * 备注打码。
+ *
+ * 备注是自由文本，用户常往里写人名、用途、购买渠道这类比邮箱更敏感的内容，
+ * 没法像邮箱那样保留首尾做部分遮罩，隐私模式下整段替换为固定宽度的 ****。
+ * 空备注仍返回空串交由调用方显示占位符，这样「有备注但被遮住」和「没写备注」
+ * 在界面上仍能区分。
+ */
+export function displayNote(note: string | undefined, privacy: boolean): string {
+  const value = (note || '').trim()
+  if (!value) return ''
+  return privacy ? '****' : value
+}
+
+/**
  * 账号名：打码时用与邮箱同源的遮罩串，否则取昵称、缺昵称时退回邮箱前缀。
  * 昵称往往就是邮箱前缀，打码时必须一起遮罩，否则等于没打码。
  */

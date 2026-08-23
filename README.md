@@ -13,8 +13,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.15-6c5ce7" alt="version">
-  <img src="https://img.shields.io/badge/updated-2026--08--21-2f9e44" alt="updated">
+  <img src="https://img.shields.io/badge/version-1.0.16-6c5ce7" alt="version">
+  <img src="https://img.shields.io/badge/updated-2026--08--23-2f9e44" alt="updated">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="platform">
   <img src="https://img.shields.io/badge/Vue-3-42b883" alt="vue">
@@ -84,7 +84,8 @@
 
 ### ⚙️ 个性化设置
 
-- 深色模式、主题色、隐私打码、积分精度和删除确认
+- 深色模式、主题色、隐私打码（邮箱、昵称、API Key、User ID 与备注）、积分精度和删除确认
+- 导出后可选自动打开所在文件夹并选中文件，或保持静默
 - Token / 用量自动刷新间隔、主动续期、批量与导入并发数
 - REST / CBOR 用量接口、HTTP 代理、网关端口，以及数据、备份和日志目录快捷打开
 
@@ -239,7 +240,7 @@ src/
 
 ## 🔖 更新日志
 
-各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.0.15，最后更新于 2026-08-21。
+各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.0.16，最后更新于 2026-08-23。
 
 ---
 

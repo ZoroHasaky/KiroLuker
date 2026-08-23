@@ -596,6 +596,12 @@ export interface AppSettings {
   apiKeyRefreshConcurrency: number
   /** 删除 API Key 前二次确认 */
   confirmBeforeDeleteApiKey: boolean
+  /**
+   * 导出成功后是否在文件管理器里定位该文件。
+   * 导出的多是凭证类文件，用户下一步基本都要去拿它，所以默认打开；
+   * 批量连续导出时反复弹窗反而干扰，故留出关闭的余地。
+   */
+  revealExportedFile: boolean
   /** 启用系统托盘 */
   trayEnabled: boolean
   /** 点击窗口关闭按钮时的行为：每次询问 / 最小化到托盘 / 直接退出 */
@@ -657,6 +663,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   apiKeyUsageRefreshInterval: 5,
   apiKeyRefreshConcurrency: 5,
   confirmBeforeDeleteApiKey: true,
+  revealExportedFile: true,
   trayEnabled: true,
   closeAction: 'minimize',
   proactiveRenewalEnabled: true,

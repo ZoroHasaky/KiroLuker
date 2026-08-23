@@ -12,6 +12,7 @@ import { useKeysStore } from '@/stores/keys'
 import { useSettingsStore } from '@/stores/settings'
 import { confirmDanger } from '@/utils/ui'
 import { smoothLinePath } from '@/utils/chart'
+import { displayNote } from '@/utils/display'
 import { formatDateTime } from '@/utils/format'
 import type { GatewayCallPoint, KeyEntry } from '@shared/types'
 
@@ -29,9 +30,13 @@ const loading = ref(false)
 /** 当前展示哪条曲线，打开时取 props.metric，之后可在弹窗内切换 */
 const view = ref<'requests' | 'successRate' | 'credits'>('requests')
 
-const title = computed(() =>
-  props.keyEntry ? `网关调用历史 · ${props.keyEntry.note || maskedKey.value}` : '网关调用历史'
-)
+const title = computed(() => {
+  if (!props.keyEntry) return '网关调用历史'
+  // 备注同样受隐私打码约束，否则这里会把卡片上遮住的备注原样显示出来
+  const label =
+    displayNote(props.keyEntry.note, settingsStore.settings.privacyMode) || maskedKey.value
+  return `网关调用历史 · ${label}`
+})
 const maskedKey = computed(() => {
   const key = props.keyEntry?.key || ''
   if (!key) return ''

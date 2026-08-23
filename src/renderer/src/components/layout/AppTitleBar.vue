@@ -6,7 +6,7 @@ import { message } from 'ant-design-vue'
 import { useAccountsStore, type AccountTaskType } from '@/stores/accounts'
 import { useKeysStore } from '@/stores/keys'
 import { useSettingsStore } from '@/stores/settings'
-import { displayEmail, displayKey } from '@/utils/display'
+import { displayEmail, displayKey, displayNote } from '@/utils/display'
 
 const route = useRoute()
 const accountsStore = useAccountsStore()
@@ -27,8 +27,11 @@ const showIdeStatus = computed(() => route.name === 'accounts')
 const showApiKeyStatus = computed(() => route.name === 'keys')
 
 function keyLabel(entry: { key: string; note?: string }): string {
-  const shownKey = displayKey(entry.key, settingsStore.settings.privacyMode)
-  return entry.note ? `${entry.note} · ${shownKey}` : shownKey
+  const privacy = settingsStore.settings.privacyMode
+  const shownKey = displayKey(entry.key, privacy)
+  // 备注与 Key 一起受隐私打码约束，否则页头会把卡片上遮住的备注露出来
+  const note = displayNote(entry.note, privacy)
+  return note ? `${note} · ${shownKey}` : shownKey
 }
 
 const effectiveKeyLabel = computed(() => {
