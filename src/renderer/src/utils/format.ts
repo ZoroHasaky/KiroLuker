@@ -253,16 +253,29 @@ export function tokenLife(expiresAt?: number, rounding: 'floor' | 'round' = 'flo
   return { state: 'hours', minutes, hours: Math.floor(minutes / 60) }
 }
 
-/** 带并发上限的任务池 */
+/**
+ * 带并发上限的任务池。
+ *
+ * @param options.staggerMs 各通道启动前的错峰上限（毫秒）。
+ *   置 0 时全部通道同一帧起跑，瞬时打出 concurrency 个请求；上游按突发流量
+ *   限流时（Amazon Q 的用量接口会回 403）就会出现「一批里只有一部分失败」。
+ *   给一个小的随机延迟把起跑时间摊开，代价是整批多花不到一秒。
+ */
 export async function runPool<T>(
   items: T[],
   concurrency: number,
-  worker: (item: T, index: number) => Promise<void>
+  worker: (item: T, index: number) => Promise<void>,
+  options: { staggerMs?: number } = {}
 ): Promise<void> {
   // 上限 100 是兜底防呆，各调用方按自己的设置传入更小的值
   const limit = Math.max(1, Math.min(Math.floor(concurrency) || 1, 100))
+  const stagger = Math.max(0, options.staggerMs ?? 0)
   let cursor = 0
-  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async (_, channel) => {
+    // 只错峰一次：通道之后是串行取任务，起跑错开了后续自然也不会同步
+    if (stagger && channel > 0) {
+      await new Promise((resolve) => setTimeout(resolve, Math.random() * stagger))
+    }
     while (cursor < items.length) {
       const index = cursor++
       await worker(items[index], index)

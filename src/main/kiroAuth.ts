@@ -16,8 +16,15 @@ const KIRO_SSO_CACHE_DIR = path.join(os.homedir(), '.aws', 'sso', 'cache')
 const KIRO_AUTH_TOKEN_FILE = 'kiro-auth-token.json'
 const KIRO_AUTH_TOKEN_PATH = path.join(KIRO_SSO_CACHE_DIR, KIRO_AUTH_TOKEN_FILE)
 
-// Kiro IDE 源码里给 BuilderId 硬编码的占位符 ARN，IDE 内部逻辑依赖该字段存在
-const KIRO_BUILDER_ID_PLACEHOLDER_ARN =
+/**
+ * Kiro IDE 源码里给 BuilderId 硬编码的占位符 ARN。
+ *
+ * 两个用途，别混：IDE 内部逻辑依赖 token 文件里存在该字段；
+ * 而 runtime 接口（getUsageLimits / ListAvailableModels）现在也把 profileArn 当必填，
+ * BuilderId 账号必须原样带上它才回 200，不带就是
+ * 403 "User is not authorized to make this call."。
+ */
+export const KIRO_BUILDER_ID_PLACEHOLDER_ARN =
   'arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX'
 // Github / Google 社交登录共用的固定 profileArn
 export const KIRO_SOCIAL_PROFILE_ARN =
@@ -91,7 +98,15 @@ export function profileArnCandidates(input: {
   return out
 }
 
-/** 校验用量接口时该带哪个 ARN：占位符对 IDE 有意义，对接口无意义 */
+/**
+ * 剥掉 BuilderId 占位符 ARN，只保留真实可用的 ARN。
+ *
+ * 仅供控制面（CreateApiKey / ListApiKeys）挑候选使用。
+ *
+ * 切勿用在用量接口上：getUsageLimits 已改成把 profileArn 当必填，
+ * BuilderId 恰恰要带这个占位符才回 200，剥掉就是
+ * 403 "User is not authorized to make this call."。用量那边走 usageProfileArn。
+ */
 export function arnForApiCall(arn?: string): string | undefined {
   return arn && !isPlaceholderArn(arn) ? arn : undefined
 }

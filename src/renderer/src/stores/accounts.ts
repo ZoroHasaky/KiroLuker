@@ -603,24 +603,30 @@ export const useAccountsStore = defineStore('accounts', () => {
     // running 必须在 finally 里复位：池子里任何一个任务抛异常都会让整个 runPool reject，
     // 一旦这里漏掉复位，task.running 会永久为 true，之后所有自动刷新都会被静默跳过
     try {
-      await runPool(ids, settingsStore.settings.concurrency, async (id) => {
-        // 单个账号的异常必须就地兜住：抛出去会中断所在的并发通道，
-        // 该通道排队中的账号会被整批丢掉，表现为「一批里有些账号没刷新」
-        try {
-          const res = kind === 'refresh' ? await refreshToken(id) : await checkStatus(id)
-          if (res.ok) result.success++
-          else {
+      await runPool(
+        ids,
+        settingsStore.settings.concurrency,
+        async (id) => {
+          // 单个账号的异常必须就地兜住：抛出去会中断所在的并发通道，
+          // 该通道排队中的账号会被整批丢掉，表现为「一批里有些账号没刷新」
+          try {
+            const res = kind === 'refresh' ? await refreshToken(id) : await checkStatus(id)
+            if (res.ok) result.success++
+            else {
+              result.failed++
+              result.messages.push(`${get(id)?.email ?? id}：${res.error}`)
+            }
+          } catch (e) {
             result.failed++
-            result.messages.push(`${get(id)?.email ?? id}：${res.error}`)
+            result.messages.push(`${get(id)?.email ?? id}：${errorMessage(e)}`)
+          } finally {
+            task.value.done++
+            onProgress?.(task.value.done, ids.length)
           }
-        } catch (e) {
-          result.failed++
-          result.messages.push(`${get(id)?.email ?? id}：${errorMessage(e)}`)
-        } finally {
-          task.value.done++
-          onProgress?.(task.value.done, ids.length)
-        }
-      })
+        },
+        // 上游按突发流量限流，通道同帧起跑时一批里总有几个吃 403
+        { staggerMs: 400 }
+      )
     } finally {
       task.value.running = false
       persist(true)

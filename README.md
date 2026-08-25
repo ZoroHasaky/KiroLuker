@@ -13,8 +13,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.16-6c5ce7" alt="version">
-  <img src="https://img.shields.io/badge/updated-2026--08--23-2f9e44" alt="updated">
+  <img src="https://img.shields.io/badge/version-1.0.17-6c5ce7" alt="version">
+  <img src="https://img.shields.io/badge/updated-2026--08--25-2f9e44" alt="updated">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="platform">
   <img src="https://img.shields.io/badge/Vue-3-42b883" alt="vue">
@@ -240,7 +240,7 @@ src/
 
 ## 🔖 更新日志
 
-各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.0.16，最后更新于 2026-08-23。
+各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.0.17，最后更新于 2026-08-25。
 
 ---
 

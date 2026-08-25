@@ -94,9 +94,15 @@ const closeActionOptions: { value: AppSettings['closeAction']; label: string }[]
   { value: 'quit', label: '退出程序' }
 ]
 
-const revealExportedOptions: { value: boolean; label: string }[] = [
-  { value: true, label: '打开文件夹并选中文件' },
-  { value: false, label: '不打开文件夹' }
+/**
+ * 设置项本身是 boolean，但 a-select 的 value 只接受 Array / Object / String / Number，
+ * 直接喂 boolean 会触发 prop 类型校验告警。所以选项用字符串，在边界上转换。
+ */
+const REVEAL_EXPORTED_ON = 'reveal'
+
+const revealExportedOptions: { value: string; label: string }[] = [
+  { value: REVEAL_EXPORTED_ON, label: '打开文件夹并选中文件' },
+  { value: 'silent', label: '不打开文件夹' }
 ]
 
 const portalLocale = computed(
@@ -501,11 +507,11 @@ function clearAll(): void {
       <a-form v-bind="DATA_FORM_LAYOUT">
         <a-form-item label="导出后" class="field-inline">
           <a-select
-            :value="settings.revealExportedFile"
+            :value="settings.revealExportedFile ? REVEAL_EXPORTED_ON : 'silent'"
             :options="revealExportedOptions"
             :get-popup-container="bodyPopupContainer"
             style="width: 260px"
-            @change="(v: unknown) => update({ revealExportedFile: v as boolean })"
+            @change="(v: unknown) => update({ revealExportedFile: v === REVEAL_EXPORTED_ON })"
           />
           <span class="muted">导出成功后是否定位到文件</span>
         </a-form-item>

@@ -3,9 +3,28 @@
 // token 刷新、用量查询、模型列表、对话测活分散在多个模块里，但它们用的都是
 // 同一套 UA、同一套区域映射规则。统一收在这里，避免各处各写一份导致漂移。
 import { randomUUID } from 'crypto'
+import * as os from 'os'
 
-/** 对齐 Kiro IDE 的版本号，接口会按 UA 区分客户端能力 */
-const KIRO_IDE_VERSION = '0.6.18'
+/**
+ * 对齐 Kiro IDE 的版本号与 SDK 版本。
+ *
+ * 这不只是「像不像官方客户端」的问题，服务端会按 UA 里的版本号做准入：
+ * 实测同一个 Builder ID token，UA 报 KiroIDE-0.6.18 / aws-sdk-js/1.0.18 时
+ * ListAvailableModels 与 generateAssistantResponse 一律回
+ * 403 "User is not authorized to make this call."；只把版本换成下面这组即 200。
+ * 社交账号（Github / Google）不受该门槛影响，两组 UA 都通——所以这个坑只在
+ * Builder ID / IdC 上暴露出来。
+ *
+ * 升级时这三个值要一起动，混搭（新版本号 + 旧 SDK）没有验证过。
+ */
+const KIRO_IDE_VERSION = '0.12.155'
+const AWS_SDK_VERSION = '1.0.34'
+
+/** os / node 指纹按本机真实值填，固定写 windows 反而是个显眼的破绽 */
+const UA_OS = (() => {
+  if (process.platform === 'win32') return 'win32'
+  return process.platform === 'darwin' ? 'macos' : 'linux'
+})()
 
 /** Kiro 网页门户的 CBOR 接口 */
 export const KIRO_PORTAL_BASE = 'https://app.kiro.dev/service/KiroWebPortalService/operation'
@@ -53,12 +72,16 @@ export function codeWhispererEndpoint(region?: string): string {
 
 /** 完整 UA，AWS SDK 风格 + Kiro IDE 版本 */
 export function kiroUserAgent(): string {
-  return `aws-sdk-js/1.0.18 ua/2.1 os/windows lang/js md/nodejs#20.16.0 api/codewhispererstreaming#1.0.18 m/E KiroIDE-${KIRO_IDE_VERSION}`
+  return (
+    `aws-sdk-js/${AWS_SDK_VERSION} ua/2.1 os/${UA_OS}#${os.release()} lang/js ` +
+    `md/nodejs#${process.versions.node} api/codewhispererstreaming#${AWS_SDK_VERSION} ` +
+    `m/E KiroIDE-${KIRO_IDE_VERSION}`
+  )
 }
 
 /** x-amz-user-agent 用的短 UA */
 export function kiroAmzUserAgent(): string {
-  return `aws-sdk-js/1.0.18 KiroIDE-${KIRO_IDE_VERSION}`
+  return `aws-sdk-js/${AWS_SDK_VERSION} KiroIDE-${KIRO_IDE_VERSION}`
 }
 
 /** AWS SDK 的单次调用标识（uuid v4） */

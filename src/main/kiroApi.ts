@@ -38,6 +38,22 @@ export interface TokenRefreshResult {
   refreshToken?: string
   expiresIn?: number
   error?: string
+  /**
+   * 该次失败是否值得重试。由发起端按状态码判定，避免下游只能从错误文案里猜。
+   * 同一句 403 在不同接口上含义相反（见 isRetryableRefreshStatus），靠文案分类必然出错。
+   */
+  retryable?: boolean
+}
+
+/**
+ * 刷新端点上值得重试的状态码：只认标准的临时故障。
+ *
+ * 不含 403/401：这两条在刷新端点上意味着凭证真的被拒（AWS OIDC 回 400 invalid_grant，
+ * Kiro auth service 回 401 Bad credentials），重试只会得到同样结果。
+ */
+function isRetryableRefreshStatus(status: number): boolean {
+  if (status === 408 || status === 425 || status === 429) return true
+  return status >= 500
 }
 
 /**
@@ -56,7 +72,11 @@ async function postTokenRefresh(
       body: JSON.stringify(body)
     })
     if (!res.ok) {
-      return { success: false, error: `HTTP ${res.status}: ${await res.text()}` }
+      return {
+        success: false,
+        error: `HTTP ${res.status}: ${await res.text()}`,
+        retryable: isRetryableRefreshStatus(res.status)
+      }
     }
     const data = await res.json<{ accessToken: string; refreshToken?: string; expiresIn?: number }>()
     return {

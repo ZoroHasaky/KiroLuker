@@ -11,7 +11,6 @@ import {
 } from './kiroApi'
 import { errorMessage, isCredentialRejected } from '../shared/errors'
 import {
-  arnForApiCall,
   profileArnCandidates,
   readKiroAuthToken,
   resolveProfileArn,
@@ -81,6 +80,8 @@ function isRetryableError(msg: string): boolean {
   )
 }
 
+
+
 /** 刷新所需的凭证字段，各调用点的可选值在这里统一兜底 */
 interface RefreshCredentials {
   refreshToken: string
@@ -101,6 +102,31 @@ function assertRefreshCredentials(cred: RefreshCredentials, oidcError: string): 
   }
 }
 
+/**
+ * 查询用量时该带的 profileArn。
+ *
+ * Builder ID 的 getUsageLimits 改了口径：profileArn 现在是必填项，不带就回
+ * 403 "User is not authorized to make this call."，带上 IDE 用的那个占位符
+ * （arn:...:638616132270:profile/AAAACCCCXXXX）即 200。
+ *
+ * 所以这里**不能**用 arnForApiCall——它会把占位符剥成 undefined，那是「占位符对接口
+ * 无意义」的旧假设，现在正好相反。账号自己没存 ARN 时按登录方式补一个，
+ * 否则新添加的、还没切过号的账号一样会 403。
+ */
+function usageProfileArn(input: {
+  profileArn?: string
+  authMethod?: AuthMethod | string
+  provider?: string
+  region?: string
+}): string | undefined {
+  if (input.profileArn) return input.profileArn
+  return resolveProfileArn({
+    authMethod: input.authMethod,
+    provider: input.provider,
+    region: input.region
+  })
+}
+
 /** 对易受网络波动影响的调用做有限重试，间隔递增 */
 async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 3): Promise<T> {
   let lastError: unknown
@@ -110,9 +136,12 @@ async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 3): 
     } catch (e) {
       lastError = e
       const msg = errorMessage(e)
-      if (i === attempts - 1 || !isRetryableError(msg)) break
+      // 发起端显式标注过就以它为准，没标注才回落到按错误文案猜
+      const retryable = (e as { retryable?: boolean }).retryable ?? isRetryableError(msg)
+      if (i === attempts - 1 || !retryable) break
       console.warn(`[AccountService] ${label} 第 ${i + 1} 次失败，准备重试：${msg}`)
-      await sleep(600 * (i + 1))
+      // 退避带抖动：批量刷新时多个通道往往同时失败，固定间隔会让它们再次撞在一起
+      await sleep(600 * (i + 1) + Math.floor(Math.random() * 300))
     }
   }
   throw lastError
@@ -140,7 +169,16 @@ async function refreshWithRetry(
 ): Promise<TokenRefreshResult & { accessToken: string }> {
   return withRetry(label, async () => {
     const res = await refreshWithCredentials(cred)
-    if (!res.success || !res.accessToken) throw new Error(res.error || fallbackError)
+    if (!res.success || !res.accessToken) {
+      /*
+       * 把发起端按状态码得出的可重试结论挂到 Error 上带给 withRetry。
+       * 刷新端点的 403 是限流，而用量接口的 403 是确定性失败，光看错误文案分不开，
+       * 只能由知道自己在调哪个接口的那一层来标注。
+       */
+      const error = new Error(res.error || fallbackError) as Error & { retryable?: boolean }
+      error.retryable = res.retryable
+      throw error
+    }
     // 收窄类型：上面已确保 accessToken 一定存在
     return { ...res, accessToken: res.accessToken }
   })
@@ -162,7 +200,13 @@ export async function verifyCredentials(input: VerifyCredentialsInput): Promise<
   }
 
   const idp = resolveIdp(provider, authMethod)
-  const usage = await getUsageAndLimits(refreshed.accessToken, idp, undefined, region)
+  // 用量接口现在必须带 profileArn，原先固定传 undefined 会让 Builder ID 验活直接 403
+  const usage = await getUsageAndLimits(
+    refreshed.accessToken,
+    idp,
+    usageProfileArn({ authMethod, provider, region }),
+    region
+  )
   const parsed = parseUsageResponse(usage)
 
   return {
@@ -199,7 +243,17 @@ export async function checkAccountStatus(account: Account): Promise<AccountSnaps
       }),
       // 批量刷新时并发较高，网络抖动很常见，带上有限重试减少「刷新失败」
       withRetry('查询用量', () =>
-        getUsageAndLimits(token, idp, account.profileArn || account.credentials.profileArn, region)
+        getUsageAndLimits(
+          token,
+          idp,
+          usageProfileArn({
+            profileArn: account.profileArn || account.credentials.profileArn,
+            authMethod,
+            provider: provider || account.idp,
+            region
+          }),
+          region
+        )
       )
     ])
     const parsed = parseUsageResponse(usage)
@@ -475,9 +529,13 @@ export async function switchAccount(input: SwitchAccountInput): Promise<SwitchAc
 
   for (const candidate of candidates) {
     try {
-      // 网络波动不该让整轮校验失败，这里带有限重试
+      /*
+       * 候选原样送，不再过 arnForApiCall：用量接口现在要求带 profileArn，
+       * 把 BuilderId 占位符剥成 undefined 会让第一个候选必然 403，
+       * 于是每次切号都报「profileArn 校验未通过」。
+       */
       await withRetry('校验 profileArn', () =>
-        getUsageAndLimits(accessToken, idp, arnForApiCall(candidate), region)
+        getUsageAndLimits(accessToken, idp, candidate, region)
       )
       chosen = { arn: candidate }
       verifyError = undefined

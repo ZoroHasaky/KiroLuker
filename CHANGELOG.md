@@ -3,6 +3,44 @@
 本文件记录 Kiro Manager Lite 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.17] - 2026-08-25
+
+本版本修复 Builder ID 账号刷新用量、测活拉模型与对话全部返回
+`403 User is not authorized to make this call.` 的问题。根因有两个，都在服务端改了口径：
+请求头里的客户端版本号被用作准入条件，而 `profileArn` 从可选变成必填。
+
+### 修复
+
+#### 客户端版本号被服务端用作准入条件
+
+- 请求 UA 从 `KiroIDE-0.6.18` / `aws-sdk-js-1.0.18` 升到 `KiroIDE-0.12.155` /
+  `aws-sdk-js-1.0.34`。实测同一个 Builder ID token，仅替换版本号即可让
+  `ListAvailableModels` 与 `generateAssistantResponse` 从 403 变 200
+- 该门槛只作用于 Builder ID / IdC：Github / Google 两组 UA 都通，所以此前一直没暴露
+- 排除法确认版本号是唯一变量：`x-amzn-codewhisperer-optout`、`x-amzn-kiro-agent-mode`、
+  `origin` 取值、`accept` 头、q / codewhisperer 两个 host、GET / POST 都不影响结果
+- UA 里的 os / node 指纹改为按本机真实值生成，不再固定写 `os/windows` 与 `nodejs#20.16.0`
+
+#### profileArn 由可选变为必填
+
+- 用量、模型列表、对话三条链路统一补齐 `profileArn`，Builder ID 用 Kiro IDE 那个
+  硬编码占位符 ARN。不带会被拒：用量回 403，模型列表回 400 `Invalid profileArn`，
+  对话回 400 `profileArn is required for this request.`
+- 新增 `usageProfileArn`：账号自己存了 ARN 就用它，没存则按登录方式补
+  （社交 → 固定 social ARN，Enterprise → 真实 profile，其余 → Builder ID 占位符）
+- 修复三处此前不带或会剥掉占位符的调用点：刷新用量、添加账号验活、切号前实测 ARN。
+  其中验活那处原先固定传 `undefined`，会让新增的 Builder ID 账号直接验活失败
+- 模型列表与对话的候选 ARN 补上 Builder ID 占位符：该登录方式没有 profile 概念，
+  `ListAvailableProfiles` 对它明确返回「不支持」，此前候选里只剩「不带」，必然被拒
+
+### 优化
+
+- 批量刷新的并发通道启动时错峰，不再同一帧集中打出请求
+- 重试退避加入随机抖动；重试与否改为采信发起端按状态码给出的显式结论，
+  不再从错误文案反推——同一句 403 在刷新端点与用量端点上含义相反，靠文案分类必然出错
+
+> 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
+
 ## [1.0.16] - 2026-08-23
 
 本版本把备注纳入隐私打码范围，并让导出完成后自动在文件管理器里定位到刚导出的文件。
@@ -891,6 +929,7 @@ Key 列表，同时把账号卡片与工具栏上并列的两个刷新入口收�
 
 > 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
 
+[1.0.17]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.17
 [1.0.16]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.16
 [1.0.15]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.15
 [1.0.14]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.14

@@ -6,7 +6,11 @@
 import { createHash, randomUUID } from 'crypto'
 import { errorMessage } from '../shared/errors'
 import { listAvailableProfiles } from './kiroApi'
-import { KIRO_SOCIAL_PROFILE_ARN, isSocialLogin } from './kiroAuth'
+import {
+  KIRO_BUILDER_ID_PLACEHOLDER_ARN,
+  KIRO_SOCIAL_PROFILE_ARN,
+  isSocialLogin
+} from './kiroAuth'
 import {
   AWS_SINGLE_ATTEMPT_HEADERS,
   awsInvocationId,
@@ -78,12 +82,14 @@ function tokenKey(accessToken: string): string {
 /**
  * 该账号可以依次尝试的 profileArn，按成功率排序。
  *
- * 实测结论（Enterprise/IdC + KIRO_POWER 账号，KiroIDE-0.6.18 的 UA）：
- *   - ListAvailableProfiles 返回的真实 ARN：模型列表和对话都通
- *   - 完全不带 profileArn：这条 UA 下后端也接受，两个接口都通
- *   - 硬编码的占位符 / social / Enterprise 兜底 ARN：403 "bearer token is invalid"
- * 所以真实 ARN 优先，其次干脆不带，绝不拿别家账号的 ARN 去猜。
- * 社交账号没有 profile 概念，后端认那个固定 social ARN，放在不带之前试。
+ * 实测结论（KiroIDE-0.12.155 / aws-sdk-js-1.0.34 的 UA，2026-08）：
+ *   - profileArn 现在是**必填**：不带会回 400 "profileArn is required for this request."
+ *     （旧 UA 时代不带也能通，那条结论已失效，别再照旧注释改回去）
+ *   - Enterprise / IdC：ListAvailableProfiles 返回的真实 ARN 最可信
+ *   - Builder ID：没有 profile 概念，必须用 IDE 那个硬编码占位符，实测 200
+ *   - Github / Google：后端认固定的 social ARN
+ * 末尾仍留一个「不带」的兜底，纯粹为了后端哪天改回去时不至于完全没路走；
+ * 当前它只会换来 400，而 400 不是授权类错误，调用方会就此中断，不会浪费更多请求。
  */
 async function arnCandidatesFor(
   accessToken: string,
@@ -107,9 +113,15 @@ async function arnCandidatesFor(
       profileArnCache.set(key, { arn: arns[0], at: Date.now() })
       pushUnique(out, arns[0])
     }
+    /*
+     * BuilderId 占位符必须作为候选：ListAvailableModels 已改成把 profileArn 当必填，
+     * 而 BuilderId 没有 profile 概念，listAvailableProfiles 对它返回空，
+     * 于是没切过号的账号候选里只剩「不带」，请求必然 403。
+     */
+    pushUnique(out, KIRO_BUILDER_ID_PLACEHOLDER_ARN)
   }
 
-  // 不带 profileArn 是有效兜底：后端会按 token 自行解析
+  // 不带 profileArn 仍留作最后兜底：万一后端又改回按 token 自行解析
   pushUnique(out, undefined)
   return out
 }
