@@ -3,6 +3,40 @@
 本文件记录 Kiro Manager Lite 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.18] - 2026-08-25
+
+本版本修复 Enterprise（IAM Identity Center SSO）账号在线登录授权成功后，
+校验环节报 `403 Invalid token` 导致账号加不进来的问题。
+
+### 修复
+
+#### Enterprise 账号补错 profileArn 被判 Invalid token
+
+- 1.0.17 为满足「profileArn 变必填」给校验环节补了默认 ARN，但对 Enterprise 补出来的是
+  内置兜底值，而该 ARN 属于另一个组织——拿别家 profile 查自己的用量，上游回
+  `403 Invalid token`（与 Builder ID 那个 `User is not authorized to make this call.`
+  是两条不同的错误，前者专指 profileArn 不对）
+- Enterprise 的正确 ARN 只能向 `ListAvailableProfiles` 查。切号一直是这么做的，
+  校验环节此前从未查过，于是补默认值时必然补错
+
+#### profileArn 改为候选逐个实测
+
+- 用量查询不再「猜一个 ARN 送出去」，改为按成功率依次尝试：
+  账号已存的 ARN → Enterprise 的真实 profile → 按登录方式的默认值 → 不带
+- 只在 ARN 被拒时（授权维度错误，或上游明确点名 profileArn）才换下一个；
+  封禁与网络类错误立即抛出，不浪费请求
+- 校验与状态刷新共用这一套，两条链路的 ARN 口径不会再各走各的
+
+### 优化
+
+- 实测生效的 profileArn 会随快照回传并持久化到账号，后续刷新一次命中；
+  Enterprise 因此不必每轮都重新查一遍 `ListAvailableProfiles`
+- `VerifyCredentialsInput` 补上 `profileArn` 声明：在线登录本就会带回上游给出的真实 ARN，
+  此前类型里没有该字段，等于拿到了却用不上、还要再猜一遍。Enterprise 在线登录现在
+  第一顺位就用上游返回的那个
+
+> 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
+
 ## [1.0.17] - 2026-08-25
 
 本版本修复 Builder ID 账号刷新用量、测活拉模型与对话全部返回
@@ -929,6 +963,7 @@ Key 列表，同时把账号卡片与工具栏上并列的两个刷新入口收�
 
 > 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
 
+[1.0.18]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.18
 [1.0.17]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.17
 [1.0.16]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.16
 [1.0.15]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.15

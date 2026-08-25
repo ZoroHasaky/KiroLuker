@@ -478,6 +478,8 @@ export const useAccountsStore = defineStore('accounts', () => {
     updateAccount(id, {
       email: snapshot.email || account.email,
       userId: snapshot.userId ?? account.userId,
+      // 记住主进程实测生效的 profileArn，下轮一次命中（Enterprise 免去重问 profile）
+      profileArn: snapshot.profileArn || account.profileArn,
       subscription: snapshot.subscription,
       usage: snapshot.usage,
       status: 'active',

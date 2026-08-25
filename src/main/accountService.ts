@@ -7,7 +7,8 @@ import {
   listAvailableProfiles,
   parseUsageResponse,
   refreshTokenByMethod,
-  type TokenRefreshResult
+  type TokenRefreshResult,
+  type UsageResponse
 } from './kiroApi'
 import { errorMessage, isCredentialRejected } from '../shared/errors'
 import {
@@ -102,29 +103,88 @@ function assertRefreshCredentials(cred: RefreshCredentials, oidcError: string): 
   }
 }
 
-/**
- * 查询用量时该带的 profileArn。
- *
- * Builder ID 的 getUsageLimits 改了口径：profileArn 现在是必填项，不带就回
- * 403 "User is not authorized to make this call."，带上 IDE 用的那个占位符
- * （arn:...:638616132270:profile/AAAACCCCXXXX）即 200。
- *
- * 所以这里**不能**用 arnForApiCall——它会把占位符剥成 undefined，那是「占位符对接口
- * 无意义」的旧假设，现在正好相反。账号自己没存 ARN 时按登录方式补一个，
- * 否则新添加的、还没切过号的账号一样会 403。
- */
-function usageProfileArn(input: {
+/** 用量接口所需的身份字段 */
+interface UsageIdentity {
   profileArn?: string
   authMethod?: AuthMethod | string
   provider?: string
   region?: string
-}): string | undefined {
-  if (input.profileArn) return input.profileArn
-  return resolveProfileArn({
-    authMethod: input.authMethod,
-    provider: input.provider,
-    region: input.region
-  })
+}
+
+/**
+ * 用量接口的 profileArn 候选，按成功率排序。
+ *
+ * 背景：profileArn 现在是必填，不带会被拒（用量 403、模型列表 400 Invalid profileArn）。
+ * 但「补一个」不能瞎补——**Enterprise 必须用它自己 profile 的真实 ARN**，
+ * kiroAuth 里那个硬编码兜底 ARN 属于另一个组织，送出去会被判 403 "Invalid token"。
+ * 所以 Enterprise 先问一次 ListAvailableProfiles，拿到真实 ARN 再谈兜底。
+ *
+ * 其余登录方式没有 profile 概念，用固定 ARN 即可：
+ * 社交 → 后端认的那个共享 social ARN；Builder ID → Kiro IDE 的硬编码占位符。
+ */
+async function usageArnCandidates(
+  accessToken: string,
+  input: UsageIdentity
+): Promise<(string | undefined)[]> {
+  const out: (string | undefined)[] = []
+  const push = (arn?: string): void => {
+    if (!out.includes(arn)) out.push(arn)
+  }
+
+  // 账号已存的 ARN 最可信：它要么来自上游，要么是切号时实测过的
+  if (input.profileArn) push(input.profileArn)
+
+  if (input.provider === 'Enterprise') {
+    const [real] = await listAvailableProfiles(accessToken, input.region).catch(() => [])
+    if (real) push(real)
+  }
+
+  push(
+    resolveProfileArn({
+      authMethod: input.authMethod,
+      provider: input.provider,
+      region: input.region
+    })
+  )
+  // 末位兜底：后端当前要求必填，留着只为它哪天改回去时还有条路
+  push(undefined)
+  return out
+}
+
+/** ARN 不被接受的判据：授权维度的错误，或上游明确点名 profileArn */
+function isArnRejection(msg: string): boolean {
+  return isAuthScopeError(msg) || /profilearn/i.test(msg)
+}
+
+/**
+ * 查询用量，profileArn 逐个候选试，并把真正生效的那个回传。
+ *
+ * 调用方应把返回的 profileArn 写进账号：下次就能一次命中，
+ * Enterprise 也不用每轮都再问一遍 ListAvailableProfiles。
+ */
+async function queryUsage(
+  accessToken: string,
+  idp: string,
+  input: UsageIdentity
+): Promise<{ usage: UsageResponse; profileArn?: string }> {
+  const candidates = await usageArnCandidates(accessToken, input)
+  let lastError: unknown
+
+  for (const candidate of candidates) {
+    try {
+      // 批量刷新时并发较高，网络抖动很常见，带上有限重试减少「刷新失败」
+      const usage = await withRetry('查询用量', () =>
+        getUsageAndLimits(accessToken, idp, candidate, input.region)
+      )
+      return { usage, profileArn: candidate }
+    } catch (error) {
+      lastError = error
+      const msg = errorMessage(error)
+      // 封禁与网络类错误换 ARN 也是同样结果，不浪费请求
+      if (isBannedError(msg) || !isArnRejection(msg)) throw error
+    }
+  }
+  throw lastError
 }
 
 /** 对易受网络波动影响的调用做有限重试，间隔递增 */
@@ -200,19 +260,24 @@ export async function verifyCredentials(input: VerifyCredentialsInput): Promise<
   }
 
   const idp = resolveIdp(provider, authMethod)
-  // 用量接口现在必须带 profileArn，原先固定传 undefined 会让 Builder ID 验活直接 403
-  const usage = await getUsageAndLimits(
-    refreshed.accessToken,
-    idp,
-    usageProfileArn({ authMethod, provider, region }),
+  /*
+   * 用量接口现在必须带 profileArn，原先固定传 undefined 会让 Builder ID 验活直接 403。
+   * 走候选回退而不是单个猜测：Enterprise 补错 ARN 会被判 403 "Invalid token"。
+   * 生效的那个随快照返回，账号建好后就带着正确的 ARN，后续不必重新试。
+   */
+  const { usage, profileArn } = await queryUsage(refreshed.accessToken, idp, {
+    profileArn: input.profileArn,
+    authMethod,
+    provider,
     region
-  )
+  })
   const parsed = parseUsageResponse(usage)
 
   return {
     email: parsed.email || '',
     userId: parsed.userId,
     idp,
+    profileArn,
     accessToken: refreshed.accessToken,
     refreshToken: refreshed.refreshToken || refreshToken,
     expiresIn: refreshed.expiresIn ?? DEFAULT_EXPIRES_IN,
@@ -241,26 +306,21 @@ export async function checkAccountStatus(account: Account): Promise<AccountSnaps
         if (isBannedError(err.message)) throw err
         return undefined
       }),
-      // 批量刷新时并发较高，网络抖动很常见，带上有限重试减少「刷新失败」
-      withRetry('查询用量', () =>
-        getUsageAndLimits(
-          token,
-          idp,
-          usageProfileArn({
-            profileArn: account.profileArn || account.credentials.profileArn,
-            authMethod,
-            provider: provider || account.idp,
-            region
-          }),
-          region
-        )
-      )
+      // profileArn 逐个候选试：必填但不能瞎补，Enterprise 补错会被判 Invalid token
+      queryUsage(token, idp, {
+        profileArn: account.profileArn || account.credentials.profileArn,
+        authMethod,
+        provider: provider || account.idp,
+        region
+      })
     ])
-    const parsed = parseUsageResponse(usage)
+    const parsed = parseUsageResponse(usage.usage)
     return {
       email: parsed.email || userInfo?.email || account.email,
       userId: parsed.userId || userInfo?.userId,
       idp: userInfo?.idp || idp,
+      // 回传生效的 ARN，让账号记住它，下轮一次命中
+      profileArn: usage.profileArn,
       subscription: parsed.subscription,
       usage: parsed.usage
     }

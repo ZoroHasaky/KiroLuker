@@ -182,6 +182,11 @@ export interface VerifyCredentialsInput {
   region?: string
   authMethod?: AuthMethod
   provider?: IdpType
+  /**
+   * 在线登录已经拿到真实 profileArn 时一并带上（Enterprise 尤其重要）。
+   * 调用方本就在运行时传了这个字段，这里补上声明，避免校验时又去猜一遍。
+   */
+  profileArn?: string
 }
 
 export interface RefreshTokenResult {
