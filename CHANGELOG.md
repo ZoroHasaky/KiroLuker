@@ -3,6 +3,53 @@
 本文件记录 Kiro Manager Lite 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.0.19] - 2026-08-25
+
+本版本新增账号 API Key 删除与批量设置备注，修复 Builder ID 生成 / 列表 API Key 报错、
+Enterprise 账号打开官网停在登录页的问题，并优化了几处弹窗体验。
+
+### 新增
+
+#### 账号 API Key 删除
+
+- 「API Key 管理」列表每行新增删除按钮，二次确认后调用控制面 `DeleteApiKey`，
+  删除成功再重新拉取列表刷新界面；删除中仅该行显示加载态，不影响其它行
+
+#### 批量设置备注
+
+- 账户管理页选中一个或多个账号后，删除按钮左侧出现「批量操作」下拉，
+  内含「批量设置备注」：弹窗输入后覆盖所选账号的备注，留空则清空
+- 作用范围与删除、导出一致（全部勾选项，不受当前搜索影响）；
+  一次性写入而非逐个保存，选中上百个也只落盘一次
+
+### 修复
+
+#### Builder ID 生成 / 列表 API Key 报错 profileArn 必填
+
+- 控制面（`CreateApiKey` / `ListApiKeys` / `DeleteApiKey`）已把 profileArn 列为必填，
+  不带就回 400 `Member must not be null`。此前候选构造会把 Builder ID 占位符剥掉，
+  导致 Builder ID 账号生成与查看列表都失败；现改为按登录方式补齐占位符 / social ARN，
+  与用量、模型列表接口口径一致
+
+#### Enterprise 账号打开官网停在登录页
+
+- Enterprise（IdC / SSO）账号打开 Kiro 官网后台会停在登录页：门户对这类账号
+  还要求带 `ProfileArn` cookie，缺了就把会话判为 stale。现补齐该 cookie，
+  实测 user-status 从 stale 变 active；对社交 / Builder ID 账号带上它无副作用
+- 账号从未存过 profileArn 时（多为旧数据），打开前会现查一次 `ListAvailableProfiles`
+  补齐，仅对 Enterprise 触发，失败静默降级不影响打开流程
+
+### 优化
+
+- 生成 API Key 的名称改为非必填：留空时按时间戳生成一个 8 位随机名提交，
+  输入框补充占位说明
+- 「API Key 管理」列表区分三态：首次加载只显示加载态，加载失败显示错误结果页
+  （不再露出「0 个 / 暂无数据」这类会被误读为「没有 Key」的信息），成功后才显示表格
+- 积分变化弹窗高度上限提高，一屏可显示更多明细行
+- 批量设置备注弹窗与「编辑账号」的备注输入保持一致，不限制字数
+
+> 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
+
 ## [1.0.18] - 2026-08-25
 
 本版本修复 Enterprise（IAM Identity Center SSO）账号在线登录授权成功后，
@@ -963,6 +1010,7 @@ Key 列表，同时把账号卡片与工具栏上并列的两个刷新入口收�
 
 > 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
 
+[1.0.19]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.19
 [1.0.18]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.18
 [1.0.17]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.17
 [1.0.16]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.16

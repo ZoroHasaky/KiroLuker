@@ -43,6 +43,10 @@ const api = {
     invoke('accounts:create-api-key', account, label),
   /** 列出该账号已创建的 API Key（只有前缀，没有完整明文） */
   listAccountApiKeys: (account: unknown) => invoke('accounts:list-api-keys', account),
+
+  /** 删除该账号的一个 API Key */
+  deleteAccountApiKey: (account: unknown, keyId: string) =>
+    invoke('accounts:delete-api-key', account, keyId),
   /** 用该账号凭证在私密窗口打开 Kiro 官网后台 */
   openAccountPortal: (account: unknown) => invoke('accounts:open-portal', account),
 

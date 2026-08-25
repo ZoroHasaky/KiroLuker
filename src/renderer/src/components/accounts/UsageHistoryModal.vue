@@ -293,7 +293,7 @@ async function exportXlsx(): Promise<void> {
     :footer="null"
     centered
     :body-style="{
-      height: 'clamp(560px, calc(100dvh - 104px), 760px)',
+      height: 'clamp(560px, calc(100dvh - 72px), 900px)',
       minHeight: '560px',
       display: 'flex',
       flexDirection: 'column',

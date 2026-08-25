@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
-import { CopyOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { CopyOutlined, DeleteOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { useAccountsStore } from '@/stores/accounts'
 import { useSettingsStore } from '@/stores/settings'
 import { displayEmail } from '@/utils/display'
@@ -19,6 +19,8 @@ const settingsStore = useSettingsStore()
 const label = ref('')
 const creating = ref(false)
 const loading = ref(false)
+/** 是否已成功加载过一次：首次加载只显示加载态，加载成功后才显示标题与表格 */
+const loaded = ref(false)
 const listError = ref('')
 const keys = ref<AccountApiKeyItem[]>([])
 /**
@@ -35,10 +37,14 @@ const FRESH_MODAL_Z_INDEX = 1100
 const email = computed(() => displayEmail(props.account.email, settingsStore.settings.privacyMode))
 
 const columns = [
-  { title: '名称', dataIndex: 'label', key: 'label', width: 140, ellipsis: true },
+  { title: '名称', dataIndex: 'label', key: 'label', width: 130, ellipsis: true },
   { title: 'API Key（仅前缀）', key: 'key' },
-  { title: '创建时间', key: 'createdAt', width: 170 }
+  { title: '创建时间', key: 'createdAt', width: 160 },
+  { title: '操作', key: 'action', width: 64, align: 'center' as const }
 ]
+
+/** 正在删除的 keyId，用于该行按钮的加载态 */
+const deletingId = ref('')
 
 /** 生成过程中可能刷新过凭证，不同步回本地会让下一次请求拿着已作废的旧值 */
 function applyRefreshed(refreshed?: CreateApiKeyResult['refreshed']): void {
@@ -64,15 +70,26 @@ async function loadList(): Promise<void> {
     }
     listError.value = ''
     keys.value = res.data.keys
+    loaded.value = true
     applyRefreshed(res.data.refreshed)
   } finally {
     loading.value = false
   }
 }
 
+/**
+ * 名称留空时按时间戳生成一个 8 位随机名（字母数字）。
+ * 以毫秒时间戳的 base36 打底，天然递增、不易撞名；不足 8 位时用随机字符补齐。
+ */
+function randomKeyName(): string {
+  let s = Date.now().toString(36)
+  while (s.length < 8) s += Math.random().toString(36).slice(2)
+  return s.slice(-8)
+}
+
 async function submit(): Promise<void> {
-  const name = label.value.trim()
-  if (!name) return void message.warning('请填写密钥名称')
+  // 名称非必填：留空则用时间戳随机名提交
+  const name = label.value.trim() || randomKeyName()
 
   creating.value = true
   try {
@@ -104,6 +121,28 @@ async function submit(): Promise<void> {
   } finally {
     creating.value = false
   }
+}
+
+/** 删除一个 Key：二次确认后调用控制面，成功再重新拉列表刷新 */
+function removeKey(record: AccountApiKeyItem): void {
+  confirmDanger({
+    title: '删除 API Key',
+    content: `确认删除「${record.label || record.keyPrefix}」？删除后使用该 Key 的服务将立即失效，且不可恢复。`,
+    okText: '确认删除',
+    okButtonProps: { type: 'primary', danger: true },
+    onOk: async () => {
+      deletingId.value = record.keyId
+      try {
+        const res = await window.api.deleteAccountApiKey(toPlain(props.account), record.keyId)
+        if (!res.success) return void message.error(res.error || '删除失败')
+        applyRefreshed(res.data?.refreshed)
+        message.success('已删除')
+        await loadList()
+      } finally {
+        deletingId.value = ''
+      }
+    }
+  })
 }
 
 function copyFresh(): void {
@@ -148,10 +187,10 @@ onMounted(loadList)
       <a-form layout="vertical" class="create-form">
         <a-row :gutter="12" align="bottom">
           <a-col :span="18">
-            <a-form-item label="密钥名称" required>
+            <a-form-item label="密钥名称">
               <a-input
                 v-model:value="label"
-                placeholder="例如：本地网关"
+                placeholder="例如：本地网关（留空则随机生成密钥名称）"
                 :maxlength="64"
                 allow-clear
                 @press-enter="submit"
@@ -168,42 +207,76 @@ onMounted(loadList)
         </a-row>
       </a-form>
 
-      <div class="list-head">
-        <span class="list-title">已创建的 API Key（{{ keys.length }}）</span>
-        <a-button type="text" size="small" :loading="loading" @click="loadList">
-          <template #icon><ReloadOutlined /></template>
-          刷新
-        </a-button>
-      </div>
+      <!-- 出错时整块换成结果页：标题栏、计数与表格都不显示，避免「0 个 / 暂无数据」
+           这类会被误读成「该账号没有 Key」的信息 -->
+      <template v-if="listError">
+        <div class="table-area table-area-error">
+          <a-result status="error" title="获取 API Key 列表失败" :sub-title="listError">
+            <template #extra>
+              <a-button type="primary" :loading="loading" @click="loadList">
+                <template #icon><ReloadOutlined /></template>
+                重试
+              </a-button>
+            </template>
+          </a-result>
+        </div>
+      </template>
 
-      <a-alert v-if="listError" class="list-error" type="error" show-icon :message="listError" />
+      <!-- 首次加载还没出结果：只显示加载态，不先把标题和空表格摆出来 -->
+      <template v-else-if="!loaded">
+        <div class="table-area table-area-error">
+          <a-spin :spinning="true" tip="加载中..." />
+        </div>
+      </template>
 
-      <!-- 表格区域按剩余高度撑满：空列表时同样保留这块高度，弹窗不会忽高忽低 -->
-      <div class="table-area">
-        <a-table
-          :columns="columns"
-          :data-source="keys"
-          row-key="keyId"
-          size="small"
-          :loading="loading"
-          :pagination="false"
-        >
-          <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'label'">
-              <span :title="record.label">{{ record.label || '-' }}</span>
+      <template v-else>
+        <div class="list-head">
+          <span class="list-title">已创建的 API Key（{{ keys.length }}）</span>
+          <a-button type="text" size="small" :loading="loading" @click="loadList">
+            <template #icon><ReloadOutlined /></template>
+            刷新
+          </a-button>
+        </div>
+
+        <!-- 表格区域按剩余高度撑满：空列表时同样保留这块高度，弹窗不会忽高忽低 -->
+        <div class="table-area">
+          <a-table
+            :columns="columns"
+            :data-source="keys"
+            row-key="keyId"
+            size="small"
+            :loading="loading"
+            :pagination="false"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'label'">
+                <span :title="record.label">{{ record.label || '-' }}</span>
+              </template>
+              <template v-else-if="column.key === 'key'">
+                <span class="mono key-text">{{ record.keyPrefix }}…</span>
+              </template>
+              <template v-else-if="column.key === 'createdAt'">
+                <span class="muted mono">{{ formatFullDateTime(record.createdAt) }}</span>
+              </template>
+              <template v-else-if="column.key === 'action'">
+                <a-button
+                  type="text"
+                  size="small"
+                  danger
+                  :loading="deletingId === record.keyId"
+                  title="删除"
+                  @click="removeKey(record)"
+                >
+                  <template #icon><DeleteOutlined /></template>
+                </a-button>
+              </template>
             </template>
-            <template v-else-if="column.key === 'key'">
-              <span class="mono key-text">{{ record.keyPrefix }}…</span>
+            <template #emptyText>
+              <span class="muted">{{ loading ? '加载中...' : '该账号还没有创建过 API Key' }}</span>
             </template>
-            <template v-else-if="column.key === 'createdAt'">
-              <span class="muted mono">{{ formatFullDateTime(record.createdAt) }}</span>
-            </template>
-          </template>
-          <template #emptyText>
-            <span class="muted">{{ loading ? '加载中...' : '该账号还没有创建过 API Key' }}</span>
-          </template>
-        </a-table>
-      </div>
+          </a-table>
+        </div>
+      </template>
 
       <div class="modal-foot">
         <a-button type="primary" @click="emit('close')">完成</a-button>
@@ -270,10 +343,6 @@ onMounted(loadList)
   margin-bottom: 0;
 }
 
-.list-error {
-  margin-bottom: 8px;
-}
-
 .list-head {
   display: flex;
   flex: 0 0 auto;
@@ -298,6 +367,17 @@ onMounted(loadList)
 .key-text {
   color: var(--kal-muted);
   word-break: break-all;
+}
+
+/* 出错占位：与表格区域同高、居中显示结果页，撑住高度让弹窗尺寸稳定；
+   顶掉表格区域的边框与滚动 */
+.table-area-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  margin-top: 16px;
+  border: none;
 }
 
 .modal-foot {

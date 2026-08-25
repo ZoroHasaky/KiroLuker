@@ -6,6 +6,7 @@ import {
   DeleteOutlined,
   DownOutlined,
   DownloadOutlined,
+  EditOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
   FilterOutlined,
@@ -25,6 +26,7 @@ import ImportAccountsFileModal from '@/components/accounts/ImportAccountsFileMod
 import ImportAccountsTextModal from '@/components/accounts/ImportAccountsTextModal.vue'
 import ExportAccountsModal from '@/components/accounts/ExportAccountsModal.vue'
 import EditAccountModal from '@/components/accounts/EditAccountModal.vue'
+import BatchNoteModal from '@/components/accounts/BatchNoteModal.vue'
 import AccountDetailDrawer from '@/components/accounts/AccountDetailDrawer.vue'
 import AccountTestModal from '@/components/accounts/AccountTestModal.vue'
 import CreateApiKeyModal from '@/components/accounts/CreateApiKeyModal.vue'
@@ -58,6 +60,7 @@ function openImport(kind: 'file' | 'text'): void {
   else importTextOpen.value = true
 }
 const exportOpen = ref(false)
+const batchNoteOpen = ref(false)
 const editTarget = ref<Account | null>(null)
 const detailTarget = ref<Account | null>(null)
 const testTarget = ref<Account | null>(null)
@@ -558,7 +561,22 @@ function logoutIde(account: Account): void {
           </template>
           {{ privacyMode ? '隐私打码中' : '隐私打码' }}
         </a-button>
-        <!-- 删除作用于全部勾选项（不受当前搜索影响），条数与确认弹窗里的数字一致 -->
+        <!-- 批量操作与删除都作用于全部勾选项（不受当前搜索影响） -->
+        <a-dropdown v-if="accountsStore.selectedIds.length">
+          <a-button size="small">
+            批量操作（{{ accountsStore.selectedIds.length }}个）
+            <DownOutlined />
+          </a-button>
+          <template #overlay>
+            <a-menu>
+              <a-menu-item key="note" @click="batchNoteOpen = true">
+                <EditOutlined />
+                批量设置备注
+              </a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
+
         <a-button
           v-if="accountsStore.selectedIds.length"
           size="small"
@@ -651,6 +669,11 @@ function logoutIde(account: Account): void {
       :selected-ids="accountsStore.selectedIds"
     />
     <EditAccountModal v-if="editTarget" :account="editTarget" @close="editTarget = null" />
+    <BatchNoteModal
+      v-if="batchNoteOpen"
+      :ids="accountsStore.selectedIds"
+      @close="batchNoteOpen = false"
+    />
     <AccountDetailDrawer
       v-if="detailTarget"
       :account="detailTarget"

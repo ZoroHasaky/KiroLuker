@@ -12,7 +12,11 @@ import {
   serviceRegion
 } from './kiroEndpoints'
 import { isAuthScopeError, listAvailableProfiles } from './kiroApi'
-import { arnForApiCall, isSocialLogin, KIRO_SOCIAL_PROFILE_ARN } from './kiroAuth'
+import {
+  isSocialLogin,
+  KIRO_BUILDER_ID_PLACEHOLDER_ARN,
+  KIRO_SOCIAL_PROFILE_ARN
+} from './kiroAuth'
 import { httpRequest } from './net'
 import { DEFAULT_REGION } from '../shared/regions'
 import type {
@@ -20,6 +24,7 @@ import type {
   AccountApiKeyItem,
   AccountApiKeyList,
   CreateApiKeyResult,
+  DeleteApiKeyResult,
   RefreshTokenResult
 } from '../shared/types'
 
@@ -66,8 +71,14 @@ async function callControlPlane<T>(
 
 /**
  * 给出可以依次尝试的 profileArn。
- * 控制面把 profileArn 当必填项，社交账号必须用后端固定的那个 ARN；
- * Enterprise 先问真实 profile，问不到再退到已知候选。
+ *
+ * 控制面（CreateApiKey / ListApiKeys）把 profileArn 当必填项，不带就回
+ * 400 "Value null at 'profileArn' ... must not be null"。所以这里**不能**剥离
+ * Builder ID 占位符——实测控制面对 Builder ID 恰恰要带那个占位符才通，
+ * 与用量、模型列表接口是同一套口径。
+ *
+ * 社交账号用后端固定的 social ARN；Enterprise 先问真实 profile，
+ * 问不到再退回占位符兜底。
  */
 async function arnCandidates(
   account: Account,
@@ -76,10 +87,10 @@ async function arnCandidates(
   const { authMethod, provider, region } = account.credentials
   const out: (string | undefined)[] = []
   const push = (arn?: string): void => {
-    const usable = arnForApiCall(arn)
-    if (usable && !out.includes(usable)) out.push(usable)
+    if (arn && !out.includes(arn)) out.push(arn)
   }
 
+  // 账号已存的 ARN 最可信：来自上游或切号时实测过
   push(account.profileArn || account.credentials.profileArn)
 
   if (isSocialLogin({ authMethod, provider })) {
@@ -87,9 +98,14 @@ async function arnCandidates(
   } else if (provider === 'Enterprise') {
     const profiles = await listAvailableProfiles(accessToken, region).catch(() => [])
     for (const arn of profiles) push(arn)
+    // Enterprise 问不到真实 profile 时，占位符至少能满足「必填」，让上游给出更准的报错
+    push(KIRO_BUILDER_ID_PLACEHOLDER_ARN)
+  } else {
+    // Builder ID / 其它 IdC：控制面认这个硬编码占位符
+    push(KIRO_BUILDER_ID_PLACEHOLDER_ARN)
   }
 
-  // 全部候选都没有时也要发一次请求：让上游的报错来说明缺什么，而不是本地猜
+  // 兜底：留一次「不带」的机会，仅用于后端哪天改回可选
   if (!out.length) out.push(undefined)
   return out
 }
@@ -247,6 +263,21 @@ export async function createAccountApiKey(
     profileArn,
     refreshed
   }
+}
+
+/** 删除该账号的一个 API Key，删除后调用方应重新拉列表刷新界面 */
+export async function deleteAccountApiKey(
+  account: Account,
+  keyId: string
+): Promise<DeleteApiKeyResult> {
+  const id = String(keyId || '').trim()
+  if (!id) throw new Error('缺少要删除的 keyId')
+
+  const { refreshed } = await invokeWithAccount<Record<string, unknown>>(account, 'DeleteApiKey', {
+    keyId: id
+  })
+  console.info('[KiroApiKey] 已删除 1 个 API Key')
+  return { keyId: id, refreshed }
 }
 
 /** 列出该账号已创建的 API Key（只返回前缀，拿不到完整明文） */

@@ -11,7 +11,7 @@ import {
   syncCredentialsToIde,
   verifyCredentials
 } from './accountService'
-import { createAccountApiKey, listAccountApiKeys } from './kiroApiKey'
+import { createAccountApiKey, deleteAccountApiKey, listAccountApiKeys } from './kiroApiKey'
 import { openAccountPortal } from './kiroPortal'
 import { clearKiroSsoCache, readKiroAuthToken, readLocalKiroCredentials } from './kiroAuth'
 import { isKiroRunning, restartKiroIde } from './kiroProcess'
@@ -200,6 +200,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   handle('accounts:list-api-keys', async (_e, account: Account) => {
     const result = await listAccountApiKeys(account)
+    if (result.refreshed?.syncedToIde) {
+      scheduleProactiveRenewal(account.id, Date.now() + result.refreshed.expiresIn * 1000)
+    }
+    return ok(result)
+  })
+
+  handle('accounts:delete-api-key', async (_e, account: Account, keyId: string) => {
+    const result = await deleteAccountApiKey(account, keyId)
     if (result.refreshed?.syncedToIde) {
       scheduleProactiveRenewal(account.id, Date.now() + result.refreshed.expiresIn * 1000)
     }

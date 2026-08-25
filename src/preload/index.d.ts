@@ -14,6 +14,7 @@ import type {
   ChatTestInput,
   ChatTestResult,
   CreateApiKeyResult,
+  DeleteApiKeyResult,
   IpcResult,
   KeyGatewayConflict,
   KeyGatewayData,
@@ -125,6 +126,11 @@ export interface Api {
   ) => Promise<IpcResult<CreateApiKeyResult>>
   /** 列出该账号已创建的 API Key */
   listAccountApiKeys: (account: Account) => Promise<IpcResult<AccountApiKeyList>>
+  /** 删除该账号的一个 API Key */
+  deleteAccountApiKey: (
+    account: Account,
+    keyId: string
+  ) => Promise<IpcResult<DeleteApiKeyResult>>
   /** 用该账号凭证在私密窗口打开 Kiro 官网后台 */
   openAccountPortal: (account: Account) => Promise<IpcResult<{ url: string }>>
 

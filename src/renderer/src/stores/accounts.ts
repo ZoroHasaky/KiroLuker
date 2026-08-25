@@ -318,6 +318,28 @@ export const useAccountsStore = defineStore('accounts', () => {
     persist()
   }
 
+  /**
+   * 批量覆盖备注：选中的账号统一改成同一个 note（空串表示清空）。
+   * 一次性换数组引用 + 单次 persist，避免逐个 updateAccount 触发 N 次写盘。
+   * @returns 实际改动的账号数
+   */
+  function setNoteForAccounts(ids: string[], note: string): number {
+    const target = new Set(ids.filter(Boolean))
+    if (!target.size) return 0
+    const value = note.trim() || undefined
+    let changed = 0
+    const next = accounts.value.map((account) => {
+      if (!target.has(account.id) || account.note === value) return account
+      changed++
+      return { ...account, note: value }
+    })
+    if (changed) {
+      accounts.value = next
+      persist()
+    }
+    return changed
+  }
+
   async function removeAccounts(
     ids: string[]
   ): Promise<{ removed: number; error?: string }> {
@@ -991,6 +1013,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     addByCredentials,
     addByOnlineLogin,
     updateAccount,
+    setNoteForAccounts,
     removeAccounts,
     importItems,
     importFullData,

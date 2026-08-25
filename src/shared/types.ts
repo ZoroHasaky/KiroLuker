@@ -233,6 +233,12 @@ export interface AccountApiKeyList {
   refreshed?: RefreshTokenResult
 }
 
+/** 删除某个 API Key 的结果，refreshed 用于同步刷新过的凭证 */
+export interface DeleteApiKeyResult {
+  keyId: string
+  refreshed?: RefreshTokenResult
+}
+
 /** 在线登录拿到的原始凭证 */
 export interface OnlineLoginCredentials {
   accessToken: string
