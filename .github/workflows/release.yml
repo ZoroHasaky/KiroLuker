@@ -1,7 +1,7 @@
 name: Release
 
 # VERSION 是唯一版本源。main 每次推送都会检查该版本，
-# 只有对应 GitHub Release 不存在时才执行三平台构建与发布。
+# 只有对应 GitHub Release 不存在时才构建 Windows x64 与 macOS arm64。
 on:
   push:
     branches:
@@ -48,7 +48,7 @@ jobs:
           else
             echo "should_release=true" >> "$GITHUB_OUTPUT"
             echo "### 准备发布 $tag" >> "$GITHUB_STEP_SUMMARY"
-            echo "检测到新版本，将构建 macOS、Windows 和 Linux 安装包。" >> "$GITHUB_STEP_SUMMARY"
+            echo "检测到新版本，将构建 macOS arm64 和 Windows x64 安装包。" >> "$GITHUB_STEP_SUMMARY"
           fi
 
   build:
@@ -60,27 +60,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - label: macOS
+          - label: macOS arm64
             os: macos-latest
             script: build:mac
+            args: --arm64
             artifacts: |
-              dist/*.dmg
-              dist/*.zip
-              dist/*.blockmap
+              dist/*-mac-arm64.dmg
+              dist/*-mac-arm64.dmg.blockmap
+              dist/*-mac-arm64.zip
+              dist/*-mac-arm64.zip.blockmap
               dist/latest-mac.yml
-          - label: Windows
+          - label: Windows x64
             os: windows-latest
             script: build:win
+            args: --x64
             artifacts: |
-              dist/*.exe
-              dist/*.blockmap
+              dist/*-win-x64-setup.exe
+              dist/*-win-x64-setup.exe.blockmap
               dist/latest.yml
-          - label: Linux
-            os: ubuntu-latest
-            script: build:linux
-            artifacts: |
-              dist/*.AppImage
-              dist/latest-linux.yml
     steps:
       - uses: actions/checkout@v4
 
@@ -103,7 +100,7 @@ jobs:
         run: npm ci
 
       - name: 打包
-        run: npm run ${{ matrix.script }} -- --publish never
+        run: npm run ${{ matrix.script }} -- ${{ matrix.args }} --publish never
 
       - uses: actions/upload-artifact@v4
         with:
@@ -151,9 +148,7 @@ jobs:
           | 平台 | 文件 |
           | --- | --- |
           | macOS (Apple Silicon) | `*-mac-arm64.dmg` |
-          | macOS (Intel) | `*-mac-x64.dmg` |
           | Windows | `*-win-x64-setup.exe` |
-          | Linux | `*-linux-x86_64.AppImage` |
 
           macOS 安装包未做签名与公证，首次打开请右键选择「打开」，或在
           「系统设置 - 隐私与安全性」中允许运行。

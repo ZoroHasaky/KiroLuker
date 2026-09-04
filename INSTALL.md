@@ -8,9 +8,7 @@
 | 平台 | 应下载的文件 | 适用设备 |
 | --- | --- | --- |
 | macOS Apple Silicon | `*-mac-arm64.dmg` | Apple M 系列芯片 |
-| macOS Intel | `*-mac-x64.dmg` | Intel 芯片 |
 | Windows | `*-win-x64-setup.exe` | 64 位 Windows |
-| Linux | `*-linux-x86_64.AppImage` | 64 位 x86 Linux |
 
 `.zip`、`.blockmap` 和 `latest*.yml` 主要供自动更新使用，手动安装时无需下载。
 
@@ -27,7 +25,7 @@ Releases 页面，再选择“更多信息”→“仍要运行”。不要为�
 
 ## macOS
 
-先在“苹果菜单”→“关于本机”查看芯片：Apple M 系列下载 `arm64`，Intel 芯片下载 `x64`。
+当前只发布 Apple Silicon（M 系列）`arm64` 安装包，不提供 Intel Mac 安装包。
 打开 DMG 后，将 KiroLuker 拖入“应用程序”文件夹。
 
 当前安装包未做 Apple 签名与公证。首次打开若提示“无法验证开发者”，可在 Finder 的“应用程序”中
@@ -41,27 +39,15 @@ xattr -cr "/Applications/KiroLuker.app"
 
 该命令只移除这个应用的下载隔离属性，不会关闭系统的全局安全功能。
 
-## Linux
+## Linux / Intel Mac
 
-AppImage 无需安装。下载后在文件所在目录执行：
-
-```bash
-chmod +x kiroluker-*-linux-x86_64.AppImage
-./kiroluker-*-linux-x86_64.AppImage
-```
-
-如出现 `dlopen(): error loading libfuse.so.2`，可安装发行版提供的 FUSE 2 兼容包（常见包名为
-`libfuse2`），或直接使用免挂载模式：
-
-```bash
-./kiroluker-*-linux-x86_64.AppImage --appimage-extract-and-run
-```
+当前 GitHub Actions 不生成 Linux 或 Intel Mac 安装包；需要时可在对应系统从源码自行构建。
 
 ## 升级与数据保留
 
 1. 完全退出应用（包括托盘或菜单栏中的后台进程）。
 2. 从 Releases 下载新版本对应平台的安装包。
-3. Windows 直接运行新安装程序；macOS 用新应用覆盖“应用程序”中的旧版本；Linux 替换旧 AppImage。
+3. Windows 直接运行新安装程序；macOS 用新应用覆盖“应用程序”中的旧版本。
 4. 启动应用并在“关于”页面确认版本号。
 
 覆盖安装默认保留账号、API Key、设置、积分历史和日志。凭证属于敏感数据，升级前可在应用设置中

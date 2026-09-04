@@ -16,7 +16,7 @@
   <img src="https://img.shields.io/badge/version-1.1.0-6c5ce7" alt="version">
   <img src="https://img.shields.io/badge/updated-2026--09--04-2f9e44" alt="updated">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="license">
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="platform">
+  <img src="https://img.shields.io/badge/platform-macOS%20arm64%20%7C%20Windows%20x64-lightgrey" alt="platform">
   <img src="https://img.shields.io/badge/Vue-3-42b883" alt="vue">
   <img src="https://img.shields.io/badge/Electron-35-47848f" alt="electron">
 </p>
@@ -126,11 +126,9 @@ KiroLuker 的安装包由 [GitHub Releases](https://github.com/ZoroHasaky/KiroLu
 | 平台 | 文件 | 适用设备 |
 | --- | --- | --- |
 | macOS (Apple Silicon) | `*-mac-arm64.dmg` | Apple M 系列芯片 |
-| macOS (Intel) | `*-mac-x64.dmg` | Intel 芯片 |
 | Windows | `*-win-x64-setup.exe` | 64 位 Windows |
-| Linux | `*-linux-x86_64.AppImage` | 64 位 x86 Linux |
 
-不确定 Mac 是哪种芯片：**苹果菜单 → 关于本机**，看「芯片」一栏。
+当前 Releases 只提供 macOS Apple Silicon（arm64）和 Windows x64 安装包。
 
 `.zip`、`.blockmap` 与 `latest*.yml` 是自动更新用的，手动安装不需要下载。
 
@@ -138,13 +136,11 @@ KiroLuker 的安装包由 [GitHub Releases](https://github.com/ZoroHasaky/KiroLu
 
 | 平台 | 最低版本 | 架构 |
 | --- | --- | --- |
-| macOS | 11 Big Sur | arm64 / x64 |
+| macOS | 11 Big Sur | arm64 |
 | Windows | Windows 10 | 仅 x64 |
-| Linux | 主流发行版（Ubuntu / Debian / Fedora 等仍在维护的版本） | 仅 x64 |
 
 版本门槛跟随 Electron 35（Chromium 134）的[平台支持范围](https://github.com/electron/electron#platform-support)。
-Windows 与 Linux 暂不提供 arm64 包：原生依赖 `cbor-extract` 没有对应的预编译产物，
-交叉编译在 CI 上必然失败。装机后约占 300–400 MB。
+安装后约占 300–400 MB。
 
 ### 安装要点
 
@@ -152,7 +148,6 @@ Windows 与 Linux 暂不提供 arm64 包：原生依赖 `cbor-extract` 没有对
   确认文件来自官方 Releases 后选「更多信息 → 仍要运行」即可，**不要为此关闭 SmartScreen 或杀毒软件**。
 - **macOS**：拖入「应用程序」。未做公证，首次打开可能提示「已损坏」或「无法验证开发者」，
   DMG 里附了「安装指南.txt」说明处理办法。
-- **Linux**：AppImage 免安装，`chmod +x` 后直接运行；缺 FUSE 时用 `--appimage-extract-and-run`。
 - **升级**：先完全退出应用（含托盘 / 菜单栏后台进程），再用新包覆盖安装，用户数据不受影响。
   应用内「关于」页也能检查更新。
 
