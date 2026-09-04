@@ -246,7 +246,12 @@ app.whenReady().then(() => {
   // 授权回调页的「返回应用」按钮靠这个回调把主窗口带到前台
   registerLoginFocusHandler(focusWindow)
   initProactiveRenewal(() => mainWindow)
-  registerIpc(() => mainWindow)
+  registerIpc(
+    () => mainWindow,
+    () => {
+      isQuitting = true
+    }
+  )
   // API Key 管理功能已移除：保留历史数据，但关闭旧版本可能遗留的本地网关接管。
   void retireKeyService()
   // macOS 顶部菜单栏（中文菜单 + 页面导航），其他平台维持默认

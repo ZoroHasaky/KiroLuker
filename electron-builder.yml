@@ -3,6 +3,12 @@ appId: dev.kiro.account.lite
 productName: KiroLuker
 directories:
   buildResources: build
+# 在安装包 resources/app-update.yml 中写入公开 GitHub 更新源。
+# CI 仍使用 --publish never，实际上传继续由 release.yml 统一完成。
+publish:
+  - provider: github
+    owner: ZoroHasaky
+    repo: KiroLuker
 # 不按 Electron ABI 重建原生模块：全项目唯一的原生依赖是 cbor-x 的可选加速模块
 # cbor-extract，加载失败时 cbor-x 会自动回退纯 JS 实现，功能不受影响。
 # 打开重建会要求 macOS / Windows 上具备 node-gyp 工具链，CI 上是常见的失败点。

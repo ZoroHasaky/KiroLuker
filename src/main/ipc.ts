@@ -45,7 +45,15 @@ import {
 import { setUsageApiType } from './kiroApi'
 import { setInAppLocale } from './kiroPortal'
 import { setProxyConfig } from './net'
-import { checkForUpdate } from './updater'
+import {
+  applyDownloadedUpdate,
+  cancelUpdateDownload,
+  checkForUpdate,
+  configureUpdaterProxy,
+  downloadAvailableUpdate,
+  getUpdateState,
+  initializeUpdater
+} from './updater'
 import {
   disableShellAutoApprove,
   enableShellAutoApprove,
@@ -75,6 +83,7 @@ import {
   updateKeyRegion
 } from './keyService'
 import { errorMessage } from '../shared/errors'
+import { sendToRenderer } from './utils'
 import {
   deleteAccountData,
   getAccountData,
@@ -148,6 +157,7 @@ function handle(
 export function applyRuntimeSettings(settings: AppSettings): void {
   setUsageApiType(settings.usageApiType)
   setProxyConfig(settings.proxyEnabled, settings.proxyUrl)
+  void configureUpdaterProxy()
   setInAppLocale(settings.portalLocale)
   setGatewayRetryPolicy(
     settings.gatewayAutoRetryThrottle,
@@ -157,7 +167,14 @@ export function applyRuntimeSettings(settings: AppSettings): void {
   )
 }
 
-export function registerIpc(getWindow: () => BrowserWindow | null): void {
+export function registerIpc(
+  getWindow: () => BrowserWindow | null,
+  prepareToInstallUpdate: () => void = () => undefined
+): void {
+  initializeUpdater(
+    (state) => sendToRenderer(getWindow(), 'app:update-state', state),
+    prepareToInstallUpdate
+  )
   // ============ 数据持久化 ============
   handle('accounts:load', () => ok(getAccountData()))
 
@@ -572,6 +589,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // 检查更新：对比 GitHub 最新 Release 的版本号，只给结论不做下载
   handle('app:check-update', async () => ok(await checkForUpdate()))
+  handle('app:update-state', () => ok(getUpdateState()))
+  handle('app:update-download', async () => ok(await downloadAvailableUpdate()))
+  handle('app:update-cancel', () => ok(cancelUpdateDownload()))
+  handle('app:update-apply', () => ok(applyDownloadedUpdate()))
 
   // ============ 常用工具：Kiro Agent 权限 ============
   handle('tools:shell-approve-status', async () => ok(await getShellAutoApproveStatus()))

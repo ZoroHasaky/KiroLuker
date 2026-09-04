@@ -6,6 +6,7 @@ import type {
   AccountUsage,
   ApiKeyChatTestInput,
   AppInfo,
+  AppUpdateState,
   AppSettings,
   AuthMethod,
   BrowserOpenInfo,
@@ -226,6 +227,11 @@ export interface Api extends BillingRendererApi {
   saveSettings: (patch: Partial<AppSettings>) => Promise<IpcResult<AppSettings>>
   getAppInfo: () => Promise<IpcResult<AppInfo>>
   checkUpdate: () => Promise<IpcResult<UpdateCheckResult>>
+  getUpdateState: () => Promise<IpcResult<AppUpdateState>>
+  downloadUpdate: () => Promise<IpcResult<AppUpdateState>>
+  cancelUpdateDownload: () => Promise<IpcResult<AppUpdateState>>
+  applyUpdate: () => Promise<IpcResult<AppUpdateState>>
+  onUpdateState: (handler: (state: AppUpdateState) => void) => () => void
   getShellAutoApproveStatus: () => Promise<IpcResult<ShellAutoApproveStatus>>
   enableShellAutoApprove: () => Promise<IpcResult<ShellAutoApproveStatus>>
   disableShellAutoApprove: () => Promise<IpcResult<ShellAutoApproveStatus>>

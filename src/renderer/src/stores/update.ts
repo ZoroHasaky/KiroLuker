@@ -1,6 +1,6 @@
 import { acceptHMRUpdate, defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import type { UpdateCheckResult } from '@shared/types'
+import type { AppUpdateState, UpdateCheckResult } from '@shared/types'
 
 const CACHE_KEY = 'kal:update-check:v1'
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000
@@ -49,10 +49,28 @@ export const useUpdateStore = defineStore('update', () => {
   const checking = ref(false)
   const modalOpen = ref(false)
   const initialized = ref(false)
+  const transfer = ref<AppUpdateState>({
+    mode: 'manual',
+    status: 'idle',
+    current: '',
+    latest: '',
+    percent: 0,
+    transferred: 0,
+    total: 0,
+    bytesPerSecond: 0,
+    message: ''
+  })
+  const actionError = ref('')
   let request: Promise<{ data?: UpdateCheckResult; error?: string }> | null = null
+  let offState: (() => void) | null = null
 
   const hasUpdate = computed(() => result.value?.hasUpdate === true)
   const latestVersion = computed(() => result.value?.latest ?? '')
+
+  function applyTransferState(state: AppUpdateState): void {
+    transfer.value = state
+    if (state.status !== 'error') actionError.value = ''
+  }
 
   async function fetchLatest(): Promise<{ data?: UpdateCheckResult; error?: string }> {
     if (request) return request
@@ -79,6 +97,9 @@ export const useUpdateStore = defineStore('update', () => {
   async function initialize(currentVersion: string): Promise<void> {
     if (initialized.value || !currentVersion) return
     initialized.value = true
+    if (!offState) offState = window.api.onUpdateState(applyTransferState)
+    const stateResponse = await window.api.getUpdateState()
+    if (stateResponse.success && stateResponse.data) applyTransferState(stateResponse.data)
     const cache = readCache(currentVersion)
     if (cache) {
       result.value = cache.result
@@ -105,17 +126,50 @@ export const useUpdateStore = defineStore('update', () => {
     modalOpen.value = false
   }
 
+  async function download(): Promise<boolean> {
+    actionError.value = ''
+    const response = await window.api.downloadUpdate()
+    if (response.success && response.data) {
+      applyTransferState(response.data)
+      return true
+    }
+    actionError.value = response.error || '更新下载失败，请稍后重试'
+    return false
+  }
+
+  async function cancelDownload(): Promise<void> {
+    const response = await window.api.cancelUpdateDownload()
+    if (response.success && response.data) applyTransferState(response.data)
+    else if (response.error) actionError.value = response.error
+  }
+
+  async function applyDownloaded(): Promise<boolean> {
+    actionError.value = ''
+    const response = await window.api.applyUpdate()
+    if (response.success && response.data) {
+      applyTransferState(response.data)
+      return true
+    }
+    actionError.value = response.error || '无法启动更新安装程序'
+    return false
+  }
+
   return {
     result,
     checking,
     modalOpen,
     initialized,
+    transfer,
+    actionError,
     hasUpdate,
     latestVersion,
     initialize,
     checkNow,
     showModal,
-    closeModal
+    closeModal,
+    download,
+    cancelDownload,
+    applyDownloaded
   }
 })
 

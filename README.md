@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.1.0-6c5ce7" alt="version">
+  <img src="https://img.shields.io/badge/version-1.2.0-6c5ce7" alt="version">
   <img src="https://img.shields.io/badge/updated-2026--09--04-2f9e44" alt="updated">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20arm64%20%7C%20Windows%20x64-lightgrey" alt="platform">
@@ -94,7 +94,8 @@
 - 系统托盘常驻，可查看当前账号、刷新、切号、复制邮箱和显示窗口；关闭行为支持最小化到托盘 / 退出 / 每次询问
 - macOS 中文菜单栏、自定义协议 `kiroluker://` / `klr://` 和单实例唤起（继续兼容 `kiroluler://` 等旧协议）
 - 管理页详情、图表和各类模态框按用户操作实时挂载，页面切换不再等待退出动画，减少大数据量下的白屏感
-- 关于页手动检查更新会立即显示加载态；GitHub API 失败时自动重试并通过 Releases 页面兜底，失败后可重试或手动更新
+- 关于页可检查并下载更新：Windows x64 下载完成后退出安装并自动重启；macOS arm64 下载并校验 DMG 后打开安装引导
+- GitHub API 失败时自动重试并通过 Releases 页面兜底；更新支持进度、取消、重试、应用代理和浏览器下载兜底
 
 ### 🧾 系统日志
 
@@ -119,7 +120,7 @@
 KiroLuker 的安装包由 [GitHub Releases](https://github.com/ZoroHasaky/KiroLuker/releases) 发布。
 开发测试可在 Windows 下双击 [`测试运行.bat`](测试运行.bat)。
 
-**最新版本：v1.1.0**（2026-09-04） · 变更详情见 [CHANGELOG.md](CHANGELOG.md)
+**最新版本：v1.2.0**（2026-09-04） · 变更详情见 [CHANGELOG.md](CHANGELOG.md)
 
 ### 选择对应的安装包
 
@@ -148,8 +149,8 @@ KiroLuker 的安装包由 [GitHub Releases](https://github.com/ZoroHasaky/KiroLu
   确认文件来自官方 Releases 后选「更多信息 → 仍要运行」即可，**不要为此关闭 SmartScreen 或杀毒软件**。
 - **macOS**：拖入「应用程序」。未做公证，首次打开可能提示「已损坏」或「无法验证开发者」，
   DMG 里附了「安装指南.txt」说明处理办法。
-- **升级**：先完全退出应用（含托盘 / 菜单栏后台进程），再用新包覆盖安装，用户数据不受影响。
-  应用内「关于」页也能检查更新。
+- **升级**：应用内「关于」页可检查更新。Windows x64 可自动下载、退出安装并重启；macOS arm64
+  会下载并校验 DMG，打开后将新版本拖入「应用程序」覆盖。也可以完全退出应用后手动覆盖安装，用户数据不受影响。
 
 遇到系统拦截、架构选错、升级或卸载问题，完整排查步骤见 **[安装说明与常见问题](./INSTALL.md)**。
 
@@ -325,7 +326,7 @@ src/
 
 ## 🔖 更新日志
 
-各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.1.0，最后更新于 2026-09-04。
+各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.2.0，最后更新于 2026-09-04。
 
 ---
 

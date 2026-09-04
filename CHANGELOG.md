@@ -4,6 +4,29 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.0] - 2026-09-04
+
+### 新增
+
+- Windows x64 安装版支持在应用内下载更新，显示下载进度与速度，可取消、重试，并在下载完成后退出、静默安装和自动重启
+- macOS arm64 支持在应用内下载 DMG，校验完成后自动打开安装包，引导将新版本覆盖到“应用程序”
+- 更新弹窗增加浏览器下载兜底；应用代理配置同时用于版本检查和 Windows 更新包下载
+
+### 安全
+
+- Windows 更新使用 `electron-updater` 根据 `latest.yml` 校验安装包；macOS 只接受当前版本固定文件名的 GitHub HTTPS 资源，并校验文件大小和 SHA-256
+- macOS 下载使用临时分片文件，取消或校验失败时自动清理，不打开不完整或摘要不匹配的安装包
+
+### 修复
+
+- 安装更新前提前放行窗口退出，避免系统托盘的关闭行为拦截更新程序
+- 修复流式网络请求在收到响应头后无法继续响应取消信号的问题
+
+### 测试
+
+- 增加版本比较、平台范围、安装包资源校验和流式下载取消测试
+- 在 Windows 安装版中实际完成从 GitHub Release 检查并下载更新包，确认文件大小与 SHA-256 一致
+
 ## [1.1.1] - 2026-09-04
 
 ### 修复
@@ -1044,6 +1067,8 @@ Key 列表，同时把账号卡片与工具栏上并列的两个刷新入口收�
 
 > 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
 
+[1.2.0]: https://github.com/ZoroHasaky/KiroLuker/releases/tag/v1.2.0
+[1.1.1]: https://github.com/ZoroHasaky/KiroLuker/releases/tag/v1.1.1
 [1.1.0]: https://github.com/ZoroHasaky/KiroLuker/releases/tag/v1.1.0
 [1.0.19]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.19
 [1.0.18]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.18

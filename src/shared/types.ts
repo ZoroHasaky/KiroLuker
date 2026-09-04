@@ -591,6 +591,17 @@ export interface ShellAutoApproveStatus {
 }
 
 /** GitHub Release 检查更新结果 */
+export interface UpdateReleaseAsset {
+  /** Release 里的文件名 */
+  name: string
+  /** GitHub 下载地址 */
+  url: string
+  /** 文件大小（字节） */
+  size: number
+  /** GitHub 返回的内容摘要，例如 sha256:... */
+  digest: string
+}
+
 export interface UpdateCheckResult {
   /** 当前运行版本，如 1.0.3 */
   current: string
@@ -606,6 +617,32 @@ export interface UpdateCheckResult {
   notes: string
   /** 发布时间 ISO 字符串，可能为空 */
   publishedAt: string
+  /** 当前平台对应的安装资源；页面兜底检查时可能为空 */
+  asset?: UpdateReleaseAsset
+}
+
+export type AppUpdateMode = 'windows-auto' | 'mac-download' | 'manual'
+export type AppUpdateStatus =
+  | 'idle'
+  | 'available'
+  | 'checking'
+  | 'downloading'
+  | 'downloaded'
+  | 'installing'
+  | 'error'
+
+/** 主进程维护的下载 / 安装状态。 */
+export interface AppUpdateState {
+  mode: AppUpdateMode
+  status: AppUpdateStatus
+  current: string
+  latest: string
+  percent: number
+  transferred: number
+  total: number
+  bytesPerSecond: number
+  message: string
+  downloadedFileName?: string
 }
 
 export interface AppSettings {

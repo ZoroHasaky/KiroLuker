@@ -26,6 +26,18 @@ function normalizeProxyUrl(url: string): string {
   return `http://${trimmed}`
 }
 
+/** 当前对外请求实际使用的代理地址，供自动更新器复用。 */
+export function getEffectiveProxyUrl(): string {
+  if (proxyEnabled && proxyUrl) return proxyUrl
+  return normalizeProxyUrl(
+    process.env.HTTPS_PROXY
+      || process.env.https_proxy
+      || process.env.HTTP_PROXY
+      || process.env.http_proxy
+      || ''
+  )
+}
+
 export function setProxyConfig(enabled: boolean, url: string): void {
   proxyEnabled = enabled
   proxyUrl = normalizeProxyUrl(url)
@@ -55,19 +67,7 @@ function agentFor(target: string): Dispatcher | undefined {
 
 /** 优先用设置里的代理，未配置时回退系统环境变量 */
 function currentAgent(): Dispatcher | undefined {
-  if (proxyEnabled && proxyUrl) {
-    const agent = agentFor(proxyUrl)
-    if (agent) return agent
-  }
-  return agentFor(
-    normalizeProxyUrl(
-      process.env.HTTPS_PROXY ||
-        process.env.https_proxy ||
-        process.env.HTTP_PROXY ||
-        process.env.http_proxy ||
-        ''
-    )
-  )
+  return agentFor(getEffectiveProxyUrl())
 }
 
 /** 组装 undici 请求参数，并挂上当前生效的代理 */
@@ -101,6 +101,10 @@ export interface HttpResponse {
 export interface HttpStreamResponse {
   ok: boolean
   status: number
+  /** 跟随重定向后的最终地址。 */
+  url: string
+  /** 服务端声明的响应体大小；未知时为 0。 */
+  contentLength: number
   /** 响应体的字节流，调用方自己按协议解析（如 AWS event-stream） */
   body: ReadableStream<Uint8Array> | null
   text: () => Promise<string>
@@ -129,22 +133,69 @@ export async function httpStream(
     else signal.addEventListener('abort', onAbort, { once: true })
   }
   const timer = setTimeout(() => controller.abort(new Error('连接超时')), connectTimeoutMs)
+  let bodyHandedOff = false
+  const cleanup = (): void => {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', onAbort)
+  }
 
   try {
     const res = await undiciFetch(url, buildInit(method, headers, body, controller.signal))
     // 响应头已到，后续读流不该再被连接超时打断
     clearTimeout(timer)
+    const source = res.body as ReadableStream<Uint8Array> | null
+    let responseBody: ReadableStream<Uint8Array> | null = null
+    if (source) {
+      const reader = source.getReader()
+      bodyHandedOff = true
+      // 把外部 signal 的监听保留到流读完，确保下载过程中仍可取消；
+      // 同时在完成、报错或主动 cancel 后摘掉监听，避免长期泄漏。
+      responseBody = new ReadableStream<Uint8Array>({
+        async pull(streamController) {
+          try {
+            const chunk = await reader.read()
+            if (chunk.done) {
+              cleanup()
+              streamController.close()
+            } else {
+              streamController.enqueue(chunk.value)
+            }
+          } catch (error) {
+            cleanup()
+            streamController.error(error)
+          }
+        },
+        async cancel(reason) {
+          cleanup()
+          await reader.cancel(reason)
+        }
+      })
+    }
+    const readText = async (): Promise<string> => {
+      if (!responseBody) return ''
+      const streamReader = responseBody.getReader()
+      const decoder = new TextDecoder()
+      let result = ''
+      while (true) {
+        const chunk = await streamReader.read()
+        if (chunk.done) break
+        result += decoder.decode(chunk.value, { stream: true })
+      }
+      return result + decoder.decode()
+    }
     return {
       ok: res.ok,
       status: res.status,
-      body: res.body as ReadableStream<Uint8Array> | null,
-      text: () => res.text()
+      url: res.url,
+      contentLength: Number.parseInt(res.headers.get('content-length') || '0', 10) || 0,
+      body: responseBody,
+      text: readText
     }
   } catch (e) {
-    clearTimeout(timer)
+    cleanup()
     throw e
   } finally {
-    signal?.removeEventListener('abort', onAbort)
+    if (!bodyHandedOff) cleanup()
   }
 }
 
