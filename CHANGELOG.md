@@ -4,6 +4,28 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.1.0] - 2026-09-04
+
+KiroLuker 首个独立发布版本，扩展账号管理、批量订阅、账单信息和登录流程，
+并完成项目品牌与数据兼容迁移。
+
+### 新增
+
+- 账号标签目录、多标签关联、标签筛选和常用颜色快选
+- 按添加日期筛选、“仅看今天”和卡片空白区选中 / Esc 取消选中
+- OIDC 精简 JSON 复制、支付链接编辑与二维码展示
+- GitHub 严格无痕快捷登录与本地浏览器选择回退
+- 批量订阅页面及订阅预检、计划选择和支付链接生成
+- 账单信息生成，支持高德 / 百度地图回退和 OpenAI-compatible 邮编推断
+- 测试运行脚本及数据迁移、导入映射、账单解析和批量订阅测试
+
+### 更改
+
+- 应用、安装包、协议、资源与文档统一更名为 KiroLuker
+- 保留 KiroLuler 和 Kiro Manager Lite 的数据目录、存储密钥、备份标记与协议兼容
+- 根目录 `VERSION` 成为唯一版本源，本地构建会自动同步 npm 元数据
+- 推送 `main` 时按 `VERSION` 新版本自动构建三平台并发布 GitHub Release
+
 ## [1.0.19] - 2026-08-25
 
 本版本新增账号 API Key 删除与批量设置备注，修复 Builder ID 生成 / 列表 API Key 报错、
@@ -1011,6 +1033,7 @@ Key 列表，同时把账号卡片与工具栏上并列的两个刷新入口收�
 
 > 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
 
+[1.1.0]: https://github.com/ZoroHasaky/KiroLuker/releases/tag/v1.1.0
 [1.0.19]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.19
 [1.0.18]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.18
 [1.0.17]: https://github.com/lucks-cloud/kiro-manager-lite/releases/tag/v1.0.17

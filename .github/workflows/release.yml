@@ -1,19 +1,62 @@
 name: Release
 
-# 推送 v* 标签即三平台并行构建并发布 Release。
-# 手动触发（workflow_dispatch）只做构建验证，不创建 Release。
+# VERSION 是唯一版本源。main 每次推送都会检查该版本，
+# 只有对应 GitHub Release 不存在时才执行三平台构建与发布。
 on:
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
   workflow_dispatch:
 
+concurrency:
+  group: release-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    name: 检查版本
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      should_release: ${{ steps.version.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 读取 VERSION 并检查 Release
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "VERSION 不符合语义化版本格式：$version" >&2
+            exit 1
+          fi
+
+          tag="v$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "### 跳过发布" >> "$GITHUB_STEP_SUMMARY"
+            echo "\`$tag\` 已经存在，本次推送不重复打包。" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            echo "### 准备发布 $tag" >> "$GITHUB_STEP_SUMMARY"
+            echo "检测到新版本，将构建 macOS、Windows 和 Linux 安装包。" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   build:
     name: 构建 ${{ matrix.label }}
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
-      # 单平台失败不连累其它平台，便于只重跑失败的那个
       fail-fast: false
       matrix:
         include:
@@ -25,8 +68,6 @@ jobs:
               dist/*.zip
               dist/*.blockmap
               dist/latest-mac.yml
-          # Windows 包必须在 windows runner 上打：
-          # cbor-extract 没有 win32 预编译产物以外的可用组合，交叉编译会失败
           - label: Windows
             os: windows-latest
             script: build:win
@@ -48,11 +89,12 @@ jobs:
           node-version: 22
           cache: npm
 
-      # 兜底：任何依赖触发 node-gyp 时都需要 distutils，
-      # runner 自带的 Python 3.12+ 已移除它，靠 setuptools 补回来
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: 同步 VERSION 到 npm 元数据
+        run: npm run sync:version
 
       - name: 准备构建工具链
         run: python -m pip install --upgrade setuptools
@@ -60,8 +102,6 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
-      # --publish never：产物统一交给下面的 release job 上传，
-      # 避免 electron-builder 在 CI 检测到 tag 时自行创建重复的 Release
       - name: 打包
         run: npm run ${{ matrix.script }} -- --publish never
 
@@ -73,9 +113,11 @@ jobs:
           retention-days: 7
 
   release:
-    name: 发布 Release
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: 发布 ${{ needs.prepare.outputs.tag }}
+    needs:
+      - prepare
+      - build
+    if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -88,20 +130,19 @@ jobs:
           merge-multiple: true
 
       - name: 生成发布说明
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          # 只取 CHANGELOG 里当前版本那一段，避免把历史日志全塞进说明。
-          # 同时跳过底部链接定义，以及每版重复的「安装遇到问题」入口行——
-          # 后者统一放到说明最底部（见下方），并用绝对链接，避免夹在下载表上方且无法点击。
-          awk -v ver="$version" '
-            $0 ~ "^## \\[" ver "\\]" { flag = 1; next }
-            flag && /^## \[/ { exit }
-            flag && /^\[.*\]: http/ { next }
-            flag && /^> *安装遇到问题/ { next }
-            flag { print }
+          awk -v ver="$VERSION" '
+            { line = $0; sub(/\r$/, "", line) }
+            index(line, "## [" ver "]") == 1 { flag = 1; next }
+            flag && index(line, "## [") == 1 { exit }
+            flag && line ~ /^\[.*\]: http/ { next }
+            flag && line ~ /^> *安装遇到问题/ { next }
+            flag { print line }
           ' CHANGELOG.md > NOTES.md
           if [ ! -s NOTES.md ]; then
-            echo "本次发布未在 CHANGELOG.md 中找到 $version 的条目。" > NOTES.md
+            echo "本次发布未在 CHANGELOG.md 中找到 $VERSION 的条目。" > NOTES.md
           fi
           cat >> NOTES.md <<'EOF'
 
@@ -122,30 +163,12 @@ jobs:
           > 安装遇到问题？请查看 [安装说明与常见问题](${{ github.server_url }}/${{ github.repository }}/blob/main/INSTALL.md)。
           EOF
 
-      - name: 删除同标签旧 Release
-        uses: actions/github-script@v7
+      - name: 创建 GitHub Release 并上传安装包
+        uses: softprops/action-gh-release@v2
         with:
-          script: |
-            try {
-              const { data: release } = await github.rest.repos.getReleaseByTag({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag: context.ref.replace('refs/tags/', '')
-              })
-              await github.rest.repos.deleteRelease({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                release_id: release.id
-              })
-              core.info(`已删除旧 Release：${release.tag_name}`)
-            } catch (error) {
-              if (error.status !== 404) throw error
-              core.info('未找到同标签旧 Release，继续首次发布')
-            }
-
-      - uses: softprops/action-gh-release@v2
-        with:
-          name: ${{ github.ref_name }}
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: KiroLuker ${{ needs.prepare.outputs.tag }}
           body_path: NOTES.md
           files: artifacts/**
           fail_on_unmatched_files: true
