@@ -13,8 +13,8 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.2-6c5ce7" alt="version">
-  <img src="https://img.shields.io/badge/updated-2026--09--04-2f9e44" alt="updated">
+  <img src="https://img.shields.io/badge/version-1.2.3-6c5ce7" alt="version">
+  <img src="https://img.shields.io/badge/updated-2026--09--05-2f9e44" alt="updated">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20arm64%20%7C%20Windows%20x64-lightgrey" alt="platform">
   <img src="https://img.shields.io/badge/Vue-3-42b883" alt="vue">
@@ -111,7 +111,7 @@
 KiroLuker 的安装包由 [GitHub Releases](https://github.com/ZoroHasaky/KiroLuker/releases) 发布。
 开发测试可在 Windows 下双击 [`测试运行.bat`](测试运行.bat)。
 
-**最新版本：v1.2.2**（2026-09-04） · 变更详情见 [CHANGELOG.md](CHANGELOG.md)
+**最新版本：v1.2.3**（2026-09-05） · 变更详情见 [CHANGELOG.md](CHANGELOG.md)
 
 ### 选择对应的安装包
 
@@ -207,7 +207,7 @@ KiroLuker 的安装包由 [GitHub Releases](https://github.com/ZoroHasaky/KiroLu
 | UI 组件 | Ant Design Vue 4 |
 | 构建工具 | Vite + electron-vite |
 | 网络层 | undici（统一 fetch + 代理） |
-| 持久化 | electron-store（加密存储 + 滚动备份） |
+| 持久化 | electron-store（加密存储）+ safeStorage（系统保护的加密滚动备份） |
 | 序列化 | cbor-x（Kiro 网页门户的 CBOR 接口） |
 
 ---
@@ -309,7 +309,7 @@ src/
 
 ## 🔖 更新日志
 
-各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.2.2，最后更新于 2026-09-04。
+各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.2.3，最后更新于 2026-09-05。
 
 ---
 

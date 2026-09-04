@@ -430,7 +430,7 @@ async function batch(kind: 'refresh' | 'check'): Promise<void> {
 function logoutIde(account: Account): void {
   confirmDanger({
     title: `退出 ${displayEmail(account.email)} 的登录`,
-    content: '会清空 ~/.aws/sso/cache 目录下的凭证文件，IDE 之后需要重新登录。',
+    content: '只会删除 Kiro IDE 自己的登录凭证，不会清理其它 AWS SSO 会话。IDE 之后需要重新登录。',
     okText: '继续',
     onOk: async () => {
       setBusy(account.id, 'logout')

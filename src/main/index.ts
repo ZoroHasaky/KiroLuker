@@ -2,7 +2,7 @@ import { app, dialog, nativeImage, screen, shell, BrowserWindow } from 'electron
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { applyRuntimeSettings, registerIpc } from './ipc'
-import { getSettings } from './store'
+import { getSettings, protectLegacyAccountBackups } from './store'
 import { normalizePortalLocale } from '../shared/portalLocale'
 import {
   cancelLogin,
@@ -28,7 +28,7 @@ import { flushUsageHistory } from './usageHistory'
 import { flushGatewayHistory } from './gatewayHistory'
 import { initLogger, installConsoleBridge, log, shutdownLogger } from './logger'
 import { sendToRenderer } from './utils'
-import { retireKeyService, shutdownKeyServiceSync } from './keyService'
+import { initializeKeyService, shutdownKeyServiceSync } from './keyService'
 import { retireShellAutoApprove } from './kiroPermissions'
 import { resolveRuntimePaths } from './runtimePaths'
 
@@ -253,8 +253,14 @@ app.whenReady().then(() => {
       isQuitting = true
     }
   )
-  // API Key 管理功能已移除：保留历史数据，但关闭旧版本可能遗留的本地网关接管。
-  void retireKeyService()
+  void initializeKeyService((status) => sendToRenderer(mainWindow, 'key-gateway:changed', status))
+  void protectLegacyAccountBackups()
+    .then((migrated) => {
+      if (migrated) log('info', `[Store] 已将 ${migrated} 份旧账号备份升级为系统加密格式`)
+    })
+    .catch((error) => {
+      log('warn', `[Store] 旧账号备份加密迁移失败：${error instanceof Error ? error.message : String(error)}`)
+    })
   // 常用工具模块已移除：还原本应用曾写入的 Kiro 命令放行配置。
   void retireShellAutoApprove().catch((error) => {
     console.warn(`[KiroPermissions] 退出常用工具配置失败：${error instanceof Error ? error.message : String(error)}`)

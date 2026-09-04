@@ -10,10 +10,10 @@ import * as crypto from 'crypto'
 import { KIRO_OIDC_SCOPES, KIRO_START_URL, serviceRegion } from './kiroEndpoints'
 import { pushUnique } from './utils'
 import { DEFAULT_REGION } from '../shared/regions'
+import { isKiroLogoutCacheFile, KIRO_AUTH_TOKEN_FILE } from '../shared/kiroCache'
 import type { AuthMethod, IdpType, LocalKiroCredentials } from '../shared/types'
 
 const KIRO_SSO_CACHE_DIR = path.join(os.homedir(), '.aws', 'sso', 'cache')
-const KIRO_AUTH_TOKEN_FILE = 'kiro-auth-token.json'
 const KIRO_AUTH_TOKEN_PATH = path.join(KIRO_SSO_CACHE_DIR, KIRO_AUTH_TOKEN_FILE)
 
 /**
@@ -314,10 +314,13 @@ export async function readLocalKiroCredentials(): Promise<LocalKiroCredentials |
   }
 }
 
-/** 清空 SSO 缓存目录（IDE 退出登录） */
+/**
+ * 退出 Kiro IDE 登录只删除它自己的 token 文件。
+ * ~/.aws/sso/cache 也会被 AWS CLI 和其它 AWS 工具共用，不能整目录清空。
+ */
 export function clearKiroSsoCache(): Promise<number> {
   return deleteCacheFiles(
-    () => true,
+    isKiroLogoutCacheFile,
     (file, e) => console.warn('[KiroAuth] failed to delete', file, e)
   )
 }

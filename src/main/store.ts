@@ -1,6 +1,6 @@
 // 本地持久化（electron-store，账号数据加密存放）
 import Store from 'electron-store'
-import { app } from 'electron'
+import { app, safeStorage } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs/promises'
 import { existsSync } from 'fs'
@@ -14,6 +14,7 @@ import {
 } from '../shared/types'
 import { normalizeSubscriptionType } from '../shared/subscription'
 import { ACCOUNT_STORE_VERSION, migrateAccountStoreData } from '../shared/accountData'
+import { decodeAccountBackup, encodeEncryptedAccountBackup } from '../shared/accountBackup'
 import {
   DEFAULT_BILLING_CONFIG,
   type BillingStoredConfig
@@ -284,6 +285,95 @@ export function getBackupDir(): string {
 }
 
 let lastBackupAt = 0
+let backupProtectionWarningShown = false
+
+function secureBackupStorageAvailable(): boolean {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return false
+    // Linux 的 basic_text 后端不提供真实加密；当前发行平台为 Windows/macOS，仍显式拒绝降级。
+    return process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'
+  } catch {
+    return false
+  }
+}
+
+function warnBackupProtectionUnavailable(): void {
+  if (backupProtectionWarningShown) return
+  backupProtectionWarningShown = true
+  console.warn('[Store] 系统安全存储不可用，已停止创建包含账号凭证的滚动备份')
+}
+
+function isAccountBackupData(value: unknown): value is AccountStoreData {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    Array.isArray((value as { accounts?: unknown }).accounts)
+  )
+}
+
+function encryptBackup(data: AccountStoreData): string {
+  if (!secureBackupStorageAvailable()) throw new Error('系统安全存储不可用')
+  return encodeEncryptedAccountBackup(data, (plaintext) =>
+    safeStorage.encryptString(plaintext).toString('base64')
+  )
+}
+
+function decryptBackup(content: string): { data: AccountStoreData; encrypted: boolean } {
+  const decoded = decodeAccountBackup(content, (ciphertext) =>
+    safeStorage.decryptString(Buffer.from(ciphertext, 'base64'))
+  )
+  if (!isAccountBackupData(decoded.data)) throw new Error('账号备份格式无效')
+  return { data: migrateAccountStoreData(decoded.data).data, encrypted: decoded.encrypted }
+}
+
+async function writeProtectedBackup(file: string, data: AccountStoreData): Promise<void> {
+  const content = encryptBackup(data)
+  const tmp = `${file}.tmp`
+  await fs.writeFile(tmp, content, { encoding: 'utf-8', mode: 0o600 })
+  await fs.chmod(tmp, 0o600).catch(() => undefined)
+  try {
+    await fs.rename(tmp, file)
+  } catch {
+    await fs.writeFile(file, content, { encoding: 'utf-8', mode: 0o600 })
+    await fs.chmod(file, 0o600).catch(() => undefined)
+    await fs.unlink(tmp).catch(() => undefined)
+  }
+}
+
+/** 启动时把旧版明文滚动备份原地升级为 safeStorage 密文。 */
+export async function protectLegacyAccountBackups(): Promise<number> {
+  const dir = getBackupDir()
+  let files: string[]
+  try {
+    files = (await fs.readdir(dir)).filter((name) => name.startsWith('accounts-'))
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0
+    throw error
+  }
+
+  if (!secureBackupStorageAvailable()) {
+    warnBackupProtectionUnavailable()
+    // 无法加密时至少收紧旧文件权限，且绝不再创建新的明文备份。
+    await Promise.all(
+      files.map((name) => fs.chmod(path.join(dir, name), 0o600).catch(() => undefined))
+    )
+    return 0
+  }
+
+  let migrated = 0
+  for (const name of files) {
+    const file = path.join(dir, name)
+    try {
+      const decoded = decryptBackup(await fs.readFile(file, 'utf-8'))
+      if (decoded.encrypted) continue
+      await writeProtectedBackup(file, decoded.data)
+      migrated++
+    } catch (error) {
+      console.warn(`[Store] 无法保护旧账号备份 ${name}:`, error)
+    }
+  }
+  return migrated
+}
 
 /** 删除账号时同步净化滚动备份，避免旧备份继续保存已删除账号的凭证与用量快照。 */
 async function purgeAccountsFromBackups(remove: Set<string>): Promise<number> {
@@ -295,8 +385,7 @@ async function purgeAccountsFromBackups(remove: Set<string>): Promise<number> {
     for (const name of files) {
       const file = path.join(dir, name)
       try {
-        const parsed = JSON.parse(await fs.readFile(file, 'utf-8')) as AccountStoreData
-        if (!Array.isArray(parsed.accounts)) continue
+        const parsed = decryptBackup(await fs.readFile(file, 'utf-8')).data
         const remaining = parsed.accounts.filter((account) => !remove.has(account.id))
         const count = parsed.accounts.length - remaining.length
         if (!count) continue
@@ -304,7 +393,7 @@ async function purgeAccountsFromBackups(remove: Set<string>): Promise<number> {
         if (parsed.activeAccountId && remove.has(parsed.activeAccountId)) {
           parsed.activeAccountId = null
         }
-        await fs.writeFile(file, JSON.stringify(parsed, null, 2), 'utf-8')
+        await writeProtectedBackup(file, parsed)
         removed += count
       } catch (error) {
         console.warn(`[Store] 无法净化账号备份 ${name}:`, error)
@@ -320,16 +409,16 @@ async function purgeAccountsFromBackups(remove: Set<string>): Promise<number> {
 
 async function writeBackup(data: AccountStoreData): Promise<void> {
   if (Date.now() - lastBackupAt < BACKUP_INTERVAL_MS) return
+  if (!secureBackupStorageAvailable()) {
+    warnBackupProtectionUnavailable()
+    return
+  }
   lastBackupAt = Date.now()
   try {
     const dir = getBackupDir()
     await fs.mkdir(dir, { recursive: true })
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    await fs.writeFile(
-      path.join(dir, `accounts-${stamp}.json`),
-      JSON.stringify(data, null, 2),
-      'utf-8'
-    )
+    await writeProtectedBackup(path.join(dir, `accounts-${stamp}.json`), data)
 
     // 文件名带 ISO 时间戳，字典序即时间序，取前面的就是最旧的
     const files = (await fs.readdir(dir)).filter((f) => f.startsWith('accounts-')).sort()
