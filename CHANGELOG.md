@@ -4,6 +4,12 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.1] - 2026-09-04
+
+### 新增
+
+- 账号卡片状态标签左侧增加邮箱复制按钮，可一键复制该账号的真实邮箱，并避免触发卡片选中
+
 ## [1.2.0] - 2026-09-04
 
 ### 新增
@@ -1067,6 +1073,7 @@ Key 列表，同时把账号卡片与工具栏上并列的两个刷新入口收�
 
 > 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
 
+[1.2.1]: https://github.com/ZoroHasaky/KiroLuker/releases/tag/v1.2.1
 [1.2.0]: https://github.com/ZoroHasaky/KiroLuker/releases/tag/v1.2.0
 [1.1.1]: https://github.com/ZoroHasaky/KiroLuker/releases/tag/v1.1.1
 [1.1.0]: https://github.com/ZoroHasaky/KiroLuker/releases/tag/v1.1.0

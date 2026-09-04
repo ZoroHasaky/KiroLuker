@@ -30,6 +30,7 @@ import {
 } from '@/utils/format'
 import { displayEmail, displayName, displayNote } from '@/utils/display'
 import { now } from '@/utils/now'
+import { copyText } from '@/utils/ui'
 import type { Account, AccountTag } from '@shared/types'
 
 const props = defineProps<{
@@ -243,6 +244,11 @@ const emitAction = emit as (event: ActionKey) => void
 function trigger(key: ActionKey): void {
   emitAction(key)
 }
+
+/** 快速复制始终使用真实邮箱；隐私模式只影响页面显示，不改变用户主动复制的内容。 */
+function copyEmail(): void {
+  copyText(props.account.email, '账号邮箱已复制')
+}
 </script>
 
 <template>
@@ -265,6 +271,17 @@ function trigger(key: ActionKey): void {
           :title="props.account.note && !privacy ? props.account.note : undefined"
         >备注：{{ note || '-' }}</span>
       </div>
+      <a-tooltip title="复制账号邮箱">
+        <a-button
+          type="text"
+          size="small"
+          class="copy-email-btn"
+          aria-label="复制账号邮箱"
+          @click.stop="copyEmail"
+        >
+          <CopyOutlined />
+        </a-button>
+      </a-tooltip>
       <a-tag :color="status.color" class="status-tag">{{ status.text }}</a-tag>
     </div>
 
@@ -472,6 +489,22 @@ function trigger(key: ActionKey): void {
 .status-tag {
   margin: 0;
   flex: 0 0 auto;
+}
+
+.copy-email-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--kal-muted);
+}
+
+.copy-email-btn:hover {
+  color: var(--kal-primary) !important;
+  background: color-mix(in srgb, var(--kal-primary) 8%, transparent) !important;
 }
 
 .tag-row {
