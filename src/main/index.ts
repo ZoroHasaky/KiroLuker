@@ -29,6 +29,7 @@ import { flushGatewayHistory } from './gatewayHistory'
 import { initLogger, installConsoleBridge, log, shutdownLogger } from './logger'
 import { sendToRenderer } from './utils'
 import { retireKeyService, shutdownKeyServiceSync } from './keyService'
+import { resolveRuntimePaths } from './runtimePaths'
 
 /*
  * 按设置里的地区指定 Chromium 区域。
@@ -67,6 +68,7 @@ function defaultWindowSize(): { width: number; height: number } {
 
 function createWindow(): void {
   const { width, height } = defaultWindowSize()
+  const runtimePaths = resolveRuntimePaths(app.getAppPath())
   mainWindow = new BrowserWindow({
     width,
     height,
@@ -78,7 +80,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     backgroundColor: getSettings().darkMode ? '#111318' : '#f5f6fa',
     webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
+      preload: runtimePaths.preload,
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false,
@@ -159,7 +161,7 @@ function createWindow(): void {
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(runtimePaths.renderer)
   }
 }
 
@@ -170,6 +172,30 @@ function focusWindow(): void {
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.show()
   mainWindow.focus()
+}
+
+/**
+ * 托盘退出不能依赖渲染进程：页面加载失败时，渲染层无法显示确认框，
+ * 会导致用户点了「退出程序」却没有任何反应。
+ */
+function confirmTrayQuit(): void {
+  focusWindow()
+  const options = {
+    type: 'question' as const,
+    buttons: ['退出程序', '取消'],
+    defaultId: 0,
+    cancelId: 1,
+    title: '退出 KiroLuker',
+    message: '确定要退出 KiroLuker 吗？',
+    detail: '退出后自动刷新与 IDE 主动续期都会停止，托盘图标也会一起关闭。'
+  }
+  const choice =
+    mainWindow && !mainWindow.isDestroyed()
+      ? dialog.showMessageBoxSync(mainWindow, options)
+      : dialog.showMessageBoxSync(options)
+  if (choice !== 0) return
+  isQuitting = true
+  app.quit()
 }
 
 // 社交登录的 kiro:// 回调在 Windows/Linux 上以命令行参数唤起第二个实例
@@ -237,11 +263,8 @@ app.whenReady().then(() => {
   // 先登记回调，再按设置决定是否真正创建托盘图标
   registerTrayCallbacks({
     onShowWindow: focusWindow,
-    // 不直接退出：先把主窗口带到前台，让渲染进程弹确认框，确认后走 app:quit
-    onQuit: () => {
-      focusWindow()
-      sendToRenderer(mainWindow, 'app:confirm-quit')
-    },
+    // 使用主进程原生确认框，渲染页面异常时也必须能可靠退出。
+    onQuit: confirmTrayQuit,
     onAction: (action) => {
       focusWindow()
       mainWindow?.webContents.send('tray:action', action)
