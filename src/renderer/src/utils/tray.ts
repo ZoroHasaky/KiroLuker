@@ -20,16 +20,10 @@ export function useTrayBridge(): void {
   const accountsStore = useAccountsStore()
   const settingsStore = useSettingsStore()
 
-  /** 只有「正常」账号才允许切换 */
-  const usableAccounts = computed(() =>
-    accountsStore.accounts.filter((a) => a.status === 'active')
-  )
-
   const snapshot = computed<TraySnapshot>(() => {
     const active = accountsStore.activeAccount
     const base: TraySnapshot = {
-      total: accountsStore.accounts.length,
-      switchable: usableAccounts.value.filter((a) => !a.isActive).length
+      total: accountsStore.accounts.length
     }
     if (!active) return base
 
@@ -57,26 +51,11 @@ export function useTrayBridge(): void {
     notifyResult(res, { success: '当前账号信息已刷新', failPrefix: '刷新失败' })
   }
 
-  /** 在正常账号中轮换到下一个 */
-  async function switchNext(): Promise<void> {
-    const usable = usableAccounts.value
-    if (usable.length === 0) return void message.info('没有可切换的正常账号')
-    const index = usable.findIndex((a) => a.isActive)
-    const next = usable[(index + 1) % usable.length]
-    if (!next || next.isActive) return void message.info('没有其它可切换的账号')
-    const res = await accountsStore.switchTo(next.id)
-    notifyResult(res, {
-      success: `已切换到 ${next.email}，重启 Kiro IDE 后生效`,
-      failPrefix: '切换失败'
-    })
-  }
-
   let unsubscribe: (() => void) | null = null
 
   onMounted(() => {
     unsubscribe = window.api.onTrayAction((action: TrayAction) => {
       if (action === 'refresh') void refreshActive()
-      else if (action === 'switch-next') void switchNext()
     })
   })
 

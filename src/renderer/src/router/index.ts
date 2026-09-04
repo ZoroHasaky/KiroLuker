@@ -22,12 +22,7 @@ const router = createRouter({
       component: () => import('@/views/SubscriptionView.vue'),
       meta: { title: '批量订阅' }
     },
-    {
-      path: '/tools',
-      name: 'tools',
-      component: () => import('@/views/ToolsView.vue'),
-      meta: { title: '常用工具' }
-    },
+    { path: '/tools', redirect: '/home' },
     {
       path: '/billing',
       name: 'billing',

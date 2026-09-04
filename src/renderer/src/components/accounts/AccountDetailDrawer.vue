@@ -21,7 +21,7 @@ import {
   subscriptionLabel,
   usageColor
 } from '@/utils/format'
-import { displayEmail, displayNote } from '@/utils/display'
+import { displayEmail } from '@/utils/display'
 import { toPlain } from '@/utils/ipc'
 import { copyText, notifyResult } from '@/utils/ui'
 import { regionLabel } from '@shared/regions'
@@ -47,11 +47,6 @@ const precision = computed(() => settingsStore.settings.usagePrecision)
 
 const email = computed(() =>
   displayEmail(account.value?.email ?? '', settingsStore.settings.privacyMode)
-)
-
-/** 备注同样跟随隐私打码，否则卡片遮住了、点开详情又露出来 */
-const note = computed(() =>
-  displayNote(account.value?.note, settingsStore.settings.privacyMode)
 )
 
 /**
@@ -110,17 +105,15 @@ async function openPortal(): Promise<void> {
   }
 }
 
-async function act(kind: 'refresh' | 'check' | 'switch'): Promise<void> {
+async function act(kind: 'refresh' | 'check'): Promise<void> {
   const target = account.value
   if (!target) return
   busy.value = true
   try {
     if (kind === 'refresh') {
       notifyResult(await accountsStore.refreshToken(target.id), { success: '密钥已刷新' })
-    } else if (kind === 'check') {
-      notifyResult(await accountsStore.checkStatus(target.id), { success: '用量已更新' })
     } else {
-      notifyResult(await accountsStore.switchTo(target.id), { success: '已写入 Kiro IDE' })
+      notifyResult(await accountsStore.checkStatus(target.id), { success: '用量已更新' })
     }
   } finally {
     busy.value = false
@@ -138,7 +131,6 @@ async function act(kind: 'refresh' | 'check' | 'switch'): Promise<void> {
   >
     <template v-if="account">
       <a-space style="margin-bottom: 16px" wrap>
-        <a-button type="primary" :loading="busy" @click="act('switch')">切换到此账号</a-button>
         <a-button :loading="busy" @click="act('refresh')">刷新密钥</a-button>
         <a-button :loading="busy" @click="act('check')">刷新用量</a-button>
         <a-tooltip title="用该账号凭证在私密窗口登录 Kiro 官网后台">
@@ -172,7 +164,6 @@ async function act(kind: 'refresh' | 'check' | 'switch'): Promise<void> {
           <span class="muted">{{ account.credentials.authMethod }}</span>
         </a-descriptions-item>
         <a-descriptions-item label="昵称">{{ account.nickname || '-' }}</a-descriptions-item>
-        <a-descriptions-item label="备注">{{ note || '-' }}</a-descriptions-item>
         <a-descriptions-item label="User ID">
           <span class="mono">{{ account.userId || '-' }}</span>
         </a-descriptions-item>

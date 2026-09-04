@@ -31,16 +31,12 @@ import type {
   OnlineLoginCredentials,
   RefreshTokenResult,
   RestartIdeResult,
-  ShellAutoApproveStatus,
-  ShellAutoApproveTarget,
   SocialCallbackPayload,
   SubscriptionLinkResult,
   SubscriptionPlansResult,
   LogQuery,
   LogQueryResult,
   ProactiveRenewalPayload,
-  SwitchAccountInput,
-  SwitchAccountResult,
   TrayAction,
   TraySnapshot,
   UpdateCheckResult,
@@ -160,7 +156,6 @@ export interface Api extends BillingRendererApi {
 
   readLocalKiroCredentials: () => Promise<IpcResult<LocalKiroCredentials>>
   getActiveKiroToken: () => Promise<IpcResult<KiroActiveToken>>
-  switchAccount: (input: SwitchAccountInput) => Promise<IpcResult<SwitchAccountResult>>
   isKiroIdeRunning: () => Promise<IpcResult<{ running: boolean }>>
   restartKiroIde: () => Promise<IpcResult<RestartIdeResult>>
   logoutKiro: () => Promise<IpcResult<{ deleted: number }>>
@@ -232,13 +227,6 @@ export interface Api extends BillingRendererApi {
   cancelUpdateDownload: () => Promise<IpcResult<AppUpdateState>>
   applyUpdate: () => Promise<IpcResult<AppUpdateState>>
   onUpdateState: (handler: (state: AppUpdateState) => void) => () => void
-  getShellAutoApproveStatus: () => Promise<IpcResult<ShellAutoApproveStatus>>
-  enableShellAutoApprove: () => Promise<IpcResult<ShellAutoApproveStatus>>
-  disableShellAutoApprove: () => Promise<IpcResult<ShellAutoApproveStatus>>
-  /** 在文件管理器里定位对应机制的配置文件 */
-  revealShellApproveTarget: (
-    kind: ShellAutoApproveTarget['kind']
-  ) => Promise<IpcResult<void>>
   openExternal: (url: string, browserOptions?: BrowserOpenOptions) => Promise<IpcResult<BrowserOpenInfo>>
   choosePrivateBrowser: () => Promise<IpcResult<PrivateBrowserSelection>>
   showPath: (target: 'store' | 'backup' | 'logs') => Promise<IpcResult>

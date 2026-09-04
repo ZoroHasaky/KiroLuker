@@ -16,7 +16,6 @@ import {
   type OnlineLoginCredentials,
   type ProactiveRenewalPayload,
   type SubscriptionType,
-  type SwitchAccountResult,
   type VerifyCredentialsInput
 } from '@shared/types'
 import {
@@ -184,7 +183,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     const keyword = search.trim().toLowerCase()
     return accounts.value.filter((a) => {
       if (keyword) {
-        const haystack = `${a.email} ${a.nickname ?? ''} ${a.note ?? ''}`.toLowerCase()
+        const haystack = `${a.email} ${a.nickname ?? ''}`.toLowerCase()
         if (!haystack.includes(keyword)) return false
       }
       if (statuses.length && !statuses.includes(a.status)) return false
@@ -429,28 +428,6 @@ export const useAccountsStore = defineStore('accounts', () => {
     }
     updateAccount(accountId, { tagIds: nextIds })
     return true
-  }
-
-  /**
-   * 批量覆盖备注：选中的账号统一改成同一个 note（空串表示清空）。
-   * 一次性换数组引用 + 单次 persist，避免逐个 updateAccount 触发 N 次写盘。
-   * @returns 实际改动的账号数
-   */
-  function setNoteForAccounts(ids: string[], note: string): number {
-    const target = new Set(ids.filter(Boolean))
-    if (!target.size) return 0
-    const value = note.trim() || undefined
-    let changed = 0
-    const next = accounts.value.map((account) => {
-      if (!target.has(account.id) || account.note === value) return account
-      changed++
-      return { ...account, note: value }
-    })
-    if (changed) {
-      accounts.value = next
-      persist()
-    }
-    return changed
   }
 
   async function removeAccounts(
@@ -799,59 +776,6 @@ export const useAccountsStore = defineStore('accounts', () => {
     return result
   }
 
-  // ============ 切号 / IDE 同步 ============
-
-  async function switchTo(
-    id: string
-  ): Promise<{ ok: boolean; error?: string; result?: SwitchAccountResult }> {
-    const account = get(id)
-    if (!account) return { ok: false, error: '账号不存在' }
-
-    const res = await window.api.switchAccount({
-      accountId: id,
-      accessToken: account.credentials.accessToken,
-      refreshToken: account.credentials.refreshToken,
-      clientId: account.credentials.clientId,
-      clientSecret: account.credentials.clientSecret,
-      region: account.credentials.region,
-      startUrl: account.credentials.startUrl,
-      authMethod: authMethodOf(account.idp),
-      provider: account.idp,
-      profileArn: account.profileArn || account.credentials.profileArn
-    })
-    if (!res.success || !res.data) {
-      console.warn(`[Account] 切换到 ${account.email} 失败：${res.error}`)
-      return { ok: false, error: res.error }
-    }
-
-    const result = res.data
-    console.info(
-      `[Account] 已切换到 ${account.email}（profileArn 校验${result.verified ? '通过' : '未通过'}）`
-    )
-    accounts.value = accounts.value.map((a) =>
-      a.id === id
-        ? {
-            ...a,
-            isActive: true,
-            lastUsedAt: Date.now(),
-            status: 'active',
-            lastError: undefined,
-            // 记住主进程实测可用的 profileArn，下次切号少试一轮
-            profileArn: result.profileArn || a.profileArn,
-            credentials: {
-              ...a.credentials,
-              accessToken: result.accessToken,
-              refreshToken: result.refreshToken,
-              expiresAt: Date.now() + result.expiresIn * 1000
-            }
-          }
-        : { ...a, isActive: false }
-    )
-    activeAccountId.value = id
-    persist(true)
-    return { ok: true, result }
-  }
-
   async function restartKiroIde(): Promise<{ ok: boolean; message: string }> {
     const res = await window.api.restartKiroIde()
     if (!res.success || !res.data) {
@@ -1156,16 +1080,14 @@ export const useAccountsStore = defineStore('accounts', () => {
     updateTag,
     removeTag,
     setAccountTags,
-    setNoteForAccounts,
     removeAccounts,
     importItems,
     importFullData,
-    // 刷新 / 切号
+    // 刷新 / IDE 状态同步
     refreshToken,
     checkStatus,
     applyRenewedCredentials,
     runBatch,
-    switchTo,
     restartKiroIde,
     syncActiveFromIde,
     logoutIde,

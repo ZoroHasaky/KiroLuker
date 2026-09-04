@@ -247,7 +247,7 @@ const recent = computed(() =>
 
 const tips = [
   '点击左侧「账户管理」可以查看和管理所有账号',
-  '在账号卡片上点击切换图标可以一键写入 Kiro IDE',
+  '账号卡片右上角可以一键复制账号邮箱',
   '开启「自动刷新」后，即将过期的 Token 会自动续期',
   '使用「隐私模式」可以隐藏邮箱等敏感信息'
 ]
@@ -286,7 +286,7 @@ function previewOf(list: Account[]): string {
         <img class="hero-logo" :src="kirolukerLogo" alt="KiroLuker" />
         <div>
           <h1 class="hero-title">欢迎使用 KiroLuker</h1>
-          <p class="hero-sub muted">管理你的 Kiro IDE 账号，一键切换，高效开发</p>
+          <p class="hero-sub muted">集中管理你的 Kiro IDE 账号，高效开发</p>
         </div>
       </div>
     </section>

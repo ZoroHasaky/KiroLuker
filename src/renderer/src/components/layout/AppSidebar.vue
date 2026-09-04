@@ -6,7 +6,6 @@ import {
   TeamOutlined,
   CreditCardOutlined,
   DollarCircleOutlined,
-  ToolOutlined,
   FileTextOutlined,
   SettingOutlined,
   InfoCircleOutlined,
@@ -47,7 +46,6 @@ const items = computed(() => [
     icon: TeamOutlined
   },
   { key: 'subscription', label: '批量订阅', icon: DollarCircleOutlined },
-  { key: 'tools', label: '常用工具', icon: ToolOutlined },
   { key: 'billing', label: '账单信息', icon: CreditCardOutlined },
   { key: 'logs', label: '系统日志', icon: FileTextOutlined },
   { key: 'settings', label: '设置', icon: SettingOutlined },

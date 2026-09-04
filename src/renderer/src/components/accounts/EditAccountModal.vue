@@ -13,7 +13,6 @@ const accountsStore = useAccountsStore()
 
 const form = reactive({
   nickname: '',
-  note: '',
   password: '',
   refreshToken: '',
   clientId: '',
@@ -26,7 +25,6 @@ watch(
   (account) => {
     if (!account) return
     form.nickname = account.nickname ?? ''
-    form.note = account.note ?? ''
     form.password = account.password ?? ''
     form.refreshToken = account.credentials.refreshToken ?? ''
     form.clientId = account.credentials.clientId ?? ''
@@ -43,7 +41,6 @@ function submit(): void {
 
   accountsStore.updateAccount(account.id, {
     nickname: form.nickname.trim() || undefined,
-    note: form.note.trim() || undefined,
     password: form.password.trim() || undefined,
     credentials: {
       ...account.credentials,
@@ -84,9 +81,6 @@ function submit(): void {
           </a-form-item>
         </a-col>
       </a-row>
-      <a-form-item label="备注">
-        <a-textarea v-model:value="form.note" :rows="2" allow-clear />
-      </a-form-item>
       <a-form-item label="Refresh Token">
         <a-textarea v-model:value="form.refreshToken" :rows="3" />
       </a-form-item>

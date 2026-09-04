@@ -9,7 +9,6 @@ import {
   GlobalOutlined,
   KeyOutlined,
   LinkOutlined,
-  LoginOutlined,
   LogoutOutlined,
   SyncOutlined,
   TagsOutlined,
@@ -28,7 +27,7 @@ import {
   tokenLife,
   usageColor
 } from '@/utils/format'
-import { displayEmail, displayName, displayNote } from '@/utils/display'
+import { displayEmail, displayName } from '@/utils/display'
 import { now } from '@/utils/now'
 import { copyText } from '@/utils/ui'
 import type { Account, AccountTag } from '@shared/types'
@@ -49,7 +48,6 @@ const emit = defineEmits<{
   detail: []
   edit: []
   remove: []
-  switch: []
   logout: []
   'refresh-key': []
   'refresh-usage': []
@@ -76,9 +74,6 @@ const accountTags = computed(() => {
   const selected = new Set(props.account.tagIds ?? [])
   return props.tags.filter((tag) => selected.has(tag.id))
 })
-
-/** 备注在隐私模式下整段遮住；留空时显示占位符，保证同排卡片高度一致 */
-const note = computed(() => displayNote(props.account.note, privacy.value))
 
 /** 使用率百分比原始值，用量条与文案各自再做取整 */
 const rawPercent = computed(() => (props.account.usage.percentUsed || 0) * 100)
@@ -165,7 +160,6 @@ const tokenState = computed(() => {
 })
 
 type ActionKey =
-  | 'switch'
   | 'logout'
   | 'refresh-key'
   | 'refresh-usage'
@@ -195,23 +189,19 @@ interface CardAction {
   color?: string
 }
 
-/** 首个按钮随登录状态切换：已登录显示退出登录，未登录显示登录 */
-const actions = computed<CardAction[]>(() => [
-  props.account.isActive
-    ? {
-        id: 'logout',
-        action: 'logout',
-        title: '退出登录（清理 Kiro IDE 凭证）',
-        icon: LogoutOutlined,
-        color: '#52c41a'
-      }
-    : {
-        id: 'switch',
-        action: 'switch',
-        title: '登录此账号（写入 Kiro IDE）',
-        icon: LoginOutlined
-      },
-  {
+/** 当前正被 Kiro IDE 使用的账号保留退出入口；不再提供把其它账号写入 IDE 的操作。 */
+const actions = computed<CardAction[]>(() => {
+  const items: CardAction[] = []
+  if (props.account.isActive) {
+    items.push({
+      id: 'logout',
+      action: 'logout',
+      title: '退出登录（清理 Kiro IDE 凭证）',
+      icon: LogoutOutlined,
+      color: '#52c41a'
+    })
+  }
+  items.push({
     id: 'refresh',
     title: '刷新',
     icon: SyncOutlined,
@@ -219,14 +209,17 @@ const actions = computed<CardAction[]>(() => [
       { key: 'refresh-key', label: '刷新密钥', icon: KeyOutlined },
       { key: 'refresh-usage', label: '刷新用量与积分', icon: SyncOutlined }
     ]
-  },
-  { id: 'copy-oidc', action: 'copy-oidc', title: '复制 OIDC 精简 JSON', icon: CopyOutlined },
-  { id: 'payment-link', action: 'payment-link', title: '支付链接', icon: LinkOutlined },
-  { id: 'test', action: 'test', title: '测活（发一次真实对话）', icon: ThunderboltOutlined },
-  { id: 'portal', action: 'portal', title: '前往Kiro.dev官网', icon: GlobalOutlined },
-  { id: 'edit', action: 'edit', title: '编辑', icon: EditOutlined },
-  { id: 'remove', action: 'remove', title: '删除', icon: DeleteOutlined, danger: true }
-])
+  })
+  items.push(
+    { id: 'copy-oidc', action: 'copy-oidc', title: '复制 OIDC 精简 JSON', icon: CopyOutlined },
+    { id: 'payment-link', action: 'payment-link', title: '支付链接', icon: LinkOutlined },
+    { id: 'test', action: 'test', title: '测活（发一次真实对话）', icon: ThunderboltOutlined },
+    { id: 'portal', action: 'portal', title: '前往Kiro.dev官网', icon: GlobalOutlined },
+    { id: 'edit', action: 'edit', title: '编辑', icon: EditOutlined },
+    { id: 'remove', action: 'remove', title: '删除', icon: DeleteOutlined, danger: true }
+  )
+  return items
+})
 
 /** 菜单型按钮的加载态取自其任一子动作 */
 function isLoading(item: CardAction): boolean {
@@ -266,10 +259,6 @@ function copyEmail(): void {
       <div class="identity" @click.stop="emit('detail')">
         <span class="email" :title="privacy ? undefined : props.account.email">{{ email }}</span>
         <span class="nickname">{{ nickname }}</span>
-        <span
-          class="note"
-          :title="props.account.note && !privacy ? props.account.note : undefined"
-        >备注：{{ note || '-' }}</span>
       </div>
       <a-tooltip title="复制账号邮箱">
         <a-button
@@ -458,8 +447,7 @@ function copyEmail(): void {
 }
 
 .email,
-.nickname,
-.note {
+.nickname {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -476,12 +464,6 @@ function copyEmail(): void {
 }
 
 .nickname {
-  font-size: 12px;
-  color: var(--kal-muted);
-}
-
-/* 与昵称同为次要信息，但带「备注：」前缀区分，避免两行灰字看不出差别 */
-.note {
   font-size: 12px;
   color: var(--kal-muted);
 }

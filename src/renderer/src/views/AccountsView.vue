@@ -6,7 +6,6 @@ import {
   DeleteOutlined,
   DownOutlined,
   DownloadOutlined,
-  EditOutlined,
   EyeInvisibleOutlined,
   EyeOutlined,
   FilterOutlined,
@@ -15,7 +14,6 @@ import {
   KeyOutlined,
   PlusOutlined,
   SearchOutlined,
-  SortAscendingOutlined,
   SyncOutlined,
   TagsOutlined,
   UploadOutlined
@@ -28,11 +26,9 @@ import ImportAccountsFileModal from '@/components/accounts/ImportAccountsFileMod
 import ImportAccountsTextModal from '@/components/accounts/ImportAccountsTextModal.vue'
 import ExportAccountsModal from '@/components/accounts/ExportAccountsModal.vue'
 import EditAccountModal from '@/components/accounts/EditAccountModal.vue'
-import BatchNoteModal from '@/components/accounts/BatchNoteModal.vue'
 import AccountDetailDrawer from '@/components/accounts/AccountDetailDrawer.vue'
 import AccountTestModal from '@/components/accounts/AccountTestModal.vue'
 import UsageHistoryModal from '@/components/accounts/UsageHistoryModal.vue'
-import SwitchResultModal from '@/components/accounts/SwitchResultModal.vue'
 import TagManagerModal from '@/components/accounts/TagManagerModal.vue'
 import AccountTagPickerModal from '@/components/accounts/AccountTagPickerModal.vue'
 import PaymentLinkModal from '@/components/accounts/PaymentLinkModal.vue'
@@ -49,7 +45,7 @@ import {
 } from '@/utils/ui'
 import { shouldSkipAccountUsageRefresh } from '@shared/refreshPolicy'
 import { buildOidcExportContent } from '@/utils/transfer'
-import type { Account, SwitchAccountResult } from '@shared/types'
+import type { Account } from '@shared/types'
 
 const accountsStore = useAccountsStore()
 const settingsStore = useSettingsStore()
@@ -69,7 +65,6 @@ function openImport(kind: 'file' | 'text'): void {
   else importTextOpen.value = true
 }
 const exportOpen = ref(false)
-const batchNoteOpen = ref(false)
 const editTarget = ref<Account | null>(null)
 const detailTarget = ref<Account | null>(null)
 const testTarget = ref<Account | null>(null)
@@ -80,10 +75,6 @@ const rowBusy = ref<Record<string, string | undefined>>({})
 /** 批量操作的进度文案，配合下面的函数式组件在 message 里实时刷新 */
 const batchProgress = ref('')
 const BatchProgressText = (): ReturnType<typeof h> => h('span', null, batchProgress.value)
-
-type SortKey = 'createdAt' | 'email' | 'usage' | 'reset' | 'checked'
-
-const sortKey = ref<SortKey>('createdAt')
 
 const busy = computed(() => accountsStore.task.running)
 /**
@@ -110,18 +101,6 @@ const refreshButtonText = computed(() => {
 })
 
 const stats = computed(() => accountsStore.stats)
-
-const sortOptions: { value: SortKey; label: string }[] = [
-  { value: 'createdAt', label: '添加时间' },
-  { value: 'email', label: '邮箱' },
-  { value: 'usage', label: '用量占比' },
-  { value: 'reset', label: '重置剩余天数' },
-  { value: 'checked', label: '最后检查' }
-]
-
-const sortLabel = computed(
-  () => sortOptions.find((o) => o.value === sortKey.value)?.label ?? '添加时间'
-)
 
 const filterOpen = ref(false)
 
@@ -179,23 +158,10 @@ function togglePrivacy(): void {
 
 const sorted = computed(() => {
   const list = [...accountsStore.filtered]
-  switch (sortKey.value) {
-    case 'email':
-      return list.sort((a, b) => a.email.localeCompare(b.email))
-    case 'usage':
-      return list.sort((a, b) => (b.usage.percentUsed || 0) - (a.usage.percentUsed || 0))
-    case 'reset':
-      return list.sort(
-        (a, b) => (a.subscription.daysRemaining ?? 9999) - (b.subscription.daysRemaining ?? 9999)
-      )
-    case 'checked':
-      return list.sort((a, b) => (b.lastCheckedAt ?? 0) - (a.lastCheckedAt ?? 0))
-    default:
-      // 激活账号置顶，其余按添加时间倒序
-      return list.sort(
-        (a, b) => Number(b.isActive) - Number(a.isActive) || (b.createdAt || 0) - (a.createdAt || 0)
-      )
-  }
+  // 排序下拉已移除：固定让 IDE 当前账号置顶，其余按添加时间倒序。
+  return list.sort(
+    (a, b) => Number(b.isActive) - Number(a.isActive) || (b.createdAt || 0) - (a.createdAt || 0)
+  )
 })
 
 /** 网格数据：账号卡片 + 末尾一张「添加账号」卡 */
@@ -213,14 +179,14 @@ function gridItemKey(item: GridItem): string {
 const gridRef = ref<{ scrollToTop: () => void } | null>(null)
 
 /**
- * 回到顶部的触发条件：筛选条件（含搜索词）或排序方式变化。
+ * 回到顶部的触发条件：筛选条件（含搜索词）变化。
  *
  * 这里必须用「值快照」而不是把 sorted.length 之类的派生值塞进 watch 源：
  * 自动刷新会整体替换账号数据，派生的计算属性随之重算，
  * 只要 watch 源是每次新建的对象/数组，回调就会被触发，
  * 表现就是滚动中莫名跳回顶部。
  */
-const scrollResetKey = computed(() => JSON.stringify([accountsStore.filter, sortKey.value]))
+const scrollResetKey = computed(() => JSON.stringify(accountsStore.filter))
 
 watch(scrollResetKey, () => gridRef.value?.scrollToTop())
 
@@ -364,25 +330,6 @@ function clearPaymentLink(accountId: string): void {
   message.success('支付链接已清空')
 }
 
-const switchResult = ref<SwitchAccountResult | null>(null)
-const switchLabel = ref('')
-const switchModalOpen = ref(false)
-
-async function switchTo(account: Account): Promise<void> {
-  await withBusy(account.id, 'switch', async () => {
-    const res = await accountsStore.switchTo(account.id)
-    if (!res.ok || !res.result) return void message.error(`切换失败：${res.error}`)
-    switchResult.value = res.result
-    // 打码模式下昵称同样要遮住，只显示打码邮箱
-    switchLabel.value = privacyMode.value
-      ? displayEmail(account.email)
-      : account.nickname
-        ? `${account.nickname}（${account.email}）`
-        : account.email
-    switchModalOpen.value = true
-  })
-}
-
 function clearDeletedAccountUi(ids: string[]): void {
   const deleted = new Set(ids)
   if (editTarget.value && deleted.has(editTarget.value.id)) editTarget.value = null
@@ -483,7 +430,7 @@ async function batch(kind: 'refresh' | 'check'): Promise<void> {
 function logoutIde(account: Account): void {
   confirmDanger({
     title: `退出 ${displayEmail(account.email)} 的登录`,
-    content: '会清空 ~/.aws/sso/cache 目录下的凭证文件，IDE 需要重新登录或重新切号。',
+    content: '会清空 ~/.aws/sso/cache 目录下的凭证文件，IDE 之后需要重新登录。',
     okText: '继续',
     onOk: async () => {
       setBusy(account.id, 'logout')
@@ -506,7 +453,7 @@ function logoutIde(account: Account): void {
         <a-input
           v-model:value="accountsStore.filter.search"
           allow-clear
-          placeholder="搜索邮箱 / 昵称 / 备注"
+          placeholder="搜索邮箱 / 昵称"
           class="search-input"
         >
           <template #prefix><SearchOutlined /></template>
@@ -551,7 +498,7 @@ function logoutIde(account: Account): void {
         </div>
       </div>
 
-      <!-- 第二行：统计 + 筛选 / 排序 / 批量 / 选择 -->
+      <!-- 第二行：统计 + 筛选 / 批量 / 选择 -->
       <div class="meta-bar">
         <span class="count-text">共 {{ sorted.length }} 个账号</span>
         <a-tag v-if="stats.byStatus.active" color="green" :bordered="false">
@@ -597,25 +544,6 @@ function logoutIde(account: Account): void {
           </a-badge>
         </a-popover>
 
-        <a-dropdown>
-          <a-button size="small">
-            <template #icon><SortAscendingOutlined /></template>
-            {{ sortLabel }}
-            <DownOutlined />
-          </a-button>
-          <template #overlay>
-            <a-menu :selected-keys="[sortKey]">
-              <a-menu-item
-                v-for="item in sortOptions"
-                :key="item.value"
-                @click="sortKey = item.value"
-              >
-                {{ item.label }}
-              </a-menu-item>
-            </a-menu>
-          </template>
-        </a-dropdown>
-
         <a-divider type="vertical" style="margin: 0 2px" />
 
         <!-- 两种刷新收进同一个菜单：它们互斥，全局任务状态一次只容得下一条 -->
@@ -649,22 +577,7 @@ function logoutIde(account: Account): void {
           </template>
           {{ privacyMode ? '隐私打码中' : '隐私打码' }}
         </a-button>
-        <!-- 批量操作与删除都作用于全部勾选项（不受当前搜索影响） -->
-        <a-dropdown v-if="accountsStore.selectedIds.length">
-          <a-button size="small">
-            批量操作（{{ accountsStore.selectedIds.length }}个）
-            <DownOutlined />
-          </a-button>
-          <template #overlay>
-            <a-menu>
-              <a-menu-item key="note" @click="batchNoteOpen = true">
-                <EditOutlined />
-                批量设置备注
-              </a-menu-item>
-            </a-menu>
-          </template>
-        </a-dropdown>
-
+        <!-- 删除作用于全部勾选项（不受当前搜索影响） -->
         <a-button
           v-if="accountsStore.selectedIds.length"
           size="small"
@@ -713,7 +626,7 @@ function logoutIde(account: Account): void {
       :item-key="gridItemKey"
       :min-column-width="320"
       :gap="14"
-      :estimated-height="330"
+      :estimated-height="312"
     >
       <template #default="{ item }">
         <AccountCard
@@ -727,7 +640,6 @@ function logoutIde(account: Account): void {
           @portal="openPortal(item.account)"
           @edit="editTarget = item.account"
           @remove="removeOne(item.account)"
-          @switch="switchTo(item.account)"
           @logout="logoutIde(item.account)"
           @refresh-key="refreshKey(item.account)"
           @refresh-usage="refreshUsage(item.account)"
@@ -765,11 +677,6 @@ function logoutIde(account: Account): void {
       :selected-ids="accountsStore.selectedIds"
     />
     <EditAccountModal v-if="editTarget" :account="editTarget" @close="editTarget = null" />
-    <BatchNoteModal
-      v-if="batchNoteOpen"
-      :ids="accountsStore.selectedIds"
-      @close="batchNoteOpen = false"
-    />
     <AccountDetailDrawer
       v-if="detailTarget"
       :account="detailTarget"
@@ -780,12 +687,6 @@ function logoutIde(account: Account): void {
       v-if="usageTarget"
       :account="usageTarget"
       @close="usageTarget = null"
-    />
-    <SwitchResultModal
-      v-if="switchModalOpen && switchResult"
-      v-model:open="switchModalOpen"
-      :account-label="switchLabel"
-      :result="switchResult"
     />
     <TagManagerModal
       v-if="tagManagerOpen"

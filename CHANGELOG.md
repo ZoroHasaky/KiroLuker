@@ -4,6 +4,15 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.2] - 2026-09-04
+
+### 移除
+
+- 移除账号备注的展示、编辑、搜索和批量设置入口；历史备注字段继续保留在数据与完整备份中，避免破坏旧数据兼容
+- 移除将账号凭证写入 Kiro IDE 的登录/切换入口及托盘切号操作，保留当前 IDE 账号的退出、刷新同步和主动续期
+- 移除账户管理页的排序下拉，账号固定按 IDE 当前账号置顶、其余按添加时间倒序展示
+- 移除左侧“常用工具”模块及相关 IPC；升级启动时安全还原或清理旧版由本应用写入的命令放行配置
+
 ## [1.2.1] - 2026-09-04
 
 ### 新增
@@ -1073,6 +1082,7 @@ Key 列表，同时把账号卡片与工具栏上并列的两个刷新入口收�
 
 > 安装遇到问题？请查看 [安装说明与常见问题](./INSTALL.md)。
 
+[1.2.2]: https://github.com/ZoroHasaky/KiroLuker/releases/tag/v1.2.2
 [1.2.1]: https://github.com/ZoroHasaky/KiroLuker/releases/tag/v1.2.1
 [1.2.0]: https://github.com/ZoroHasaky/KiroLuker/releases/tag/v1.2.0
 [1.1.1]: https://github.com/ZoroHasaky/KiroLuker/releases/tag/v1.1.1

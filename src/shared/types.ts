@@ -360,13 +360,11 @@ export interface ProactiveRenewalPayload {
 }
 
 /** 托盘菜单动作 */
-export type TrayAction = 'refresh' | 'switch-next'
+export type TrayAction = 'refresh'
 
 /** 渲染进程推送给托盘的账号摘要 */
 export interface TraySnapshot {
   total: number
-  /** 可切换的正常账号数 */
-  switchable: number
   email?: string
   idp?: string
   subscription?: string
@@ -413,36 +411,6 @@ export interface LocalKiroCredentials {
   region: string
   authMethod: AuthMethod
   provider: IdpType
-}
-
-export interface SwitchAccountInput {
-  accountId: string
-  accessToken: string
-  refreshToken: string
-  clientId?: string
-  clientSecret?: string
-  region?: string
-  startUrl?: string
-  authMethod?: AuthMethod
-  provider?: IdpType
-  profileArn?: string
-}
-
-export interface SwitchAccountResult {
-  accessToken: string
-  refreshToken: string
-  expiresIn: number
-  tokenPath: string
-  /** IdC 账号额外写入的客户端注册文件 */
-  clientRegPath?: string
-  /** 最终写盘的 profileArn（BuilderId 通常为空） */
-  profileArn?: string
-  /** 写盘后是否用该 token 实测通过了用量接口 */
-  verified: boolean
-  /** 校验失败时的原因，仅用于提示，不代表切号失败 */
-  verifyError?: string
-  /** 过程中的提示信息（如换用了哪个 profileArn、清理了几个陈旧注册文件） */
-  notes?: string[]
 }
 
 /** Kiro 官方可用模型 */

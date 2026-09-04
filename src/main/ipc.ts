@@ -1,13 +1,10 @@
 import { BrowserWindow, dialog, ipcMain, shell, app, type IpcMainInvokeEvent } from 'electron'
 import { readFile, writeFile } from 'fs/promises'
-import { existsSync } from 'fs'
-import { dirname } from 'path'
 import {
   checkAccountStatus,
   forgetSwitchedAccounts,
   refreshAccountToken,
   setLastSwitchedAccountId,
-  switchAccount,
   syncCredentialsToIde,
   verifyCredentials
 } from './accountService'
@@ -54,12 +51,6 @@ import {
   getUpdateState,
   initializeUpdater
 } from './updater'
-import {
-  disableShellAutoApprove,
-  enableShellAutoApprove,
-  getShellAutoApproveStatus,
-  shellApproveTargetPath
-} from './kiroPermissions'
 import { clearLogs, exportLogs, getLogDir, queryLogs } from './logger'
 import { buildXlsx } from './xlsxWriter'
 import { BillingService } from './billingService'
@@ -116,8 +107,6 @@ import type {
   ChatTestInput,
   IpcResult,
   LogQuery,
-  ShellAutoApproveTarget,
-  SwitchAccountInput,
   TraySnapshot,
   VerifyCredentialsInput,
   XlsxSheet
@@ -159,8 +148,9 @@ export function applyRuntimeSettings(settings: AppSettings): void {
   setProxyConfig(settings.proxyEnabled, settings.proxyUrl)
   void configureUpdaterProxy()
   setInAppLocale(settings.portalLocale)
+  // “常用工具”模块已移除，历史设置不再启用网关自动重试。
   setGatewayRetryPolicy(
-    settings.gatewayAutoRetryThrottle,
+    false,
     settings.gatewayRetryStatuses,
     settings.gatewayRetryMaxAttempts,
     settings.gatewayRetryDelayMs
@@ -304,13 +294,6 @@ export function registerIpc(
       authMethod: token.authMethod,
       provider: token.provider
     })
-  })
-
-  handle('kiro:switch', async (_e, input: SwitchAccountInput) => {
-    const result = await switchAccount(input)
-    // 新账号成为 IDE 激活账号，按其 token expiresAt 重排主动续期
-    scheduleProactiveRenewal(input.accountId, Date.now() + result.expiresIn * 1000)
-    return ok(result)
   })
 
   handle('kiro:logout', async () => {
@@ -593,23 +576,6 @@ export function registerIpc(
   handle('app:update-download', async () => ok(await downloadAvailableUpdate()))
   handle('app:update-cancel', () => ok(cancelUpdateDownload()))
   handle('app:update-apply', () => ok(applyDownloadedUpdate()))
-
-  // ============ 常用工具：Kiro Agent 权限 ============
-  handle('tools:shell-approve-status', async () => ok(await getShellAutoApproveStatus()))
-  handle('tools:shell-approve-enable', async () => ok(await enableShellAutoApprove()))
-  handle('tools:shell-approve-disable', async () => ok(await disableShellAutoApprove()))
-
-  /**
-   * 在文件管理器里定位配置文件。
-   * 渲染层只能传机制标识，路径一律由主进程自行解析，避免任意路径被打开。
-   */
-  handle('tools:shell-approve-reveal', async (_e, kind: ShellAutoApproveTarget['kind']) => {
-    const target = shellApproveTargetPath(kind)
-    // 文件还不存在时退一步打开它所在目录，至少让用户看到位置
-    if (existsSync(target)) shell.showItemInFolder(target)
-    else await shell.openPath(dirname(target))
-    return ok()
-  })
 
   handle('app:open-external', async (_e, url: string, browserOptions?: BrowserOpenOptions) => {
     // 只放行 http(s)，避免被诱导打开本地程序或自定义协议

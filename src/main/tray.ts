@@ -1,11 +1,11 @@
-// 系统托盘（macOS 菜单栏）：展示当前账号信息，提供刷新 / 切号 / 显示窗口 / 退出
+// 系统托盘（macOS 菜单栏）：展示当前账号信息，提供刷新 / 显示窗口 / 退出
 import { Tray, Menu, app, clipboard, nativeImage } from 'electron'
 import type { MenuItemConstructorOptions, NativeImage } from 'electron'
 import { join } from 'path'
 import type { TrayAction, TraySnapshot } from '../shared/types'
 
 let tray: Tray | null = null
-let snapshot: TraySnapshot = { total: 0, switchable: 0 }
+let snapshot: TraySnapshot = { total: 0 }
 
 interface TrayCallbacks {
   onShowWindow: () => void
@@ -79,7 +79,7 @@ function buildMenu(): Menu {
       items.push(disabled(`   Token: ${snapshot.tokenLife}`, 'refresh'))
     }
   } else {
-    items.push(disabled(`共 ${snapshot.total} 个账号，去主窗口切换一个使用`, 'account'))
+    items.push(disabled(`共 ${snapshot.total} 个账号，当前 Kiro IDE 未登录`, 'account'))
   }
 
   items.push(
@@ -89,12 +89,6 @@ function buildMenu(): Menu {
       icon: icon('refresh'),
       enabled: !!snapshot.email,
       click: () => callbacks?.onAction('refresh')
-    },
-    {
-      label: `切换到下一个账户 (${snapshot.switchable} 个可用)`,
-      icon: icon('switch'),
-      enabled: snapshot.switchable > 0,
-      click: () => callbacks?.onAction('switch-next')
     },
     {
       label: '复制当前邮箱',

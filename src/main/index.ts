@@ -29,6 +29,7 @@ import { flushGatewayHistory } from './gatewayHistory'
 import { initLogger, installConsoleBridge, log, shutdownLogger } from './logger'
 import { sendToRenderer } from './utils'
 import { retireKeyService, shutdownKeyServiceSync } from './keyService'
+import { retireShellAutoApprove } from './kiroPermissions'
 import { resolveRuntimePaths } from './runtimePaths'
 
 /*
@@ -254,6 +255,10 @@ app.whenReady().then(() => {
   )
   // API Key 管理功能已移除：保留历史数据，但关闭旧版本可能遗留的本地网关接管。
   void retireKeyService()
+  // 常用工具模块已移除：还原本应用曾写入的 Kiro 命令放行配置。
+  void retireShellAutoApprove().catch((error) => {
+    console.warn(`[KiroPermissions] 退出常用工具配置失败：${error instanceof Error ? error.message : String(error)}`)
+  })
   // macOS 顶部菜单栏（中文菜单 + 页面导航），其他平台维持默认
   setupAppMenu({ focusWindow, getWindow: () => mainWindow })
   createWindow()

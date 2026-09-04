@@ -1,4 +1,4 @@
-// 账户业务逻辑：凭证校验、状态/积分刷新、Token 刷新、切号
+// 账户业务逻辑：凭证校验、状态/积分刷新与 Token 刷新
 import {
   getUsageAndLimits,
   getUserInfo,
@@ -25,8 +25,6 @@ import type {
   AuthMethod,
   IdpType,
   RefreshTokenResult,
-  SwitchAccountInput,
-  SwitchAccountResult,
   VerifyCredentialsInput
 } from '../shared/types'
 
@@ -507,145 +505,4 @@ export function refreshAccountToken(account: Account): Promise<RefreshTokenResul
   })
   refreshInFlight.set(account.id, task)
   return task
-}
-
-// ============ 切号 ============
-
-/**
- * 把账号写入 Kiro IDE 的凭证文件。
- *
- * 关键点，逐条都对应过实际会踩的坑：
- *  1. 写盘前强制 refresh：OIDC 的 refreshToken 是轮换式的，只更新 accessToken 的话
- *     IDE 一小时后会拿作废的旧 refreshToken 去刷新并被强制登出。refresh 失败直接中止。
- *  2. profileArn 逐个试：写错 ARN 是 IDE 报 “Unable to fetch account usage data:
- *     Invalid token / User is not authorized” 的主因。Enterprise 要用自己 profile 的
- *     真实 ARN，BuilderId 则不该带 ARN。这里先实测再落盘。
- *  3. 清理陈旧客户端注册文件：上一个账号留下的 {hash}.json 会让 IDE 用错
- *     clientId/secret 去刷新，失败后同样把用户登出。
- *  4. 写完再用同一个 accessToken 实测一次用量接口，把结论回传界面，
- *     不再是「写完就算成功」。
- */
-export async function switchAccount(input: SwitchAccountInput): Promise<SwitchAccountResult> {
-  const {
-    refreshToken,
-    clientId = '',
-    clientSecret = '',
-    region = DEFAULT_REGION,
-    startUrl,
-    provider = 'BuilderId',
-    profileArn
-  } = input
-  const authMethod = inferAuthMethod(provider, input.authMethod)
-  const idp = resolveIdp(provider, authMethod)
-  const notes: string[] = []
-
-  let accessToken = input.accessToken
-  let finalRefreshToken = refreshToken
-  let expiresIn = DEFAULT_EXPIRES_IN
-
-  if (refreshToken) {
-    /*
-     * refresh 是切号的必要前置，网络抖动导致的失败重试几次通常就能过；
-     * 但要注意 refreshToken 是轮换式的：一旦服务端已经受理并轮换，
-     * 重试用的还是旧 token 就会拿到 invalid_grant，这类错误不重试。
-     */
-    const refreshed = await refreshWithRetry(
-      '切号前刷新 Token',
-      { refreshToken, clientId, clientSecret, region, authMethod },
-      '未知错误'
-    )
-      .then((r) => ({ ok: true as const, value: r }))
-      .catch((e) => ({ ok: false as const, error: errorMessage(e) }))
-
-    if (!refreshed.ok) {
-      throw new Error(
-        `刷新 Token 失败，已中止切换以避免 Kiro IDE 被强制登出。原因：${refreshed.error || '未知错误'}`
-      )
-    }
-    accessToken = refreshed.value.accessToken
-    finalRefreshToken = refreshed.value.refreshToken || refreshToken
-    expiresIn = refreshed.value.expiresIn ?? DEFAULT_EXPIRES_IN
-  }
-
-  // Enterprise 账号先问一次真实 profile，拿到就不用猜了
-  let knownArn = profileArn
-  if (provider === 'Enterprise' && !knownArn) {
-    const [firstArn] = await listAvailableProfiles(accessToken, region).catch(() => [])
-    if (firstArn) {
-      knownArn = firstArn
-      notes.push(`已获取企业账号的真实 profileArn：${firstArn}`)
-    }
-  }
-
-  // 逐个候选做实测，第一个能调通用量接口的就是要写盘的那个
-  const candidates = profileArnCandidates({ profileArn: knownArn, authMethod, provider, region })
-  /*
-   * 用对象而不是裸字符串记录结果：候选里的 undefined 表示「确定不写 ARN」，
-   * 和「还没测出可用候选」是两种含义，混在一起会把实测通过的「不写」
-   * 又覆盖成占位符 ARN，IDE 下一次调用用量接口就报 Invalid token。
-   */
-  let chosen: { arn?: string } | null = null
-  let verifyError: string | undefined
-
-  for (const candidate of candidates) {
-    try {
-      /*
-       * 候选原样送，不再过 arnForApiCall：用量接口现在要求带 profileArn，
-       * 把 BuilderId 占位符剥成 undefined 会让第一个候选必然 403，
-       * 于是每次切号都报「profileArn 校验未通过」。
-       */
-      await withRetry('校验 profileArn', () =>
-        getUsageAndLimits(accessToken, idp, candidate, region)
-      )
-      chosen = { arn: candidate }
-      verifyError = undefined
-      break
-    } catch (error) {
-      const msg = errorMessage(error)
-      verifyError = msg || '用量接口没有返回可识别的结果'
-      if (isBannedError(msg)) throw bannedError(msg)
-      // 只有授权维度的错误才值得换 ARN 再试，网络问题换了也一样
-      if (!isAuthScopeError(msg)) break
-      notes.push(`profileArn ${candidate ?? '(不写)'} 校验失败，换下一个候选`)
-    }
-  }
-
-  const verified = chosen !== null
-  // 全部候选都没通过时仍然写盘：多数情况是网络波动，IDE 自己也会重试
-  const arnToWrite = verified
-    ? chosen?.arn
-    : resolveProfileArn({ profileArn: knownArn, authMethod, provider, region })
-  if (!verified) {
-    notes.push(`未能实测通过，按默认规则写入 profileArn：${arnToWrite ?? '(不写)'}`)
-  }
-
-  const { tokenPath, clientRegPath, prunedRegistrations } = await writeKiroAuthToken({
-    accessToken,
-    refreshToken: finalRefreshToken,
-    expiresAtIso: expiresAtIso(expiresIn),
-    authMethod,
-    provider,
-    region,
-    startUrl,
-    clientId,
-    clientSecret,
-    profileArn: arnToWrite,
-    pruneStaleRegistrations: true
-  })
-  if (prunedRegistrations) {
-    notes.push(`清理了 ${prunedRegistrations} 个陈旧的客户端注册文件`)
-  }
-
-  lastSwitchedAccountId = input.accountId
-  return {
-    accessToken,
-    refreshToken: finalRefreshToken,
-    expiresIn,
-    tokenPath,
-    clientRegPath,
-    profileArn: arnToWrite,
-    verified,
-    verifyError: verified ? undefined : verifyError || '用量接口没有返回可识别的结果',
-    notes
-  }
 }

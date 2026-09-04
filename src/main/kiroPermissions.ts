@@ -536,6 +536,25 @@ export async function disableShellAutoApprove(): Promise<ShellAutoApproveStatus>
 }
 
 /**
+ * “常用工具”模块下线时清理本应用写入的自动放行配置。
+ * 有备份时精确还原；没有备份时只删除带本应用标记的 YAML 块，
+ * 不碰来源无法确认的 trustedCommands 通配符，避免误删用户自己的配置。
+ */
+export async function retireShellAutoApprove(): Promise<void> {
+  const backup = getShellApproveBackup()
+  if (backup) {
+    await restoreTrusted(backup.settings)
+    await restoreYaml(backup.yaml)
+    setShellApproveBackup(null)
+    log('info', '[KiroPermissions] 常用工具已移除，已还原本应用保存的命令放行配置')
+    return
+  }
+
+  await restoreYaml()
+  log('info', '[KiroPermissions] 常用工具已移除，已清理本应用标记的权限规则')
+}
+
+/**
  * 按机制标识解析配置文件路径。
  * 供 IPC 定位文件用：渲染层只传标识，路径始终在主进程算出来。
  */

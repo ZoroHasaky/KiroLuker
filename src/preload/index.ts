@@ -93,7 +93,6 @@ const api = {
   // Kiro IDE
   readLocalKiroCredentials: () => invoke('kiro:read-local-credentials'),
   getActiveKiroToken: () => invoke('kiro:get-active-token'),
-  switchAccount: (input: unknown) => invoke('kiro:switch', input),
   isKiroIdeRunning: () => invoke('kiro:ide-running'),
   restartKiroIde: () => invoke('kiro:restart-ide'),
   logoutKiro: () => invoke('kiro:logout'),
@@ -148,13 +147,6 @@ const api = {
   cancelUpdateDownload: () => invoke('app:update-cancel'),
   applyUpdate: () => invoke('app:update-apply'),
   onUpdateState: (handler: (payload: unknown) => void) => subscribe('app:update-state', handler),
-
-  // 常用工具：Kiro Agent 权限
-  getShellAutoApproveStatus: () => invoke('tools:shell-approve-status'),
-  enableShellAutoApprove: () => invoke('tools:shell-approve-enable'),
-  disableShellAutoApprove: () => invoke('tools:shell-approve-disable'),
-  revealShellApproveTarget: (kind: 'trustedCommands' | 'permissionsYaml') =>
-    invoke('tools:shell-approve-reveal', kind),
 
   // 系统日志
   queryLogs: (query: unknown) => invoke('log:query', query),

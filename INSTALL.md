@@ -62,12 +62,10 @@ xattr -cr "/Applications/KiroLuker.app"
 
 ## 卸载
 
-卸载前请先在应用内关掉会修改 Kiro IDE 配置的功能，让应用把配置还原回去：
+卸载前请先在应用内关闭 API Key 网关，让应用把 Kiro IDE 的端点配置还原回去：
 
 - **API Key 网关**：在 API Key 管理页关闭网关并按提示重启 Kiro IDE，确保官方端点已恢复。
   涉及 `codewhisperer.config.krsEndpoints` / `cpsEndpoints` 两项设置。
-- **自动同意所有 Shell 命令**：在常用工具页关闭开关。涉及 `kiroAgent.trustedCommands`、
-  `kiroAgent.commandDenylist` 与 `~/.kiro/settings/permissions.yaml`。
 
 然后按平台卸载：
 
@@ -133,13 +131,6 @@ Kiro IDE。
 
 进入应用的“系统日志”页面，可筛选、导出日志或点击文件夹按钮打开日志目录。反馈问题时请先检查并
 移除账号凭证、API Key、邮箱等敏感信息，再提供必要的错误片段。
-
-### 自动同意所有 Shell 命令开关打开了但仍会弹确认框
-
-常用工具页会逐项显示两套机制的写入状态。若某一项显示“未写入”或“不可用”，按提示处理：
-未检测到 Kiro 用户数据目录说明没装 Kiro IDE 或用了非默认路径；`permissions.yaml` 缺少
-`rules` 顶层键属于格式异常，本应用不会改动它。另外命令拒绝名单（`kiroAgent.commandDenylist`）
-优先级高于放行，页面会在检测到时给出提示。
 
 ### 重装后如何恢复数据
 
