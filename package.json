@@ -1,9 +1,9 @@
 {
-  "name": "kiro-account-lite",
+  "name": "kiroluker",
   "version": "1.0.19",
-  "description": "Kiro Manager Lite - Kiro 多账号管理器轻量版",
+  "description": "KiroLuker - Kiro 多账号管理工具",
   "main": "./out/main/index.js",
-  "author": "kiro-account-lite",
+  "author": "KiroLuker",
   "license": "AGPL-3.0",
   "private": true,
   "scripts": {
@@ -13,6 +13,7 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "test": "node --test tests/*.test.mjs",
     "clean": "node scripts/clean.mjs",
     "prepack:dist": "npm run clean && electron-vite build",
     "build:mac": "npm run prepack:dist && electron-builder --mac",
@@ -25,6 +26,7 @@
     "@electron-toolkit/utils": "4.0.0",
     "cbor-x": "1.6.0",
     "electron-store": "8.2.0",
+    "pinyin-pro": "^3.29.3",
     "undici": "7.13.0"
   },
   "devDependencies": {

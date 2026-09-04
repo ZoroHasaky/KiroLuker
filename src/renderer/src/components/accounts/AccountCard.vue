@@ -8,9 +8,11 @@ import {
   EditOutlined,
   GlobalOutlined,
   KeyOutlined,
+  LinkOutlined,
   LoginOutlined,
   LogoutOutlined,
   SyncOutlined,
+  TagsOutlined,
   ThunderboltOutlined
 } from '@ant-design/icons-vue'
 import { useSettingsStore } from '@/stores/settings'
@@ -28,10 +30,12 @@ import {
 } from '@/utils/format'
 import { displayEmail, displayName, displayNote } from '@/utils/display'
 import { now } from '@/utils/now'
-import type { Account } from '@shared/types'
+import type { Account, AccountTag } from '@shared/types'
 
 const props = defineProps<{
   account: Account
+  /** 全局标签目录；卡片按 account.tagIds 取出当前账号的标签 */
+  tags: AccountTag[]
   selected: boolean
   /** 正在进行中的操作，只让对应按钮转圈 */
   busyAction?: string | null
@@ -48,10 +52,10 @@ const emit = defineEmits<{
   logout: []
   'refresh-key': []
   'refresh-usage': []
-  'copy-token': []
+  'copy-oidc': []
+  'assign-tags': []
+  'payment-link': []
   test: []
-  /** 用该账号凭证生成一个新的 Kiro API Key */
-  'create-api-key': []
   /** 用该账号凭证打开官网后台 */
   portal: []
   /** 点用量区域查看积分变化日志 */
@@ -66,6 +70,11 @@ const privacy = computed(() => settingsStore.settings.privacyMode)
 
 const email = computed(() => displayEmail(props.account.email, privacy.value))
 const nickname = computed(() => displayName(props.account, privacy.value))
+
+const accountTags = computed(() => {
+  const selected = new Set(props.account.tagIds ?? [])
+  return props.tags.filter((tag) => selected.has(tag.id))
+})
 
 /** 备注在隐私模式下整段遮住；留空时显示占位符，保证同排卡片高度一致 */
 const note = computed(() => displayNote(props.account.note, privacy.value))
@@ -159,9 +168,9 @@ type ActionKey =
   | 'logout'
   | 'refresh-key'
   | 'refresh-usage'
-  | 'copy-token'
+  | 'copy-oidc'
+  | 'payment-link'
   | 'test'
-  | 'create-api-key'
   | 'portal'
   | 'edit'
   | 'remove'
@@ -210,9 +219,9 @@ const actions = computed<CardAction[]>(() => [
       { key: 'refresh-usage', label: '刷新用量与积分', icon: SyncOutlined }
     ]
   },
-  { id: 'copy-token', action: 'copy-token', title: '复制凭证 JSON', icon: CopyOutlined },
+  { id: 'copy-oidc', action: 'copy-oidc', title: '复制 OIDC 精简 JSON', icon: CopyOutlined },
+  { id: 'payment-link', action: 'payment-link', title: '支付链接', icon: LinkOutlined },
   { id: 'test', action: 'test', title: '测活（发一次真实对话）', icon: ThunderboltOutlined },
-  { id: 'create-api-key', action: 'create-api-key', title: 'API Key 管理', icon: KeyOutlined },
   { id: 'portal', action: 'portal', title: '前往Kiro.dev官网', icon: GlobalOutlined },
   { id: 'edit', action: 'edit', title: '编辑', icon: EditOutlined },
   { id: 'remove', action: 'remove', title: '删除', icon: DeleteOutlined, danger: true }
@@ -240,13 +249,15 @@ function trigger(key: ActionKey): void {
   <div
     class="account-card"
     :class="{ 'is-selected': props.selected, 'is-active': props.account.isActive }"
+    @click="emit('toggle-select', !props.selected)"
   >
     <div class="card-head">
       <a-checkbox
         :checked="props.selected"
+        @click.stop
         @change="(e: any) => emit('toggle-select', e.target.checked)"
       />
-      <div class="identity" @click="emit('detail')">
+      <div class="identity" @click.stop="emit('detail')">
         <span class="email" :title="privacy ? undefined : props.account.email">{{ email }}</span>
         <span class="nickname">{{ nickname }}</span>
         <span
@@ -257,15 +268,28 @@ function trigger(key: ActionKey): void {
       <a-tag :color="status.color" class="status-tag">{{ status.text }}</a-tag>
     </div>
 
-    <div class="tag-row">
+    <div class="tag-row" @click.stop>
       <a-tag :color="subscription.color" :bordered="false">
         {{ subscriptionText }}
       </a-tag>
       <a-tag :color="idp.color" :bordered="false">{{ idp.text }}</a-tag>
       <a-tag v-if="props.account.isActive" color="green" :bordered="false">当前使用</a-tag>
+      <a-tag
+        v-for="tag in accountTags"
+        :key="tag.id"
+        :color="tag.color"
+        :bordered="false"
+        class="account-tag"
+      >
+        {{ tag.name }}
+      </a-tag>
+      <button class="tag-picker" type="button" title="给账号添加或修改标签" @click="emit('assign-tags')">
+        <TagsOutlined />
+        {{ accountTags.length ? '修改标签' : '添加标签' }}
+      </button>
     </div>
 
-    <div class="usage-block" title="点击查看积分变化" @click="emit('usage')">
+    <div class="usage-block" title="点击查看积分变化" @click.stop="emit('usage')">
       <div class="usage-head">
         <span class="usage-title">
           <span class="muted">使用量</span>
@@ -327,7 +351,7 @@ function trigger(key: ActionKey): void {
           Token {{ tokenState.text }}
         </span>
       </div>
-      <div class="action-row">
+      <div class="action-row" @click.stop>
         <template v-for="item in actions" :key="item.id">
           <a-dropdown v-if="item.menu" :disabled="busy && !isLoading(item)">
             <a-button
@@ -452,8 +476,40 @@ function trigger(key: ActionKey): void {
 
 .tag-row {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 4px 0;
+  gap: 4px;
+}
+
+.tag-row :deep(.ant-tag) {
+  margin-inline-end: 0;
+}
+
+.account-tag {
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tag-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px dashed var(--kal-primary);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--kal-primary);
+  background: color-mix(in srgb, var(--kal-primary) 7%, transparent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tag-picker:hover {
+  border-color: var(--kal-primary);
+  color: var(--kal-primary);
 }
 
 .usage-block {

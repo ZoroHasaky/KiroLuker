@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   ApiOutlined,
@@ -30,7 +30,16 @@ import type {
   OnlineLoginMethod
 } from '@shared/types'
 
-const props = defineProps<{ open: boolean }>()
+const props = withDefaults(defineProps<{
+  open: boolean
+  /** 快捷入口可跳过方式选择，弹窗挂载并注册回调后自动开始登录 */
+  initialProvider?: 'Github'
+  /** 严格私密模式下绝不回退普通浏览器 */
+  requirePrivate?: boolean
+}>(), {
+  initialProvider: undefined,
+  requirePrivate: false
+})
 const emit = defineEmits<{
   'update:open': [boolean]
   /** 转交给导入弹窗：本弹窗会先关掉自己 */
@@ -45,12 +54,27 @@ type Step = 'method' | 'online' | 'enterprise' | 'waiting' | 'oidc' | 'local'
 const step = ref<Step>('method')
 const submitting = ref(false)
 const loadingLocal = ref(false)
+const browserSelectionNeeded = ref(false)
 
 /** 无痕开关跟随全局设置，改动即持久化，下次打开沿用上次选择 */
 const privateMode = computed({
-  get: () => settingsStore.settings.loginPrivateMode,
-  set: (value: boolean) => void settingsStore.update({ loginPrivateMode: value })
+  get: () => props.requirePrivate || settingsStore.settings.loginPrivateMode,
+  set: (value: boolean) => {
+    if (!props.requirePrivate) void settingsStore.update({ loginPrivateMode: value })
+  }
 })
+
+function browserOptions(): {
+  privateMode: boolean
+  requirePrivate: boolean
+  browserPath?: string
+} {
+  return {
+    privateMode: privateMode.value,
+    requirePrivate: props.requirePrivate,
+    browserPath: settingsStore.settings.privateBrowserPath || undefined
+  }
+}
 
 // 在线登录进行中的状态
 const waiting = reactive({
@@ -205,6 +229,7 @@ function beginWaiting(method: OnlineLoginMethod): void {
   waiting.hint = '正在打开浏览器，请稍候…'
   waiting.error = ''
   waiting.userCode = ''
+  browserSelectionNeeded.value = false
   step.value = 'waiting'
 }
 
@@ -217,6 +242,7 @@ function resetAll(): void {
   waiting.error = ''
   waiting.opening = false
   waiting.openedPrivately = false
+  browserSelectionNeeded.value = false
   enterpriseForm.startUrl = settingsStore.settings.enterpriseStartUrl
   enterpriseForm.region = settingsStore.settings.enterpriseRegion || DEFAULT_REGION
   form.refreshToken = ''
@@ -231,9 +257,15 @@ function resetAll(): void {
 watch(
   () => props.open,
   (open) => {
-    if (open) resetAll()
+    if (open) {
+      resetAll()
+      if (props.initialProvider) {
+        void nextTick(() => startSocial(props.initialProvider as 'Github'))
+      }
+    }
     else teardownLogin()
-  }
+  },
+  { immediate: true }
 )
 
 onUnmounted(teardownLogin)
@@ -303,10 +335,13 @@ async function startSocial(provider: 'Google' | 'Github'): Promise<void> {
     await finishOnline(res.data)
   })
 
-  const res = await window.api.startSocialLogin(provider, privateMode.value)
+  const res = await window.api.startSocialLogin(provider, browserOptions())
   waiting.opening = false
   if (!res.success) {
-    waiting.error = res.error || '启动登录失败'
+    browserSelectionNeeded.value = !!props.requirePrivate && !!res.error?.includes('PRIVATE_BROWSER_REQUIRED')
+    waiting.error = browserSelectionNeeded.value
+      ? '没有找到可用的无痕浏览器，请选择本机浏览器后重试'
+      : res.error || '启动登录失败'
     return
   }
   waiting.verificationUri = res.data?.loginUrl ?? ''
@@ -329,7 +364,7 @@ function applyOpenInfo(info?: { privateMode: boolean; browser?: string }): void 
 async function startBuilderId(): Promise<void> {
   beginWaiting('BuilderId')
 
-  const res = await window.api.startBuilderIdLogin(DEFAULT_REGION, privateMode.value)
+  const res = await window.api.startBuilderIdLogin(DEFAULT_REGION, browserOptions())
   waiting.opening = false
   if (!res.success || !res.data) {
     waiting.error = res.error || '启动登录失败'
@@ -355,7 +390,7 @@ async function startEnterprise(): Promise<void> {
     enterpriseRegion: enterpriseForm.region
   })
 
-  const res = await window.api.startEnterpriseLogin(startUrl, enterpriseForm.region, privateMode.value)
+  const res = await window.api.startEnterpriseLogin(startUrl, enterpriseForm.region, browserOptions())
   waiting.opening = false
   if (!res.success || !res.data) {
     waiting.error = res.error || '启动登录失败'
@@ -399,8 +434,27 @@ function copyUserCode(): void {
 
 async function reopenBrowser(): Promise<void> {
   if (!waiting.verificationUri) return
-  const res = await window.api.openExternal(waiting.verificationUri, privateMode.value)
-  if (res.success) applyOpenInfo(res.data)
+  const res = await window.api.openExternal(waiting.verificationUri, browserOptions())
+  if (res.success) {
+    applyOpenInfo(res.data)
+    return
+  }
+  browserSelectionNeeded.value = !!props.requirePrivate && !!res.error?.includes('PRIVATE_BROWSER_REQUIRED')
+  waiting.error = browserSelectionNeeded.value
+    ? '没有找到可用的无痕浏览器，请选择本机浏览器后重试'
+    : res.error || '重新打开浏览器失败'
+}
+
+async function chooseBrowserAndRetry(): Promise<void> {
+  const res = await window.api.choosePrivateBrowser()
+  if (!res.success) return void message.error(res.error || '浏览器选择失败')
+  if (!res.data?.selected || !res.data.path) return
+  await settingsStore.update({
+    privateBrowserPath: res.data.path,
+    privateBrowserFamily: res.data.family || ''
+  })
+  browserSelectionNeeded.value = false
+  retryWaiting()
 }
 
 // ============ 本地凭证 / 手动凭证 ============
@@ -518,7 +572,7 @@ async function submitCredentials(): Promise<void> {
           隐私 / 无痕模式
           <span class="add-sub" style="margin: 0 0 0 6px">用无痕窗口打开，避免复用已登录身份</span>
         </span>
-        <a-switch v-model:checked="privateMode" />
+        <a-switch v-model:checked="privateMode" :disabled="props.requirePrivate" />
       </div>
       <div class="option-list">
         <button
@@ -569,6 +623,9 @@ async function submitCredentials(): Promise<void> {
           <template #extra>
             <a-space>
               <a-button @click="backToOnline">返回</a-button>
+              <a-button v-if="browserSelectionNeeded" @click="chooseBrowserAndRetry">
+                选择浏览器并重试
+              </a-button>
               <a-button type="primary" @click="retryWaiting">重试</a-button>
             </a-space>
           </template>

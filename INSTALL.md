@@ -1,7 +1,6 @@
 # 安装说明与常见问题
 
-本文适用于 Kiro Manager Lite 的安装、升级和卸载。请仅从项目的
-[GitHub Releases](https://github.com/lucks-cloud/kiro-manager-lite/releases) 下载文件，
+本文适用于 KiroLuker 的安装、升级和卸载。请仅使用自己构建或项目正式发布的安装包，
 不要运行来源不明的二次打包版本。
 
 ## 选择安装包
@@ -19,7 +18,7 @@
 
 1. 下载 `*-win-x64-setup.exe` 并双击运行。
 2. 按安装向导选择安装目录并完成安装。
-3. 从桌面或开始菜单启动 Kiro Manager Lite。
+3. 从桌面或开始菜单启动 KiroLuker。
 
 当前安装包未做代码签名。如果 SmartScreen 显示“Windows 已保护你的电脑”，请先确认文件来自上述官方
 Releases 页面，再选择“更多信息”→“仍要运行”。不要为此全局关闭 SmartScreen 或杀毒软件。
@@ -29,7 +28,7 @@ Releases 页面，再选择“更多信息”→“仍要运行”。不要为�
 ## macOS
 
 先在“苹果菜单”→“关于本机”查看芯片：Apple M 系列下载 `arm64`，Intel 芯片下载 `x64`。
-打开 DMG 后，将 Kiro Manager Lite 拖入“应用程序”文件夹。
+打开 DMG 后，将 KiroLuker 拖入“应用程序”文件夹。
 
 当前安装包未做 Apple 签名与公证。首次打开若提示“无法验证开发者”，可在 Finder 的“应用程序”中
 按住 `Control` 点击应用，选择“打开”，然后再次确认；也可前往“系统设置”→“隐私与安全性”允许本次打开。
@@ -37,7 +36,7 @@ Releases 页面，再选择“更多信息”→“仍要运行”。不要为�
 若提示应用“已损坏，无法打开”，请先确认安装包来自官方 Releases，再关闭应用并执行：
 
 ```bash
-xattr -cr "/Applications/Kiro Manager Lite.app"
+xattr -cr "/Applications/KiroLuker.app"
 ```
 
 该命令只移除这个应用的下载隔离属性，不会关闭系统的全局安全功能。
@@ -47,15 +46,15 @@ xattr -cr "/Applications/Kiro Manager Lite.app"
 AppImage 无需安装。下载后在文件所在目录执行：
 
 ```bash
-chmod +x kiro-account-lite-*-linux-x86_64.AppImage
-./kiro-account-lite-*-linux-x86_64.AppImage
+chmod +x kiroluker-*-linux-x86_64.AppImage
+./kiroluker-*-linux-x86_64.AppImage
 ```
 
 如出现 `dlopen(): error loading libfuse.so.2`，可安装发行版提供的 FUSE 2 兼容包（常见包名为
 `libfuse2`），或直接使用免挂载模式：
 
 ```bash
-./kiro-account-lite-*-linux-x86_64.AppImage --appimage-extract-and-run
+./kiroluker-*-linux-x86_64.AppImage --appimage-extract-and-run
 ```
 
 ## 升级与数据保留
@@ -79,8 +78,8 @@ chmod +x kiro-account-lite-*-linux-x86_64.AppImage
 
 然后按平台卸载：
 
-- **Windows**：在“设置”→“应用”中卸载 Kiro Manager Lite。
-- **macOS**：退出应用后，将“应用程序”中的 Kiro Manager Lite 移到废纸篓。
+- **Windows**：在“设置”→“应用”中卸载 KiroLuker。
+- **macOS**：退出应用后，将“应用程序”中的 KiroLuker 移到废纸篓。
 - **Linux**：退出应用后删除 AppImage 文件以及自行创建的快捷方式。
 
 普通卸载会保留用户数据，便于以后重装恢复。若要彻底删除，请在卸载前通过应用设置打开数据目录，
@@ -89,7 +88,8 @@ chmod +x kiro-account-lite-*-linux-x86_64.AppImage
 ### 已经卸载才想起来还原 Kiro 配置
 
 应用首次修改 Kiro IDE 的 `settings.json` 时，会在同目录留下一份
-`settings.json.kiro-manager.bak` 备份，可据此手动恢复。Kiro IDE 用户设置的位置：
+`settings.json.kiroluker.bak` 备份，可据此手动恢复；从旧版升级时也会识别原有
+`settings.json.kiroluler.bak` 和 `settings.json.kiro-manager.bak`。Kiro IDE 用户设置的位置：
 
 | 平台 | 路径 |
 | --- | --- |
@@ -98,7 +98,8 @@ chmod +x kiro-account-lite-*-linux-x86_64.AppImage
 | Linux | `~/.config/Kiro/User/settings.json` |
 
 `~/.kiro/settings/permissions.yaml` 里由本应用追加的内容包在
-`# >>> kiro-manager-lite:shell-auto-approve` 与 `# <<< ...` 两行标记之间，
+`# >>> kiroluker:shell-auto-approve` 与 `# <<< ...` 两行标记之间；从旧版升级时，
+原 `kiroluler` 和 `kiro-manager-lite` 标记也会继续识别和清理。
 删掉这一段即可还原，其余规则不会被改动。
 
 ## 常见问题
@@ -117,14 +118,13 @@ chmod +x kiro-account-lite-*-linux-x86_64.AppImage
 按应用提示重启 Kiro IDE，使 IDE 重新读取端点配置。如果提示端口占用，请在 API Key 网关设置中
 改用未被占用的端口后重试。若提示已被其它本地网关接管，可在冲突弹窗里选择强制关闭其它网关并接管。
 
-仍未生效时，完全退出 Kiro IDE 和托盘中的 Kiro Manager Lite，重新打开应用确认网关状态后再启动
+仍未生效时，完全退出 Kiro IDE 和托盘中的 KiroLuker，重新打开应用确认网关状态后再启动
 Kiro IDE。
 
 ### 检查更新失败
 
 检查更新需要访问 GitHub Releases。请确认网络可访问 GitHub；如需代理，在应用设置中配置 HTTP
-代理。也可以直接打开
-[Releases](https://github.com/lucks-cloud/kiro-manager-lite/releases) 手动下载。
+代理。如 GitHub Releases 尚无可用安装包，请使用本地构建版本。
 
 ### 关闭窗口后应用仍在运行
 

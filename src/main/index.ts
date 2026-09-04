@@ -28,7 +28,7 @@ import { flushUsageHistory } from './usageHistory'
 import { flushGatewayHistory } from './gatewayHistory'
 import { initLogger, installConsoleBridge, log, shutdownLogger } from './logger'
 import { sendToRenderer } from './utils'
-import { initializeKeyService, shutdownKeyServiceSync } from './keyService'
+import { retireKeyService, shutdownKeyServiceSync } from './keyService'
 
 /*
  * 按设置里的地区指定 Chromium 区域。
@@ -55,14 +55,13 @@ function appIconPath(name: 'mac-icon' | 'windows-icon'): string {
 }
 
 /**
- * 默认窗口尺寸。1600x1200 在 1080p 等较矮的屏幕上会超出工作区，
- * 因此按当前显示器可用区域收一下，避免窗口一开就被系统裁掉或顶出屏幕。
+ * 默认窗口保持紧凑；小屏幕再按当前显示器可用区域收缩，避免超出工作区。
  */
 function defaultWindowSize(): { width: number; height: number } {
   const { width: aw, height: ah } = screen.getPrimaryDisplay().workAreaSize
   return {
-    width: Math.min(1600, Math.max(940, aw - 80)),
-    height: Math.min(1200, Math.max(620, ah - 80))
+    width: Math.min(1280, Math.max(940, aw - 80)),
+    height: Math.min(800, Math.max(620, ah - 80))
   }
 }
 
@@ -199,6 +198,7 @@ app.on('open-url', (event, url) => {
 })
 
 app.whenReady().then(() => {
+  // 保留原 AppUserModelId，使 Windows 将改名版本识别为同一应用，避免通知/快捷方式断裂。
   electronApp.setAppUserModelId('dev.kiro.account.lite')
 
   // 日志中心要最先启动，后面各模块的启动日志才不会漏
@@ -221,8 +221,8 @@ app.whenReady().then(() => {
   registerLoginFocusHandler(focusWindow)
   initProactiveRenewal(() => mainWindow)
   registerIpc(() => mainWindow)
-  // 恢复上次的 API Key 接管；状态变化主动推送给渲染进程。
-  void initializeKeyService((status) => sendToRenderer(mainWindow, 'key-gateway:changed', status))
+  // API Key 管理功能已移除：保留历史数据，但关闭旧版本可能遗留的本地网关接管。
+  void retireKeyService()
   // macOS 顶部菜单栏（中文菜单 + 页面导航），其他平台维持默认
   setupAppMenu({ focusWindow, getWindow: () => mainWindow })
   createWindow()

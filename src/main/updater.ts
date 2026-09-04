@@ -4,7 +4,8 @@ import { httpRequest } from './net'
 import { sleep } from './utils'
 import type { UpdateCheckResult } from '../shared/types'
 
-const REPO = 'lucks-cloud/kiro-manager-lite'
+// 当前维护仓库的 Releases 是 KiroLuker 的唯一更新源。
+const REPO = 'ZoroHasaky/KiroLuker'
 const LATEST_API = `https://api.github.com/repos/${REPO}/releases/latest`
 const LATEST_PAGE = `https://github.com/${REPO}/releases/latest`
 /** 「前往更新」统一落到 Releases 列表页，方便用户自己挑平台安装包与历史版本 */
@@ -118,7 +119,7 @@ async function checkViaApi(current: string): Promise<UpdateCheckResult> {
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
       // GitHub API 拒绝没有 UA 的请求
-      'User-Agent': `kiro-manager-lite/${current}`
+      'User-Agent': `kiroluker/${current}`
     },
     timeoutMs: 10_000
   })
@@ -151,7 +152,7 @@ async function checkViaReleasePage(current: string): Promise<UpdateCheckResult> 
   const res = await httpRequest(LATEST_PAGE, {
     headers: {
       Accept: 'text/html',
-      'User-Agent': `kiro-manager-lite/${current}`
+      'User-Agent': `kiroluker/${current}`
     },
     timeoutMs: 12_000
   })

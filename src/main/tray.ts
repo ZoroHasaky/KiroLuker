@@ -49,7 +49,7 @@ function disabled(label: string, iconName?: string): MenuItemConstructorOptions 
 
 function buildMenu(): Menu {
   const items: MenuItemConstructorOptions[] = [
-    disabled(`Kiro Manager Lite v${app.getVersion()}`, 'app'),
+    disabled(`KiroLuker v${app.getVersion()}`, 'app'),
     { type: 'separator' },
     disabled(
       snapshot.email ? `已登录：${snapshot.email}` : '当前未登录 Kiro IDE',
@@ -115,7 +115,7 @@ function buildMenu(): Menu {
 function refreshMenu(): void {
   tray?.setContextMenu(buildMenu())
   tray?.setToolTip(
-    snapshot.email ? `Kiro Manager Lite · ${snapshot.email}` : 'Kiro Manager Lite · 未登录'
+    snapshot.email ? `KiroLuker · ${snapshot.email}` : 'KiroLuker · 未登录'
   )
 }
 

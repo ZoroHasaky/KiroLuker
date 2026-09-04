@@ -1,9 +1,11 @@
 // 导入 / 导出格式转换
 import { DEFAULT_REGION } from '@shared/regions'
+import { buildOidcImportItem, referencedAccountTags } from '@shared/accountData'
 import type {
   Account,
   AccountExportData,
   AccountImportItem,
+  AccountTag,
   IdpType,
   KeyEntry
 } from '@shared/types'
@@ -174,45 +176,39 @@ export function parseImportContent(raw: string): ParsedImport {
 
 // ============ 导出 ============
 
+/** 单账号 OIDC 精简对象，供卡片复制与批量导出共用。 */
+export const buildOidcExportItem = buildOidcImportItem
+
+export function buildOidcExportContent(accounts: Account[]): string {
+  return JSON.stringify(accounts.map(buildOidcExportItem), null, 2)
+}
+
 export function buildExportContent(
   format: ExportFormat,
   accounts: Account[],
-  options: { includeCredentials: boolean; appVersion: string }
+  options: { includeCredentials: boolean; appVersion: string; tags?: AccountTag[] }
 ): string {
-  const { includeCredentials, appVersion } = options
+  const { includeCredentials, appVersion, tags = [] } = options
 
   switch (format) {
     case 'json': {
       const data: AccountExportData = {
-        app: 'kiro-account-lite',
+        app: 'kiroluker',
         version: appVersion,
         exportedAt: Date.now(),
         accounts: accounts.map(({ isActive: _isActive, ...rest }) =>
           includeCredentials
             ? rest
             : { ...rest, password: undefined, credentials: { ...rest.credentials, accessToken: '', refreshToken: '' } }
-        )
+        ),
+        tags: referencedAccountTags(accounts, tags)
       }
       return JSON.stringify(data, null, 2)
     }
 
     case 'oidc':
       // 精简 JSON，可直接粘回批量导入框
-      return JSON.stringify(
-        accounts.map((a) => {
-          const item: Record<string, string> = {
-            email: a.email,
-            refreshToken: a.credentials.refreshToken || '',
-            provider: a.idp || 'BuilderId'
-          }
-          if (a.password) item.password = a.password
-          if (a.credentials.clientId) item.clientId = a.credentials.clientId
-          if (a.credentials.clientSecret) item.clientSecret = a.credentials.clientSecret
-          return item
-        }),
-        null,
-        2
-      )
+      return buildOidcExportContent(accounts)
 
     case 'kami':
       // 邮箱----密码----RefreshToken----ClientId----ClientSecret----登录方式

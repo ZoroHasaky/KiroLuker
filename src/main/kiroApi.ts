@@ -225,6 +225,8 @@ export interface UsageResponse {
     subscriptionType?: string
     type?: string
     status?: string
+    upgradeCapability?: string
+    subscriptionManagementTarget?: string
   }
   overageConfiguration?: { overageEnabled?: boolean; overageStatus?: string }
   overageSettings?: { overageStatus?: string }
@@ -440,6 +442,8 @@ export function parseUsageResponse(res: UsageResponse): ParsedUsage {
       type: normalizeSubscriptionType(title),
       title,
       rawType: res.subscriptionInfo?.subscriptionType || res.subscriptionInfo?.type,
+      upgradeCapability: res.subscriptionInfo?.upgradeCapability,
+      managementTarget: res.subscriptionInfo?.subscriptionManagementTarget,
       expiresAt,
       daysRemaining
     }

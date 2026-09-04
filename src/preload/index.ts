@@ -80,6 +80,9 @@ const api = {
   verifyCredentials: (input: unknown) => invoke('accounts:verify', input),
   refreshAccountToken: (account: unknown) => invoke('accounts:refresh-token', account),
   checkAccountStatus: (account: unknown) => invoke('accounts:check-status', account),
+  getSubscriptionPlans: (account: unknown) => invoke('accounts:subscription-plans', account),
+  createSubscriptionLink: (account: unknown, subscriptionType: string) =>
+    invoke('accounts:subscription-link', account, subscriptionType),
 
   // 积分变化日志
   getUsageHistory: (accountId: string) => invoke('usage:history', accountId),
@@ -107,15 +110,15 @@ const api = {
     subscribe('keys:chat-chunk', handler),
 
   // 在线登录
-  startBuilderIdLogin: (region?: string, privateMode?: boolean) =>
-    invoke('login:start-builder-id', region, privateMode),
+  startBuilderIdLogin: (region?: string, browserOptions?: unknown) =>
+    invoke('login:start-builder-id', region, browserOptions),
   pollBuilderIdLogin: () => invoke('login:poll-builder-id'),
-  startSocialLogin: (provider: 'Google' | 'Github', privateMode?: boolean) =>
-    invoke('login:start-social', provider, privateMode),
+  startSocialLogin: (provider: 'Google' | 'Github', browserOptions?: unknown) =>
+    invoke('login:start-social', provider, browserOptions),
   completeSocialLogin: (code: string, state: string) =>
     invoke('login:complete-social', code, state),
-  startEnterpriseLogin: (startUrl: string, region?: string, privateMode?: boolean) =>
-    invoke('login:start-enterprise', startUrl, region, privateMode),
+  startEnterpriseLogin: (startUrl: string, region?: string, browserOptions?: unknown) =>
+    invoke('login:start-enterprise', startUrl, region, browserOptions),
   pollEnterpriseLogin: () => invoke('login:poll-enterprise'),
   cancelLogin: () => invoke('login:cancel'),
   onSocialCallback: (handler: (payload: unknown) => void) =>
@@ -132,6 +135,12 @@ const api = {
   // 设置 / 应用
   getSettings: () => invoke('settings:get'),
   saveSettings: (patch: unknown) => invoke('settings:save', patch),
+  getBillingConfig: () => invoke('billing:get-config'),
+  saveBillingConfig: (patch: unknown) => invoke('billing:save-config', patch),
+  replaceBillingSecrets: (patch: unknown) => invoke('billing:replace-secrets', patch),
+  clearBillingSecrets: (names: string[]) => invoke('billing:clear-secrets', names),
+  clearBillingConfig: () => invoke('billing:clear-config'),
+  generateBillingInfo: () => invoke('billing:generate'),
   getAppInfo: () => invoke('app:info'),
   checkUpdate: () => invoke('app:check-update'),
 
@@ -148,15 +157,16 @@ const api = {
   exportLogs: (query: unknown) => invoke('log:export', query),
   onLogAppended: (handler: (total: number) => void) => subscribe('log:appended', handler),
 
-  openExternal: (url: string, privateMode?: boolean) =>
-    invoke('app:open-external', url, privateMode),
+  openExternal: (url: string, browserOptions?: unknown) =>
+    invoke('app:open-external', url, browserOptions),
+  choosePrivateBrowser: () => invoke('app:choose-private-browser'),
   showPath: (target: 'store' | 'backup' | 'logs') => invoke('app:show-path', target),
 
   // 托盘
   syncTray: (snapshot: unknown) => invoke('tray:sync', snapshot),
   onTrayAction: (handler: (action: string) => void) => subscribe('tray:action', handler),
 
-  // kiro-manager-lite:// 协议唤起时的路由跳转
+  // kiroluker:// 协议唤起时的路由跳转
   onAppNavigate: (handler: (target: string) => void) => subscribe('app:navigate', handler),
 
   // 主进程主动续期成功后回传新凭证，渲染进程据此同步内存

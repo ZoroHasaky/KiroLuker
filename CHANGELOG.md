@@ -1,6 +1,7 @@
 # 更新日志
 
-本文件记录 Kiro Manager Lite 的版本变更。格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
+本文件记录 KiroLuker 的版本变更。1.0.19 及以前条目保留更名前的历史名称与发布链接。
+格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
 ## [1.0.19] - 2026-08-25

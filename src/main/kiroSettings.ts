@@ -110,14 +110,15 @@ async function readSettings(file: string): Promise<Record<string, unknown>> {
   }
 }
 
-/** 原子写回 settings.json（保留一份 .kiro-manager.bak 首次备份） */
+/** 原子写回 settings.json（保留一份 .kiroluker.bak 首次备份，并识别历史备份） */
 async function writeSettings(file: string, obj: Record<string, unknown>): Promise<void> {
   await fs.mkdir(path.dirname(file), { recursive: true })
-  const backup = file + '.kiro-manager.bak'
-  if (existsSync(file) && !existsSync(backup)) {
+  const backup = file + '.kiroluker.bak'
+  const legacyBackups = [file + '.kiroluler.bak', file + '.kiro-manager.bak']
+  if (existsSync(file) && !existsSync(backup) && !legacyBackups.some(existsSync)) {
     await fs.copyFile(file, backup).catch(() => undefined)
   }
-  const tmp = file + '.kiro-manager.tmp'
+  const tmp = file + '.kiroluker.tmp'
   const text = JSON.stringify(obj, null, 2) + '\n'
   await fs.writeFile(tmp, text, 'utf-8')
   try {
@@ -282,7 +283,7 @@ export function restoreEndpointOverrideSync(
     obj[KRS_KEY] = original.krs
     obj[CPS_KEY] = original.cps
     mkdirSync(path.dirname(file), { recursive: true })
-    const tmp = file + '.kiro-manager.tmp'
+    const tmp = file + '.kiroluker.tmp'
     const text = JSON.stringify(obj, null, 2) + '\n'
     writeFileSync(tmp, text, 'utf-8')
     try {

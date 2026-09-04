@@ -3,6 +3,7 @@ import Store from 'electron-store'
 import { app } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs/promises'
+import { existsSync } from 'fs'
 import {
   DEFAULT_KEY_GATEWAY_DATA,
   DEFAULT_SETTINGS,
@@ -12,6 +13,11 @@ import {
   type SubscriptionType
 } from '../shared/types'
 import { normalizeSubscriptionType } from '../shared/subscription'
+import { ACCOUNT_STORE_VERSION, migrateAccountStoreData } from '../shared/accountData'
+import {
+  DEFAULT_BILLING_CONFIG,
+  type BillingStoredConfig
+} from '../shared/billing'
 
 /** permissions.yaml 开启前的原始状态 */
 export interface ShellApproveYamlBackup {
@@ -41,21 +47,64 @@ interface Schema {
   accountData: AccountStoreData
   settings: AppSettings
   keyData: KeyGatewayData
+  billingConfig: BillingStoredConfig
   shellApproveBackup: ShellApproveBackup | null
 }
 
-const EMPTY_DATA: AccountStoreData = { version: 1, accounts: [], activeAccountId: null }
+const EMPTY_DATA: AccountStoreData = {
+  version: ACCOUNT_STORE_VERSION,
+  accounts: [],
+  tags: [],
+  activeAccountId: null
+}
 
-const store = new Store<Schema>({
-  name: 'kiro-account-lite',
-  encryptionKey: 'kiro-account-lite-local-key',
-  defaults: {
-    accountData: EMPTY_DATA,
-    settings: DEFAULT_SETTINGS,
-    keyData: DEFAULT_KEY_GATEWAY_DATA,
-    shellApproveBackup: null
+const STORE_NAME = 'kiroluker'
+const STORE_KEY = 'kiroluker-local-key'
+// 只用于读取改名前的数据；迁移成功后新写入全部使用 KiroLuker 标识。
+const LEGACY_STORES = [
+  { name: 'kiroluler', encryptionKey: 'kiroluler-local-key' },
+  { name: 'kiro-account-lite', encryptionKey: 'kiro-account-lite-local-key' }
+] as const
+const STORE_DEFAULTS: Schema = {
+  accountData: EMPTY_DATA,
+  settings: DEFAULT_SETTINGS,
+  keyData: DEFAULT_KEY_GATEWAY_DATA,
+  billingConfig: DEFAULT_BILLING_CONFIG,
+  shellApproveBackup: null
+}
+
+function createStore(): Store<Schema> {
+  const targetPath = path.join(app.getPath('userData'), `${STORE_NAME}.json`)
+  const targetExisted = existsSync(targetPath)
+  const next = new Store<Schema>({
+    name: STORE_NAME,
+    encryptionKey: STORE_KEY,
+    defaults: STORE_DEFAULTS
+  })
+
+  if (targetExisted) return next
+  for (const legacyStore of LEGACY_STORES) {
+    const legacyPath = path.join(app.getPath('userData'), `${legacyStore.name}.json`)
+    if (!existsSync(legacyPath)) continue
+
+    try {
+      const legacy = new Store<Schema>({
+        cwd: app.getPath('userData'),
+        name: legacyStore.name,
+        encryptionKey: legacyStore.encryptionKey
+      })
+      next.store = { ...STORE_DEFAULTS, ...legacy.store }
+      console.info(`[Store] 已将 ${legacyStore.name} 数据迁移到 KiroLuker 存储`)
+      return next
+    } catch (error) {
+      // 保留旧文件并继续尝试更早的存储，避免迁移异常破坏原始数据。
+      console.warn(`[Store] 无法迁移 ${legacyStore.name} 数据，原文件已保留：`, error)
+    }
   }
-})
+  return next
+}
+
+const store = createStore()
 
 /** 权限配置备份：仅在开关开启期间存在，关闭还原后清空 */
 export function getShellApproveBackup(): ShellApproveBackup | null {
@@ -121,14 +170,19 @@ function alignSubscriptionTypes(data: AccountStoreData): AccountStoreData {
 }
 
 export function getAccountData(): AccountStoreData {
-  const data = store.get('accountData') as AccountStoreData | undefined
-  if (!data || !Array.isArray(data.accounts)) return EMPTY_DATA
-  return alignSubscriptionTypes(data)
+  const raw = store.get('accountData') as unknown
+  const migrated = migrateAccountStoreData(raw)
+  const data = alignSubscriptionTypes(migrated.data)
+  // v1 -> v2（以及旧数据缺字段）只写回一次；之后读取保持纯读取。
+  if (migrated.changed) store.set('accountData', data)
+  return data
 }
 
 export async function setAccountData(data: AccountStoreData): Promise<void> {
-  store.set('accountData', data)
-  await writeBackup(data)
+  // 渲染进程热更新或旧窗口可能仍发来 v1 形状，主进程作为最终写入口再次兜底。
+  const normalized = migrateAccountStoreData(data).data
+  store.set('accountData', normalized)
+  await writeBackup(normalized)
 }
 
 /**
@@ -171,6 +225,21 @@ export function setSettings(settings: Partial<AppSettings>): AppSettings {
 
 export function getStorePath(): string {
   return store.path
+}
+
+// ============ 账单服务配置（密钥只在主进程读取）============
+
+export function getBillingConfig(): BillingStoredConfig {
+  const raw = store.get('billingConfig') as Partial<BillingStoredConfig> | undefined
+  return {
+    ...DEFAULT_BILLING_CONFIG,
+    ...(raw ?? {}),
+    version: 1
+  }
+}
+
+export function setBillingConfig(config: BillingStoredConfig): void {
+  store.set('billingConfig', { ...config, version: 1 })
 }
 
 // ============ Key 网关数据 ============

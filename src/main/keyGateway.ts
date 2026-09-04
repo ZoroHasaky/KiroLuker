@@ -26,7 +26,7 @@ import {
 import { clearRpmWindows, createUsageCollector, recordRequest, recordResponse } from './gatewayStats'
 
 const HEALTH_PATH = '/__kiro_key_health'
-const HEALTH_MARKER = 'kiro-manager-key-ok'
+const HEALTH_MARKER = 'kiroluker-key-ok'
 const HOP_BY_HOP = [
   'connection',
   'keep-alive',

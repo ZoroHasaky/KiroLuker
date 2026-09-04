@@ -119,7 +119,7 @@ jobs:
 
           ---
 
-          > 安装遇到问题？请查看 [安装说明与常见问题](https://github.com/lucks-cloud/kiro-manager-lite/blob/main/INSTALL.md)。
+          > 安装遇到问题？请查看 [安装说明与常见问题](${{ github.server_url }}/${{ github.repository }}/blob/main/INSTALL.md)。
           EOF
 
       - name: 删除同标签旧 Release

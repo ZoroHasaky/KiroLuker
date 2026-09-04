@@ -84,6 +84,19 @@ export function kiroAmzUserAgent(): string {
   return `aws-sdk-js/${AWS_SDK_VERSION} KiroIDE-${KIRO_IDE_VERSION}`
 }
 
+/** ListAvailableSubscriptions / CreateSubscriptionToken 使用 runtime API 的官方 UA 形态。 */
+export function kiroSubscriptionUserAgent(): string {
+  return (
+    `aws-sdk-js/1.0.0 ua/2.1 os/${UA_OS}#${os.release()} lang/js ` +
+    `md/nodejs#${process.versions.node} api/codewhispererruntime#1.0.0 ` +
+    `m/N,E KiroIDE-${KIRO_IDE_VERSION}`
+  )
+}
+
+export function kiroSubscriptionAmzUserAgent(): string {
+  return `aws-sdk-js/1.0.0 KiroIDE-${KIRO_IDE_VERSION}`
+}
+
 /** AWS SDK 的单次调用标识（uuid v4） */
 export function awsInvocationId(): string {
   return randomUUID()

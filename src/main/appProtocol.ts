@@ -1,21 +1,21 @@
-// 应用自有 URL Scheme：kiro-manager-lite:// 与短别名 kml://
+// 应用自有 URL Scheme：kiroluker:// 与短别名 klr://
 //
 // 与 onlineLogin.ts 里临时接管的 kiro:// 不同，这两个协议属于本应用，
 // 常驻注册，用于从浏览器 / 终端 / 快捷方式快速唤起主窗口。
 //
-// 支持的形式（两个协议等价）：
-//   kiro-manager-lite://  |  kml://              唤起主窗口
-//   kiro-manager-lite://focus  |  kml://focus    同上，回调页「打开应用」按钮的兜底入口
-//   kiro-manager-lite://accounts  |  kml://accounts   唤起并跳转到账户管理
-//   kiro-manager-lite://settings  |  kml://settings   唤起并跳转到设置
-//   kiro-manager-lite://home|about  |  kml://home|about  唤起并跳转到对应页面
+// 支持的形式（完整名与短别名等价）：
+//   kiroluker://  |  klr://              唤起主窗口
+//   kiroluker://focus  |  klr://focus    同上，回调页「打开应用」按钮的兜底入口
+//   kiroluker://accounts  |  klr://accounts   唤起并跳转到账户管理
+//   kiroluker://settings  |  klr://settings   唤起并跳转到设置
+//   kiroluker://home|about  |  klr://home|about  唤起并跳转到对应页面
 import { app } from 'electron'
 import type { BrowserWindow } from 'electron'
 import { join } from 'path'
 import { sendToRenderer } from './utils'
 
-/** 全部由本应用接管的协议：完整名 + 便于手输的短别名 */
-const APP_PROTOCOLS = ['kiro-manager-lite', 'kml'] as const
+/** 新协议用于当前版本；历史协议继续兼容已有快捷方式和网页回跳。 */
+const APP_PROTOCOLS = ['kiroluker', 'klr', 'kiroluler', 'kiro-manager-lite', 'kml'] as const
 
 /** 可通过协议直达的路由，避免把任意字符串塞给渲染进程路由 */
 const ROUTABLE = new Set(['home', 'accounts', 'settings', 'about'])
@@ -80,8 +80,8 @@ export function handleAppProtocolUrl(
 
   let target: string | undefined
   try {
-    // kml://accounts 里 accounts 落在 hostname 上，
-    // kml:///accounts 之类的写法则落在 pathname
+    // klr://accounts 里 accounts 落在 hostname 上，
+    // klr:///accounts 之类的写法则落在 pathname
     const parsed = new URL(url)
     target = (parsed.hostname || parsed.pathname.replace(/^\/+/, '')).toLowerCase()
   } catch {

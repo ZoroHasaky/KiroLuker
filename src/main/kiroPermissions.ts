@@ -50,8 +50,12 @@ import {
 } from './kiroSettings'
 import type { ShellAutoApproveStatus, ShellAutoApproveTarget } from '../shared/types'
 
-const BEGIN_MARK = '# >>> kiro-manager-lite:shell-auto-approve'
-const END_MARK = '# <<< kiro-manager-lite:shell-auto-approve'
+const BEGIN_MARK = '# >>> kiroluker:shell-auto-approve'
+const END_MARK = '# <<< kiroluker:shell-auto-approve'
+const LEGACY_MARKS = [
+  ['# >>> kiroluler:shell-auto-approve', '# <<< kiroluler:shell-auto-approve'],
+  ['# >>> kiro-manager-lite:shell-auto-approve', '# <<< kiro-manager-lite:shell-auto-approve']
+] as const
 
 /**
  * 开启「自动同意」时在 permissions.yaml 里放行的能力：
@@ -65,7 +69,7 @@ const MANAGED_CAPABILITIES = ['shell', 'fs_read', 'fs_write', 'web_fetch', 'web_
 /** 追加的规则块：注释标记用于识别与移除，缩进对齐 rules 列表项 */
 const MANAGED_BLOCK = [
   BEGIN_MARK,
-  '# 由 Kiro Manager Lite 添加：不带 match 即无条件放行对应能力。',
+  '# 由 KiroLuker 添加：不带 match 即无条件放行对应能力。',
   '# 关闭「自动同意」开关会移除本段，请勿手动编辑。',
   ...MANAGED_CAPABILITIES.flatMap((cap) => [`  - capability: ${cap}`, '    effect: allow']),
   END_MARK
@@ -208,11 +212,18 @@ async function restoreTrusted(backup?: ShellApproveSettingsBackup): Promise<void
 
 /** 去掉本应用写入的标记块，返回剩余文本 */
 function stripManagedBlock(text: string): string {
-  const pattern = new RegExp(
-    `\\n*${escapeRegExp(BEGIN_MARK)}[\\s\\S]*?${escapeRegExp(END_MARK)}[^\\n]*\\n?`,
-    'g'
-  )
-  return text.replace(pattern, '\n')
+  const marks = [[BEGIN_MARK, END_MARK] as const, ...LEGACY_MARKS]
+  return marks.reduce((current, [begin, end]) => {
+    const pattern = new RegExp(
+      `\\n*${escapeRegExp(begin)}[\\s\\S]*?${escapeRegExp(end)}[^\\n]*\\n?`,
+      'g'
+    )
+    return current.replace(pattern, '\n')
+  }, text)
+}
+
+function hasManagedBlock(text: string): boolean {
+  return text.includes(BEGIN_MARK) || LEGACY_MARKS.some(([begin]) => text.includes(begin))
 }
 
 function escapeRegExp(value: string): string {
@@ -308,7 +319,7 @@ function findManagedDenies(text: string): string[] {
 /** 原子写：临时文件 + rename，避免 Kiro 的 watcher 读到写入一半的内容 */
 async function writeAtomic(file: string, content: string): Promise<void> {
   await fs.mkdir(path.dirname(file), { recursive: true })
-  const tmp = `${file}.kiro-manager.tmp`
+  const tmp = `${file}.kiroluker.tmp`
   await fs.writeFile(tmp, content, { encoding: 'utf-8', mode: 0o644 })
   try {
     await fs.rename(tmp, file)
@@ -355,7 +366,7 @@ async function readYamlState(): Promise<YamlState> {
     path: file,
     text,
     fileExists: yamlText !== null,
-    managed: text.includes(BEGIN_MARK),
+    managed: hasManagedBlock(text),
     unconditionalAllow: hasAllManagedUnconditionalAllow(text),
     deniedCaps: findManagedDenies(text),
     blockedReason: yamlBlockedReason(yamlText, jsonText)
@@ -399,7 +410,7 @@ async function restoreYaml(backup?: ShellApproveYamlBackup): Promise<void> {
 
   // 没有备份（换机器、手动改过）：只移除我们的标记块，不动用户其它规则
   const current = await readTextIfExists(file)
-  if (!current || !current.includes(BEGIN_MARK)) return
+  if (!current || !hasManagedBlock(current)) return
   const stripped = stripManagedBlock(current).replace(/\n{3,}/g, '\n\n').replace(/\s*$/, '\n')
   // 剩下的只有 rules: 空壳时直接删除文件，避免留一个空规则表
   if (/^\s*rules\s*:\s*$/.test(stripped.trim())) {

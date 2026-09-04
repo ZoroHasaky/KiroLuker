@@ -17,16 +17,22 @@ const router = createRouter({
       meta: { title: '账户管理' }
     },
     {
-      path: '/keys',
-      name: 'keys',
-      component: () => import('@/views/KeysView.vue'),
-      meta: { title: 'API Key 管理' }
+      path: '/subscription',
+      name: 'subscription',
+      component: () => import('@/views/SubscriptionView.vue'),
+      meta: { title: '批量订阅' }
     },
     {
       path: '/tools',
       name: 'tools',
       component: () => import('@/views/ToolsView.vue'),
       meta: { title: '常用工具' }
+    },
+    {
+      path: '/billing',
+      name: 'billing',
+      component: () => import('@/views/BillingView.vue'),
+      meta: { title: '账单信息' }
     },
     {
       path: '/logs',

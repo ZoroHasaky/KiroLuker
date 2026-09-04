@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="docs/logo.png" width="128" height="128" alt="Kiro Manager Lite Logo">
+  <img src="docs/logo.png" width="128" height="128" alt="KiroLuker Logo">
 </p>
 
-<h1 align="center">Kiro Manager Lite</h1>
+<h1 align="center">KiroLuker</h1>
 
 <p align="center">
-  <strong>Kiro 多账号与 API Key 管理器轻量版</strong>
+  <strong>Kiro 多账号、批量订阅与账单辅助工具</strong>
 </p>
 
 <p align="center">
-  多账号一键切换 · 账号 API Key 申请 · 本地网关与真实调用统计 · 自动刷新与流式测活 · 内置私密浏览器 · 托盘常驻
+  多账号一键切换 · 标签与日期筛选 · 批量订阅 · 自动刷新与流式测活 · 私密浏览器登录 · 托盘常驻
 </p>
 
 <p align="center">
@@ -92,7 +92,7 @@
 ### 🖥️ 桌面端体验
 
 - 系统托盘常驻，可查看当前账号、刷新、切号、复制邮箱和显示窗口；关闭行为支持最小化到托盘 / 退出 / 每次询问
-- macOS 中文菜单栏、自定义协议 `kiro-manager-lite://` / `kml://` 和单实例唤起
+- macOS 中文菜单栏、自定义协议 `kiroluker://` / `klr://` 和单实例唤起（继续兼容 `kiroluler://` 等旧协议）
 - 管理页详情、图表和各类模态框按用户操作实时挂载，页面切换不再等待退出动画，减少大数据量下的白屏感
 - 关于页手动检查更新会立即显示加载态；GitHub API 失败时自动重试并通过 Releases 页面兜底，失败后可重试或手动更新
 
@@ -116,14 +116,8 @@
 
 ## 📥 下载
 
-<p align="center">
-  <a href="https://github.com/lucks-cloud/kiro-manager-lite/releases/latest">
-    <img src="https://img.shields.io/badge/⬇%20下载最新版-v1.0.19-6c5ce7?style=for-the-badge" alt="下载最新版">
-  </a>
-  <a href="https://github.com/lucks-cloud/kiro-manager-lite/releases">
-    <img src="https://img.shields.io/badge/全部版本-Releases-24292f?style=for-the-badge&logo=github" alt="全部版本">
-  </a>
-</p>
+KiroLuker 的安装包由 [GitHub Releases](https://github.com/ZoroHasaky/KiroLuker/releases) 发布。
+开发测试可在 Windows 下双击 [`测试运行.bat`](测试运行.bat)。
 
 **最新版本：v1.0.19**（2026-08-25） · 变更详情见 [CHANGELOG.md](CHANGELOG.md)
 
@@ -167,6 +161,8 @@ Windows 与 Linux 暂不提供 arm64 包：原生依赖 `cbor-extract` 没有对
 ---
 
 ## 📸 截图
+
+以下截图来自更名前的上游版本，仅用于展示基础界面结构；KiroLuker 实测截图将在功能验收后更新。
 
 ### 主页
 
@@ -348,5 +344,7 @@ src/
 本项目在其基础上重写为 Vue 技术栈，并裁剪为纯账户管理，去掉了反向代理、注册机、机器码管理、MITM 代理等模块。
 
 - 作者：[lucks-cloud](https://github.com/lucks-cloud)
+- 当前维护仓库：[ZoroHasaky/KiroLuker](https://github.com/ZoroHasaky/KiroLuker)
+- 上游项目：[lucks-cloud/kiro-manager-lite](https://github.com/lucks-cloud/kiro-manager-lite)
 - 许可：[AGPL-3.0](LICENSE)
 - Kiro 官网：<https://kiro.dev>

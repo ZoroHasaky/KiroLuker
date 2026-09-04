@@ -13,6 +13,7 @@ import {
 } from './accountService'
 import { createAccountApiKey, deleteAccountApiKey, listAccountApiKeys } from './kiroApiKey'
 import { openAccountPortal } from './kiroPortal'
+import { createSubscriptionLink, getSubscriptionPlans } from './subscriptionService'
 import { clearKiroSsoCache, readKiroAuthToken, readLocalKiroCredentials } from './kiroAuth'
 import { isKiroRunning, restartKiroIde } from './kiroProcess'
 import { listKiroModels, streamApiKeyChat, streamKiroChat } from './kiroChat'
@@ -25,7 +26,12 @@ import {
   startEnterpriseLogin,
   startSocialLogin
 } from './onlineLogin'
-import { isHttpUrl, openUrl } from './browser'
+import {
+  inspectPrivateBrowserPath,
+  isHttpUrl,
+  openUrl,
+  type BrowserOpenOptions
+} from './browser'
 import { detectKiroCapability } from './kiroCapability'
 import { setGatewayRetryPolicy } from './keyGateway'
 import { getGatewayStats, resetGatewayStats } from './gatewayStats'
@@ -48,6 +54,7 @@ import {
 } from './kiroPermissions'
 import { clearLogs, exportLogs, getLogDir, queryLogs } from './logger'
 import { buildXlsx } from './xlsxWriter'
+import { BillingService } from './billingService'
 import {
   addKey,
   configureGateway,
@@ -72,9 +79,11 @@ import {
   deleteAccountData,
   getAccountData,
   getBackupDir,
+  getBillingConfig,
   getSettings,
   getStorePath,
   setAccountData,
+  setBillingConfig,
   setSettings
 } from './store'
 import {
@@ -84,6 +93,11 @@ import {
   pruneUsageHistory
 } from './usageHistory'
 import { DEFAULT_REGION } from '../shared/regions'
+import type {
+  BillingConfigPatch,
+  BillingSecretName,
+  BillingSecretPatch
+} from '../shared/billing'
 import type {
   Account,
   AccountStoreData,
@@ -107,6 +121,11 @@ function ok<T>(data?: T): IpcResult<T> {
 function fail(error: unknown): IpcResult<never> {
   return { success: false, error: errorMessage(error) }
 }
+
+const billingService = new BillingService({
+  load: getBillingConfig,
+  save: setBillingConfig
+})
 
 /**
  * 注册 IPC 通道：统一把未捕获异常收敛成 { success: false, error }，
@@ -196,6 +215,16 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   handle('accounts:open-portal', async (_e, account: Account) =>
     ok(await openAccountPortal(account))
+  )
+
+  handle('accounts:subscription-plans', async (_e, account: Account) =>
+    ok(await getSubscriptionPlans(account))
+  )
+
+  handle(
+    'accounts:subscription-link',
+    async (_e, account: Account, subscriptionType: string) =>
+      ok(await createSubscriptionLink(account, subscriptionType))
   )
 
   handle('accounts:list-api-keys', async (_e, account: Account) => {
@@ -390,14 +419,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   })
 
   // ============ 在线登录 ============
-  handle('login:start-builder-id', async (_e, region?: string, privateMode?: boolean) =>
-    ok(await startBuilderIdLogin(region || DEFAULT_REGION, privateMode))
+  handle('login:start-builder-id', async (_e, region?: string, browserOptions?: BrowserOpenOptions) =>
+    ok(await startBuilderIdLogin(region || DEFAULT_REGION, browserOptions))
   )
 
   handle('login:poll-builder-id', async () => ok(await pollBuilderIdLogin()))
 
-  handle('login:start-social', async (_e, provider: 'Google' | 'Github', privateMode?: boolean) =>
-    ok(await startSocialLogin(provider, privateMode))
+  handle('login:start-social', async (_e, provider: 'Google' | 'Github', browserOptions?: BrowserOpenOptions) =>
+    ok(await startSocialLogin(provider, browserOptions))
   )
 
   handle('login:complete-social', async (_e, code: string, state: string) =>
@@ -406,8 +435,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   handle(
     'login:start-enterprise',
-    async (_e, startUrl: string, region?: string, privateMode?: boolean) =>
-      ok(await startEnterpriseLogin(startUrl, region || DEFAULT_REGION, privateMode))
+    async (_e, startUrl: string, region?: string, browserOptions?: BrowserOpenOptions) =>
+      ok(await startEnterpriseLogin(startUrl, region || DEFAULT_REGION, browserOptions))
   )
 
   handle('login:poll-enterprise', async () => ok(await pollEnterpriseLogin()))
@@ -514,6 +543,20 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     return ok(merged)
   })
 
+  // ============ 账单信息 ============
+  handle('billing:get-config', () => ok(billingService.getConfig()))
+  handle('billing:save-config', (_e, patch: BillingConfigPatch) =>
+    ok(billingService.saveConfig(patch))
+  )
+  handle('billing:replace-secrets', (_e, patch: BillingSecretPatch) =>
+    ok(billingService.replaceSecrets(patch))
+  )
+  handle('billing:clear-secrets', (_e, names: BillingSecretName[]) =>
+    ok(billingService.clearSecrets(Array.isArray(names) ? names : []))
+  )
+  handle('billing:clear-config', () => ok(billingService.clearConfig()))
+  handle('billing:generate', async () => ok(await billingService.generate()))
+
   // ============ 应用 ============
   handle('app:info', () =>
     ok({
@@ -547,10 +590,29 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     return ok()
   })
 
-  handle('app:open-external', async (_e, url: string, privateMode?: boolean) => {
+  handle('app:open-external', async (_e, url: string, browserOptions?: BrowserOpenOptions) => {
     // 只放行 http(s)，避免被诱导打开本地程序或自定义协议
     if (!isHttpUrl(url)) return fail(new Error('仅支持 http/https 链接'))
-    return ok(await openUrl(url, privateMode))
+    return ok(await openUrl(url, browserOptions))
+  })
+
+  handle('app:choose-private-browser', async () => {
+    const result = await dialog.showOpenDialog(getWindow()!, {
+      title: '选择用于无痕登录的浏览器',
+      properties: ['openFile'],
+      filters: process.platform === 'win32'
+        ? [
+            { name: '支持的浏览器', extensions: ['exe'] },
+            { name: '全部文件', extensions: ['*'] }
+          ]
+        : [{ name: '全部文件', extensions: ['*'] }]
+    })
+    if (result.canceled || !result.filePaths[0]) return ok({ selected: false })
+    const selection = inspectPrivateBrowserPath(result.filePaths[0])
+    if (!selection) {
+      return fail(new Error('请选择 Chrome、Edge、Brave、Chromium 或 Firefox 的可执行文件'))
+    }
+    return ok({ selected: true, ...selection })
   })
 
   handle('tray:sync', (_e, data: TraySnapshot) => {

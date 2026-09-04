@@ -33,6 +33,8 @@ import type {
   ShellAutoApproveStatus,
   ShellAutoApproveTarget,
   SocialCallbackPayload,
+  SubscriptionLinkResult,
+  SubscriptionPlansResult,
   LogQuery,
   LogQueryResult,
   ProactiveRenewalPayload,
@@ -45,6 +47,20 @@ import type {
   VerifyCredentialsInput,
   XlsxSheet
 } from '../shared/types'
+import type { BillingRendererApi } from '../shared/billing'
+
+interface BrowserOpenOptions {
+  privateMode?: boolean
+  requirePrivate?: boolean
+  browserPath?: string
+}
+
+interface PrivateBrowserSelection {
+  selected: boolean
+  path?: string
+  family?: 'chromium' | 'edge' | 'firefox'
+  name?: string
+}
 
 export interface KiroActiveToken {
   refreshToken: string
@@ -60,7 +76,7 @@ export interface ImportedFile {
   path: string
 }
 
-export interface Api {
+export interface Api extends BillingRendererApi {
   md5: (text: string) => string
 
   loadAccounts: () => Promise<IpcResult<AccountStoreData>>
@@ -119,6 +135,13 @@ export interface Api {
   checkAccountStatus: (
     account: Account
   ) => Promise<IpcResult<AccountSnapshot> & { banned?: boolean }>
+  /** 读取当前账号可购买的 Kiro 订阅计划。 */
+  getSubscriptionPlans: (account: Account) => Promise<IpcResult<SubscriptionPlansResult>>
+  /** 生成指定计划的 Kiro/Stripe 官方订阅链接。 */
+  createSubscriptionLink: (
+    account: Account,
+    subscriptionType: string
+  ) => Promise<IpcResult<SubscriptionLinkResult>>
   /** 用账号凭证生成一个新的 Kiro API Key，label 为密钥名称 */
   createAccountApiKey: (
     account: Account,
@@ -167,12 +190,12 @@ export interface Api {
 
   startBuilderIdLogin: (
     region?: string,
-    privateMode?: boolean
+    browserOptions?: BrowserOpenOptions
   ) => Promise<IpcResult<BuilderIdStartInfo>>
   pollBuilderIdLogin: () => Promise<IpcResult<LoginPollResult>>
   startSocialLogin: (
     provider: 'Google' | 'Github',
-    privateMode?: boolean
+    browserOptions?: BrowserOpenOptions
   ) => Promise<IpcResult<BrowserOpenInfo & { loginUrl: string }>>
   completeSocialLogin: (
     code: string,
@@ -181,7 +204,7 @@ export interface Api {
   startEnterpriseLogin: (
     startUrl: string,
     region?: string,
-    privateMode?: boolean
+    browserOptions?: BrowserOpenOptions
   ) => Promise<IpcResult<BrowserOpenInfo & { authorizeUrl: string; expiresIn: number }>>
   pollEnterpriseLogin: () => Promise<IpcResult<LoginPollResult>>
   cancelLogin: () => Promise<IpcResult>
@@ -210,7 +233,8 @@ export interface Api {
   revealShellApproveTarget: (
     kind: ShellAutoApproveTarget['kind']
   ) => Promise<IpcResult<void>>
-  openExternal: (url: string, privateMode?: boolean) => Promise<IpcResult<BrowserOpenInfo>>
+  openExternal: (url: string, browserOptions?: BrowserOpenOptions) => Promise<IpcResult<BrowserOpenInfo>>
+  choosePrivateBrowser: () => Promise<IpcResult<PrivateBrowserSelection>>
   showPath: (target: 'store' | 'backup' | 'logs') => Promise<IpcResult>
 
   queryLogs: (query: LogQuery) => Promise<IpcResult<LogQueryResult>>

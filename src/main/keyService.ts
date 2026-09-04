@@ -644,6 +644,35 @@ export async function initializeKeyService(
   }
 }
 
+/**
+ * API Key 管理界面移除后的兼容清理：保留历史 Key，只关闭旧版本遗留的网关接管。
+ * 未启用过网关时不触碰 Kiro 设置，避免清空其它工具配置的端点。
+ */
+export async function retireKeyService(): Promise<void> {
+  notify = null
+  const data = getKeyData()
+  if (!data.enabled && !data.originalEndpoints && !data.settingsPath) {
+    stopEndpointWatcher()
+    stopGateway()
+    return
+  }
+
+  try {
+    await disableGateway()
+  } catch (error) {
+    stopEndpointWatcher()
+    stopGateway()
+    await restoreEndpointOverride(originalSnapshot(data), data.settingsPath).catch(() => undefined)
+    const latest = getKeyData()
+    latest.enabled = false
+    latest.activeKeyId = null
+    latest.originalEndpoints = undefined
+    latest.settingsPath = undefined
+    setKeyData(latest)
+    log('warn', `[KeyGateway] 移除功能时清理旧接管失败：${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 /** 退出前同步还原端点，避免 IDE 永久指向已经停止的本地端口。 */
 export function shutdownKeyServiceSync(): void {
   // 同上：守护还挂着的话，同步还原写入会被它改回本地端点，IDE 就会永久指向已停止的端口

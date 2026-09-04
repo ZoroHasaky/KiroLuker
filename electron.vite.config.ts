@@ -15,7 +15,8 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: { index: resolve(__dirname, 'src/main/index.ts') }
+        // bootstrap 先固定改名后的 userData 路径并迁移旧数据，再加载主进程。
+        input: { index: resolve(__dirname, 'src/main/bootstrap.ts') }
       }
     }
   },

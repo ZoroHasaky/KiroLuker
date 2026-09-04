@@ -3,7 +3,7 @@ import { app, BrowserWindow } from 'electron'
 import * as crypto from 'crypto'
 import * as http from 'http'
 import { setProtocolClient } from './appProtocol'
-import { openUrl } from './browser'
+import { openUrl, type BrowserOpenOptions } from './browser'
 import { errorMessage } from '../shared/errors'
 import { KIRO_AUTH_BASE, KIRO_OIDC_SCOPES, KIRO_START_URL, oidcEndpoint } from './kiroEndpoints'
 import { httpRequest, type HttpResponse } from './net'
@@ -175,7 +175,7 @@ async function registerOidcClient(
   redirectUris?: string[]
 ): Promise<{ clientId: string; clientSecret: string }> {
   const res = await postJson(`${oidcEndpoint(region)}/client/register`, {
-    clientName: 'Kiro Manager Lite',
+    clientName: 'KiroLuker',
     clientType: 'public',
     scopes: KIRO_OIDC_SCOPES,
     grantTypes,
@@ -210,7 +210,7 @@ async function registerOidcClient(
 
 export async function startBuilderIdLogin(
   region = DEFAULT_REGION,
-  privateMode?: boolean
+  browserOptions?: boolean | BrowserOpenOptions
 ): Promise<BuilderIdStartInfo> {
   cancelLogin()
   const { clientId, clientSecret } = await registerOidcClient(
@@ -248,7 +248,7 @@ export async function startBuilderIdLogin(
   }
 
   const verificationUri = data.verificationUriComplete || data.verificationUri
-  const opened = await openUrl(verificationUri, privateMode)
+  const opened = await openUrl(verificationUri, browserOptions)
 
   return {
     userCode: data.userCode,
@@ -311,7 +311,7 @@ export async function pollBuilderIdLogin(): Promise<LoginPollResult> {
 
 export async function startSocialLogin(
   provider: 'Google' | 'Github',
-  privateMode?: boolean
+  browserOptions?: boolean | BrowserOpenOptions
 ): Promise<BrowserOpenInfo & { loginUrl: string }> {
   cancelLogin()
 
@@ -348,8 +348,14 @@ export async function startSocialLogin(
     )
   }
   const url = loginUrl.toString()
-  const opened = await openUrl(url, privateMode)
-  return { loginUrl: url, privateMode: opened.privateMode, browser: opened.browser }
+  try {
+    const opened = await openUrl(url, browserOptions)
+    return { loginUrl: url, privateMode: opened.privateMode, browser: opened.browser }
+  } catch (error) {
+    // 浏览器根本没有成功打开时无需继续占用 kiro://；重试会创建全新 state/session。
+    cancelLogin()
+    throw error
+  }
 }
 
 export async function completeSocialLogin(
@@ -418,7 +424,7 @@ function callbackPage(title: string, detail: string, ok = true): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title} · Kiro Manager Lite</title>
+<title>${title} · KiroLuker</title>
 <style>
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -455,9 +461,9 @@ function callbackPage(title: string, detail: string, ok = true): string {
     <div class="icon">${icon}</div>
     <h1>${title}</h1>
     <p>${detail}</p>
-    <button id="back" type="button">打开 Kiro Manager Lite</button>
-    <div class="hint" id="hint">已唤起 Kiro Manager Lite，可以关闭此标签页了。</div>
-    <div class="brand">Kiro Manager Lite</div>
+    <button id="back" type="button">打开 KiroLuker</button>
+    <div class="hint" id="hint">已唤起 KiroLuker，可以关闭此标签页了。</div>
+    <div class="brand">KiroLuker</div>
   </div>
 </body>
 <script>
@@ -469,7 +475,7 @@ function callbackPage(title: string, detail: string, ok = true): string {
     // 关标签页交给用户。优先走本地回调服务，失败则回退到自定义协议。
     fetch('/focus', { method: 'POST', cache: 'no-store' })
       .catch(function () {
-        window.location.href = 'kml://focus'
+        window.location.href = 'kiroluker://focus'
       })
       .then(function () {
         hint.style.display = 'block'
@@ -483,7 +489,7 @@ function callbackPage(title: string, detail: string, ok = true): string {
 export async function startEnterpriseLogin(
   startUrl: string,
   region = DEFAULT_REGION,
-  privateMode?: boolean
+  browserOptions?: boolean | BrowserOpenOptions
 ): Promise<BrowserOpenInfo & { authorizeUrl: string; expiresIn: number }> {
   if (!/^https:\/\//i.test(startUrl)) throw new Error('SSO Start URL 必须以 https:// 开头')
   cancelLogin()
@@ -544,7 +550,7 @@ export async function startEnterpriseLogin(
       return finish('授权失败', '未收到授权码，请回到应用重试。', false)
     }
 
-    finish('授权成功', '正在获取令牌，可以关闭此页面并返回 Kiro Manager Lite。')
+    finish('授权成功', '正在获取令牌，可以关闭此页面并返回 KiroLuker。')
 
     try {
       const tokenRes = await postJson(`${oidcEndpoint(region)}/token`, {
@@ -610,7 +616,7 @@ export async function startEnterpriseLogin(
     code_challenge_method: 'S256'
   })
   const authorizeUrl = `${oidcEndpoint(region)}/authorize?${params.toString()}`
-  const opened = await openUrl(authorizeUrl, privateMode)
+  const opened = await openUrl(authorizeUrl, browserOptions)
 
   return {
     authorizeUrl,

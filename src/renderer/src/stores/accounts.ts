@@ -10,6 +10,7 @@ import {
   type AccountSnapshot,
   type AccountStatus,
   type AccountStoreData,
+  type AccountTag,
   type BatchResult,
   type IdpType,
   type OnlineLoginCredentials,
@@ -18,6 +19,16 @@ import {
   type SwitchAccountResult,
   type VerifyCredentialsInput
 } from '@shared/types'
+import {
+  ACCOUNT_STORE_VERSION,
+  DEFAULT_ACCOUNT_TAG_COLOR,
+  matchesAccountTagDateFilter,
+  mergeAccountTags,
+  migrateAccountStoreData,
+  normalizeTagColor,
+  normalizeTagName,
+  tagNameKey
+} from '@shared/accountData'
 import { errorMessage, isCredentialRejected } from '@shared/errors'
 import { shouldSkipAccountUsageRefresh } from '@shared/refreshPolicy'
 import { DEFAULT_REGION } from '@shared/regions'
@@ -31,6 +42,12 @@ export interface AccountFilter {
   statuses: AccountStatus[]
   subscriptions: SubscriptionType[]
   idps: IdpType[]
+  /** 非空时匹配任一所选标签。 */
+  tagIds: string[]
+  /** 添加时间下界（含），毫秒时间戳。 */
+  createdAtFrom?: number
+  /** 添加时间上界（不含），毫秒时间戳。 */
+  createdAtToExclusive?: number
   /** 订阅剩余天数下限（含） */
   daysRemainingMin?: number
   /** 订阅剩余天数上限（含），用于「即将到期」快捷筛选 */
@@ -39,6 +56,12 @@ export interface AccountFilter {
   usageMin?: number
   /** 用量占比上限（0-1） */
   usageMax?: number
+}
+
+export interface AccountTagMutationResult {
+  ok: boolean
+  tag?: AccountTag
+  error?: string
 }
 
 /** 批量任务的进度状态，全局单例，同一时间只跑一件事 */
@@ -74,6 +97,7 @@ export const useAccountsStore = defineStore('accounts', () => {
   const settingsStore = useSettingsStore()
 
   const accounts = ref<Account[]>([])
+  const tags = ref<AccountTag[]>([])
   const activeAccountId = ref<string | null>(null)
   const selectedIds = ref<string[]>([])
   const loading = ref(false)
@@ -84,7 +108,13 @@ export const useAccountsStore = defineStore('accounts', () => {
     total: 0,
     done: 0
   })
-  const filter = ref<AccountFilter>({ search: '', statuses: [], subscriptions: [], idps: [] })
+  const filter = ref<AccountFilter>({
+    search: '',
+    statuses: [],
+    subscriptions: [],
+    idps: [],
+    tagIds: []
+  })
 
   // ============ 持久化 ============
 
@@ -92,8 +122,9 @@ export const useAccountsStore = defineStore('accounts', () => {
 
   function snapshotForStore(): AccountStoreData {
     return {
-      version: 1,
+      version: ACCOUNT_STORE_VERSION,
       accounts: accounts.value,
+      tags: tags.value,
       activeAccountId: activeAccountId.value
     }
   }
@@ -114,8 +145,11 @@ export const useAccountsStore = defineStore('accounts', () => {
       // 订阅档位的历史值由主进程在读取时统一对齐，这里拿到的已是规范值
       const res = await window.api.loadAccounts()
       if (res.success && res.data) {
-        accounts.value = res.data.accounts ?? []
-        activeAccountId.value = res.data.activeAccountId ?? null
+        // 主进程正常会返回 v2；这里再归一遍，兼容开发期热更新保留下来的旧窗口。
+        const data = migrateAccountStoreData(res.data).data
+        accounts.value = data.accounts
+        tags.value = data.tags
+        activeAccountId.value = data.activeAccountId ?? null
       }
       await syncActiveFromIde()
     } finally {
@@ -139,6 +173,9 @@ export const useAccountsStore = defineStore('accounts', () => {
       statuses,
       subscriptions,
       idps,
+      tagIds,
+      createdAtFrom,
+      createdAtToExclusive,
       daysRemainingMin,
       daysRemainingMax,
       usageMin,
@@ -153,6 +190,9 @@ export const useAccountsStore = defineStore('accounts', () => {
       if (statuses.length && !statuses.includes(a.status)) return false
       if (subscriptions.length && !subscriptions.includes(a.subscription.type)) return false
       if (idps.length && !idps.includes(a.idp)) return false
+      if (!matchesAccountTagDateFilter(a, { tagIds, createdAtFrom, createdAtToExclusive })) {
+        return false
+      }
       // 范围条件一律用 != null 判断「是否已设置」：输入框清空后给过来的是 null，
       // 若按 !== undefined 判断，null 会被当成已设置，比较时又被转成 0，
       // 于是 days > 0 / used > 0 把几乎所有条目都滤掉，列表看起来是空的
@@ -177,6 +217,9 @@ export const useAccountsStore = defineStore('accounts', () => {
       statuses: [],
       subscriptions: [],
       idps: [],
+      tagIds: [],
+      createdAtFrom: undefined,
+      createdAtToExclusive: undefined,
       daysRemainingMin: undefined,
       daysRemainingMax: undefined,
       usageMin: undefined,
@@ -264,6 +307,8 @@ export const useAccountsStore = defineStore('accounts', () => {
       usage: snapshot.usage,
       status: 'active',
       isActive: false,
+      tagIds: [],
+      paymentLink: '',
       createdAt: now,
       lastUsedAt: now,
       lastCheckedAt: now
@@ -318,6 +363,74 @@ export const useAccountsStore = defineStore('accounts', () => {
     persist()
   }
 
+  function createTag(
+    name: string,
+    color = DEFAULT_ACCOUNT_TAG_COLOR
+  ): AccountTagMutationResult {
+    const normalizedName = normalizeTagName(name)
+    if (!normalizedName) return { ok: false, error: '标签名称不能为空' }
+    if (tags.value.some((tag) => tagNameKey(tag.name) === tagNameKey(normalizedName))) {
+      return { ok: false, error: '标签名称已存在' }
+    }
+    const normalizedColor = normalizeTagColor(color)
+    if (!normalizedColor) return { ok: false, error: '标签颜色格式无效' }
+    const tag: AccountTag = { id: uuidv4(), name: normalizedName, color: normalizedColor }
+    tags.value = [...tags.value, tag]
+    persist()
+    return { ok: true, tag }
+  }
+
+  function updateTag(
+    id: string,
+    patch: Partial<Pick<AccountTag, 'name' | 'color'>>
+  ): AccountTagMutationResult {
+    const current = tags.value.find((tag) => tag.id === id)
+    if (!current) return { ok: false, error: '标签不存在' }
+    const name = patch.name == null ? current.name : normalizeTagName(patch.name)
+    if (!name) return { ok: false, error: '标签名称不能为空' }
+    if (tags.value.some((tag) => tag.id !== id && tagNameKey(tag.name) === tagNameKey(name))) {
+      return { ok: false, error: '标签名称已存在' }
+    }
+    const color = patch.color == null ? current.color : normalizeTagColor(patch.color)
+    if (!color) return { ok: false, error: '标签颜色格式无效' }
+    if (current.name === name && current.color === color) return { ok: true, tag: current }
+    const tag = { ...current, name, color }
+    tags.value = tags.value.map((item) => (item.id === id ? tag : item))
+    persist()
+    return { ok: true, tag }
+  }
+
+  /** 删除标签并同步清理所有账号上的引用；返回实际受影响的账号数。 */
+  function removeTag(id: string): number {
+    if (!tags.value.some((tag) => tag.id === id)) return 0
+    tags.value = tags.value.filter((tag) => tag.id !== id)
+    let affected = 0
+    accounts.value = accounts.value.map((account) => {
+      if (!account.tagIds.includes(id)) return account
+      affected++
+      return { ...account, tagIds: account.tagIds.filter((tagId) => tagId !== id) }
+    })
+    filter.value.tagIds = filter.value.tagIds.filter((tagId) => tagId !== id)
+    persist()
+    return affected
+  }
+
+  /** 账号只能关联当前全局目录中存在的标签。 */
+  function setAccountTags(accountId: string, tagIds: string[]): boolean {
+    const account = get(accountId)
+    if (!account) return false
+    const validIds = new Set(tags.value.map((tag) => tag.id))
+    const nextIds = [...new Set(tagIds.filter((id) => validIds.has(id)))]
+    if (
+      account.tagIds.length === nextIds.length &&
+      account.tagIds.every((id, index) => id === nextIds[index])
+    ) {
+      return true
+    }
+    updateAccount(accountId, { tagIds: nextIds })
+    return true
+  }
+
   /**
    * 批量覆盖备注：选中的账号统一改成同一个 note（空串表示清空）。
    * 一次性换数组引用 + 单次 persist，避免逐个 updateAccount 触发 N 次写盘。
@@ -354,8 +467,10 @@ export const useAccountsStore = defineStore('accounts', () => {
     if (!res.success || !res.data) {
       return { removed: 0, error: res.error || '删除账号失败' }
     }
-    accounts.value = res.data.accounts.accounts ?? []
-    activeAccountId.value = res.data.accounts.activeAccountId ?? null
+    const data = migrateAccountStoreData(res.data.accounts).data
+    accounts.value = data.accounts
+    tags.value = data.tags
+    activeAccountId.value = data.activeAccountId ?? null
     const removedSet = new Set(uniqueIds)
     selectedIds.value = selectedIds.value.filter((id) => !removedSet.has(id))
     if (res.data.removed) console.warn(`[Account] 已删除 ${res.data.removed} 个账号`)
@@ -450,8 +565,11 @@ export const useAccountsStore = defineStore('accounts', () => {
   function importFullData(data: AccountExportData): BatchResult {
     const result: BatchResult = { success: 0, failed: 0, skipped: 0, messages: [] }
     const created: Account[] = []
+    const mergedTags = mergeAccountTags(tags.value, data.tags, uuidv4)
+    const validTagIds = new Set(mergedTags.tags.map((tag) => tag.id))
     // 与 importItems 一致，用 Set 查重避免逐条线性扫描
     const createdKeys = new Set<string>()
+    const usedAccountIds = new Set(accounts.value.map((account) => account.id))
 
     for (const raw of data.accounts ?? []) {
       if (!raw?.credentials?.refreshToken) {
@@ -465,11 +583,26 @@ export const useAccountsStore = defineStore('accounts', () => {
         continue
       }
       createdKeys.add(key)
+      const tagIds = [
+        ...new Set(
+          (raw.tagIds ?? [])
+            .map((id) => mergedTags.idMap.get(id) ?? (validTagIds.has(id) ? id : undefined))
+            .filter((id): id is string => !!id)
+        )
+      ]
+      let accountId = typeof raw.id === 'string' ? raw.id.trim() : ''
+      if (!accountId || usedAccountIds.has(accountId)) {
+        do accountId = uuidv4()
+        while (usedAccountIds.has(accountId))
+      }
+      usedAccountIds.add(accountId)
       created.push({
         ...raw,
-        id: raw.id || uuidv4(),
+        id: accountId,
         idp,
         isActive: false,
+        tagIds,
+        paymentLink: typeof raw.paymentLink === 'string' ? raw.paymentLink : '',
         usage: raw.usage ?? emptyUsage(),
         subscription: raw.subscription ?? { type: 'Free' },
         status: raw.status ?? 'unknown',
@@ -479,9 +612,14 @@ export const useAccountsStore = defineStore('accounts', () => {
       result.success++
     }
 
-    if (created.length) {
+    if (mergedTags.added) tags.value = mergedTags.tags
+    if (created.length || mergedTags.added) {
       accounts.value = [...accounts.value, ...created]
       persist(true)
+    }
+    if (mergedTags.added) result.messages.push(`导入 ${mergedTags.added} 个新标签`)
+    if (mergedTags.colorConflicts) {
+      result.messages.push(`${mergedTags.colorConflicts} 个同名标签沿用本地颜色`)
     }
     if (result.skipped) result.messages.push(`跳过 ${result.skipped} 个已存在的账号`)
     console.info(
@@ -998,6 +1136,7 @@ export const useAccountsStore = defineStore('accounts', () => {
   return {
     // 状态
     accounts,
+    tags,
     activeAccount,
     selectedIds,
     loading,
@@ -1013,6 +1152,10 @@ export const useAccountsStore = defineStore('accounts', () => {
     addByCredentials,
     addByOnlineLogin,
     updateAccount,
+    createTag,
+    updateTag,
+    removeTag,
+    setAccountTags,
     setNoteForAccounts,
     removeAccounts,
     importItems,

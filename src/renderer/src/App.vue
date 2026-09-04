@@ -8,19 +8,17 @@ import AppTitleBar from '@/components/layout/AppTitleBar.vue'
 import UpdateAvailableModal from '@/components/common/UpdateAvailableModal.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useAccountsStore } from '@/stores/accounts'
-import { useKeysStore } from '@/stores/keys'
 import { useUpdateStore } from '@/stores/update'
 import { useTrayBridge } from '@/utils/tray'
 
 const settingsStore = useSettingsStore()
 const accountsStore = useAccountsStore()
-const keysStore = useKeysStore()
 const updateStore = useUpdateStore()
 const router = useRouter()
 
 useTrayBridge()
 
-// kiro-manager-lite://accounts 之类的协议唤起，跳到对应页面
+// kiroluker://accounts 之类的协议唤起，跳到对应页面
 let offNavigate: (() => void) | undefined
 // 托盘「退出程序」的确认框，避免连点托盘菜单弹出多个
 let offConfirmQuit: (() => void) | undefined
@@ -30,7 +28,7 @@ function confirmQuit(): void {
   if (quitConfirmOpen) return
   quitConfirmOpen = true
   Modal.confirm({
-    title: '退出 Kiro Manager Lite',
+    title: '退出 KiroLuker',
     content: '退出后自动刷新与 IDE 主动续期都会停止，托盘图标也会一起关闭。',
     okText: '退出',
     okType: 'danger',
@@ -44,8 +42,6 @@ function confirmQuit(): void {
 
 // 主进程主动续期后回传的新凭证
 let offRenewal: (() => void) | undefined
-// API Key 网关状态变化（开启、关闭、当前 Key 切换）
-let offKeyGateway: (() => void) | undefined
 
 onMounted(() => {
   offNavigate = window.api.onAppNavigate((target) => {
@@ -55,23 +51,19 @@ onMounted(() => {
   offRenewal = window.api.onProactiveRenewal((payload) =>
     accountsStore.applyRenewedCredentials(payload)
   )
-  offKeyGateway = window.api.onKeyGatewayChanged((status) => keysStore.applyStatus(status))
 })
 onUnmounted(() => {
   offNavigate?.()
   offConfirmQuit?.()
   offRenewal?.()
-  offKeyGateway?.()
-  keysStore.stopAutoRefresh()
 })
 
 onMounted(async () => {
   await settingsStore.load()
   // 冷启动静默检查：缓存命中时不请求；失败不打扰用户。
   void updateStore.initialize(settingsStore.appInfo?.version ?? '')
-  await Promise.all([accountsStore.load(), keysStore.load()])
+  await accountsStore.load()
   accountsStore.startAutoRefresh()
-  keysStore.startAutoRefresh()
 })
 
 // 开关或间隔改动后重新对齐自动刷新；startAutoRefresh 是幂等的，
@@ -86,19 +78,11 @@ watch(
   () => accountsStore.startAutoRefresh()
 )
 
-watch(
-  () => [
-    settingsStore.settings.autoRefreshApiKeyUsage,
-    settingsStore.settings.apiKeyUsageRefreshInterval
-  ],
-  () => keysStore.startAutoRefresh()
-)
-
 // 原生窗口标题：带上当前版本号
 watch(
   () => settingsStore.appInfo?.version,
   (version) => {
-    document.title = version ? `Kiro Manager Lite v${version}` : 'Kiro Manager Lite'
+    document.title = version ? `KiroLuker v${version}` : 'KiroLuker'
   },
   { immediate: true }
 )

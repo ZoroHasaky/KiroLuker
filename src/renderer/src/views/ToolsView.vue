@@ -6,82 +6,15 @@ import {
   ExclamationCircleFilled,
   FolderOpenOutlined,
   MinusCircleOutlined,
-  ReloadOutlined,
-  ThunderboltOutlined
+  ReloadOutlined
 } from '@ant-design/icons-vue'
 import { copyText } from '@/utils/ui'
-import { useSettingsStore } from '@/stores/settings'
-import { RETRYABLE_STATUS_OPTIONS, normalizeRetryStatuses } from '@shared/retryPolicy'
 import type { ShellAutoApproveStatus, ShellAutoApproveTarget } from '@shared/types'
 
 const status = ref<ShellAutoApproveStatus | null>(null)
 const loading = ref(false)
 const busy = ref(false)
 const confirmOpen = ref(false)
-
-// ============ 网关错误自动续接 ============
-const settingsStore = useSettingsStore()
-const savingRetry = ref(false)
-const savingStatuses = ref(false)
-/** 与主进程 keyGateway 的 RETRY_DELAY_MS 保持一致，仅用于文案展示 */
-const statusOptions = RETRYABLE_STATUS_OPTIONS
-const maxAttempts = computed(() => settingsStore.settings.gatewayRetryMaxAttempts)
-const retryDelay = computed(() => settingsStore.settings.gatewayRetryDelayMs)
-const autoRetry = computed(() => settingsStore.settings.gatewayAutoRetryThrottle)
-const selectedStatuses = computed(() =>
-  normalizeRetryStatuses(settingsStore.settings.gatewayRetryStatuses)
-)
-/** 推荐项：重试通常有效的那些 */
-const recommendedStatuses = statusOptions.filter((o) => o.recommended).map((o) => o.status)
-
-async function onAutoRetry(next: boolean): Promise<void> {
-  if (savingRetry.value) return
-  savingRetry.value = true
-  try {
-    // 开启时如果一项都没勾，直接补上推荐项，避免"开了但什么都不重试"
-    const patch: Record<string, unknown> = { gatewayAutoRetryThrottle: next }
-    if (next && !selectedStatuses.value.length) patch.gatewayRetryStatuses = recommendedStatuses
-    await settingsStore.update(patch)
-    message.success(
-      next ? '已开启：命中所选错误时网关会自动重试，不会更换 Key' : '已关闭：错误会直接透传给 Kiro IDE'
-    )
-  } finally {
-    savingRetry.value = false
-  }
-}
-
-/** 点一下切换某个状态码的勾选状态 */
-async function toggleStatus(status: number): Promise<void> {
-  if (savingStatuses.value) return
-  const current = selectedStatuses.value
-  const next = current.includes(status)
-    ? current.filter((s) => s !== status)
-    : [...current, status]
-  savingStatuses.value = true
-  try {
-    await settingsStore.update({ gatewayRetryStatuses: normalizeRetryStatuses(next) })
-  } finally {
-    savingStatuses.value = false
-  }
-}
-
-async function onMaxAttempts(value: unknown): Promise<void> {
-  // 同上：只接受真正的数字，清空输入框不写入
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) return
-  await settingsStore.update({ gatewayRetryMaxAttempts: Math.min(100, Math.round(value)) })
-}
-
-async function onRetryDelay(value: unknown): Promise<void> {
-  // 清空输入框时 a-input-number 会传 null，而 Number(null) 是 0——
-  // 若照单全收就会静默变成「0ms 间隔」疯狂重试，所以只接受真正的数字。
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return
-  await settingsStore.update({ gatewayRetryDelayMs: Math.min(60_000, Math.round(value)) })
-}
-
-async function resetStatuses(): Promise<void> {
-  await settingsStore.update({ gatewayRetryStatuses: recommendedStatuses })
-  message.success('已恢复为推荐的状态码')
-}
 
 const enabled = computed(() => status.value?.enabled === true)
 const partial = computed(() => status.value?.partial === true)
@@ -240,92 +173,6 @@ onMounted(() => void refresh())
           重新检测
         </a-button>
       </div>
-    </a-card>
-
-    <a-card class="tool-card" :bordered="false">
-      <div class="tool-row">
-        <div class="tool-main">
-          <div class="tool-title">
-            <ThunderboltOutlined />
-            <strong>网关错误自动续接</strong>
-            <a-tag :color="autoRetry ? 'success' : 'default'">
-              {{ autoRetry ? '已开启' : '未开启' }}
-            </a-tag>
-          </div>
-          <div class="tool-desc">
-            开启后 API Key 网关遇到 Kiro 限流会自己等待并重发，对话不会中断，无需手动点继续。
-          </div>
-          <div class="tool-hint">
-            Kiro 风控限流时会返回
-            <span class="mono">Too many requests, please wait before trying again</span>，
-            IDE 收到后就中断当前回答。网关在把响应交给 IDE 之前拦下这类错误，用
-            <strong>同一个 API Key</strong> 重发，<strong>不会替换成别的 Key</strong>，
-            额度消耗仍然记在当前 Key 上。本周期额度已用尽的情况不会重试，会直接透传让你及时发现。
-          </div>
-        </div>
-        <a-switch :checked="autoRetry" :loading="savingRetry" @change="(v: any) => onAutoRetry(!!v)" />
-      </div>
-
-      <div class="retry-picker" :class="{ disabled: !autoRetry }">
-        <div class="picker-title">
-          <span>最多重试</span>
-          <a-input-number
-            :value="maxAttempts"
-            :min="1"
-            :max="100"
-            :step="1"
-            size="small"
-            style="width: 82px"
-            :disabled="!autoRetry"
-            @change="(v: any) => onMaxAttempts(v)"
-          />
-          <span class="muted">次</span>
-          <a-divider type="vertical" style="margin: 0 4px" />
-          <span>间隔</span>
-          <a-input-number
-            :value="retryDelay"
-            :min="0"
-            :max="60000"
-            :step="50"
-            size="small"
-            style="width: 96px"
-            :disabled="!autoRetry"
-            @change="(v: any) => onRetryDelay(v)"
-          />
-          <span class="muted">ms</span>
-          <span class="spacer" />
-          <a-button type="link" size="small" :disabled="!autoRetry" @click="resetStatuses">
-            恢复推荐
-          </a-button>
-        </div>
-
-        <div class="picker-title">
-          <span>遇到哪些错误时自动重试</span>
-          <span class="muted">已选 {{ selectedStatuses.length }} 项</span>
-        </div>
-        <div class="chips">
-          <button
-            v-for="opt in statusOptions"
-            :key="opt.status"
-            type="button"
-            class="chip"
-            :class="{ on: selectedStatuses.includes(opt.status) }"
-            :disabled="!autoRetry || savingStatuses"
-            :title="opt.desc"
-            @click="toggleStatus(opt.status)"
-          >
-            <span class="chip-text">
-              <span class="chip-code mono">{{ opt.status }}</span>
-              <span class="chip-label">{{ opt.label }}</span>
-            </span>
-            <CheckCircleFilled
-              class="chip-check"
-              :class="{ hidden: !selectedStatuses.includes(opt.status) }"
-            />
-          </button>
-        </div>
-      </div>
-
     </a-card>
 
     <a-modal

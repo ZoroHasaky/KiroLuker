@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import dayjs, { type Dayjs } from 'dayjs'
 import { useAccountsStore } from '@/stores/accounts'
 import { IDP_META, STATUS_META, SUBSCRIPTION_META } from '@/utils/format'
-import type { AccountStatus, IdpType, SubscriptionType } from '@shared/types'
+import type { AccountStatus, AccountTag, IdpType, SubscriptionType } from '@shared/types'
 
 const accountsStore = useAccountsStore()
 
@@ -30,6 +31,16 @@ const statusChips = computed(() =>
   buildChips<AccountStatus>(STATUS_META, accountsStore.stats.byStatus)
 )
 const idpChips = computed(() => buildChips<IdpType>(IDP_META, accountsStore.stats.byIdp))
+const tagChips = computed(() => {
+  const counts = new Map<string, number>()
+  for (const account of accountsStore.accounts) {
+    for (const tagId of account.tagIds ?? []) counts.set(tagId, (counts.get(tagId) ?? 0) + 1)
+  }
+  return accountsStore.tags.map((tag: AccountTag) => ({
+    ...tag,
+    count: counts.get(tag.id) ?? 0
+  }))
+})
 
 /**
  * 数字输入框都要经过中转再写进筛选条件。
@@ -65,6 +76,29 @@ const daysRemainingMax = computed<number | null>({
   }
 })
 
+/**
+ * Store 使用时间戳和右开区间，日期控件展示的是包含首尾的自然日。
+ * 结束日统一换算成次日 00:00，避免 23:59:59.999 的精度与夏令时问题。
+ */
+const createdAtRange = computed<[Dayjs, Dayjs] | null>({
+  get: () => {
+    if (filter.value.createdAtFrom == null || filter.value.createdAtToExclusive == null) return null
+    return [
+      dayjs(filter.value.createdAtFrom),
+      dayjs(filter.value.createdAtToExclusive).subtract(1, 'millisecond')
+    ] as [Dayjs, Dayjs]
+  },
+  set: (range: [Dayjs, Dayjs] | null) => {
+    if (!range?.[0] || !range?.[1]) {
+      filter.value.createdAtFrom = undefined
+      filter.value.createdAtToExclusive = undefined
+      return
+    }
+    filter.value.createdAtFrom = range[0].startOf('day').valueOf()
+    filter.value.createdAtToExclusive = range[1].startOf('day').add(1, 'day').valueOf()
+  }
+})
+
 function toggle<T extends string>(list: T[], value: T): T[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
 }
@@ -77,6 +111,9 @@ function toggleStatus(value: AccountStatus): void {
 }
 function toggleIdp(value: IdpType): void {
   filter.value.idps = toggle(filter.value.idps, value)
+}
+function toggleTag(value: string): void {
+  filter.value.tagIds = toggle(filter.value.tagIds, value)
 }
 
 function reset(): void {
@@ -129,6 +166,33 @@ function reset(): void {
           {{ item.label }}<span class="chip-count">({{ item.count }})</span>
         </button>
       </div>
+    </div>
+
+    <div class="filter-row">
+      <span class="filter-label">标签</span>
+      <div v-if="tagChips.length" class="chips">
+        <button
+          v-for="item in tagChips"
+          :key="item.id"
+          class="chip"
+          :class="{ on: filter.tagIds.includes(item.id), empty: !item.count }"
+          @click="toggleTag(item.id)"
+        >
+          <span class="tag-color" :style="{ backgroundColor: item.color }" />
+          {{ item.name }}<span class="chip-count">({{ item.count }})</span>
+        </button>
+      </div>
+      <span v-else class="muted">暂无可用标签</span>
+    </div>
+
+    <div class="filter-row">
+      <span class="filter-label">添加日期</span>
+      <a-range-picker
+        v-model:value="createdAtRange"
+        size="small"
+        format="YYYY-MM-DD"
+        :placeholder="['开始日期', '结束日期']"
+      />
     </div>
 
     <div class="filter-row">
@@ -185,3 +249,13 @@ function reset(): void {
 </template>
 
 <!-- 外观样式在 assets/styles.css 的 .filter-panel 段，与 API Key 筛选面板共用 -->
+<style scoped>
+.tag-color {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+</style>

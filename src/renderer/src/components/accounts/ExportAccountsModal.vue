@@ -93,7 +93,8 @@ watch(
 function content(): string {
   return buildExportContent(format.value, targets.value, {
     includeCredentials: effectiveCredentials.value,
-    appVersion: settingsStore.appInfo?.version ?? '1.0.0'
+    appVersion: settingsStore.appInfo?.version ?? '1.0.0',
+    tags: accountsStore.tags
   })
 }
 

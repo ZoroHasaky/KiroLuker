@@ -4,7 +4,8 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   HomeOutlined,
   TeamOutlined,
-  KeyOutlined,
+  CreditCardOutlined,
+  DollarCircleOutlined,
   ToolOutlined,
   FileTextOutlined,
   SettingOutlined,
@@ -14,17 +15,15 @@ import {
   BulbOutlined,
   BulbFilled
 } from '@ant-design/icons-vue'
-import kiroLogo from '@/assets/kiro-logo.png'
+import kirolukerLogo from '@/assets/kiroluker-logo.png'
 import { useSettingsStore } from '@/stores/settings'
 import { useAccountsStore } from '@/stores/accounts'
-import { useKeysStore } from '@/stores/keys'
 import { useUpdateStore } from '@/stores/update'
 
 const route = useRoute()
 const router = useRouter()
 const settingsStore = useSettingsStore()
 const accountsStore = useAccountsStore()
-const keysStore = useKeysStore()
 const updateStore = useUpdateStore()
 
 const collapsed = computed(() => settingsStore.settings.sidebarCollapsed)
@@ -47,12 +46,9 @@ const items = computed(() => [
     label: accountCount.value ? `账户管理（${accountCount.value}个）` : '账户管理',
     icon: TeamOutlined
   },
-  {
-    key: 'keys',
-    label: keysStore.count ? `API Key 管理（${keysStore.count}个）` : 'API Key 管理',
-    icon: KeyOutlined
-  },
+  { key: 'subscription', label: '批量订阅', icon: DollarCircleOutlined },
   { key: 'tools', label: '常用工具', icon: ToolOutlined },
+  { key: 'billing', label: '账单信息', icon: CreditCardOutlined },
   { key: 'logs', label: '系统日志', icon: FileTextOutlined },
   { key: 'settings', label: '设置', icon: SettingOutlined },
   { key: 'about', label: '关于', icon: InfoCircleOutlined }
@@ -67,7 +63,7 @@ const items = computed(() => [
   >
     <div class="sidebar-brand">
       <a-tooltip
-        :title="updateStore.hasUpdate ? `发现新版本 v${updateStore.latestVersion}` : 'Kiro Manager Lite'"
+        :title="updateStore.hasUpdate ? `发现新版本 v${updateStore.latestVersion}` : 'KiroLuker'"
         placement="right"
       >
         <div
@@ -75,7 +71,7 @@ const items = computed(() => [
           :class="{ 'has-update': updateStore.hasUpdate }"
           @click="updateStore.showModal"
         >
-          <img class="brand-logo" :src="kiroLogo" alt="Kiro Manager Lite" />
+          <img class="brand-logo" :src="kirolukerLogo" alt="KiroLuker" />
           <span v-if="updateStore.hasUpdate" class="brand-update-badge">新版本</span>
         </div>
       </a-tooltip>

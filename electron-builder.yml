@@ -1,5 +1,6 @@
+# 为保证覆盖安装与 Windows 通知身份连续，沿用改名前的稳定 appId。
 appId: dev.kiro.account.lite
-productName: Kiro Manager Lite
+productName: KiroLuker
 directories:
   buildResources: build
 # 不按 Electron ABI 重建原生模块：全项目唯一的原生依赖是 cbor-x 的可选加速模块
@@ -8,14 +9,15 @@ directories:
 npmRebuild: false
 # 发布目标：latest*.yml 里的下载地址按此生成，供后续 electron-updater 检查更新。
 # CI 里统一用 --publish never，实际上传由 GitHub Actions 负责
-publish:
-  provider: github
-  owner: lucks-cloud
-  repo: kiro-manager-lite
-# 自定义 URL Scheme：kiro-manager-lite:// 与短别名 kml:// 快捷唤起应用
+# 发布仍由 GitHub Actions 上传；新仓库地址确定前不把安装包元数据指向旧项目。
+# 自定义 URL Scheme：kiroluker:// 与短别名 klr:// 快捷唤起应用。
+# 两次更名前的旧协议继续兼容，避免已有快捷方式失效。
 protocols:
-  - name: Kiro Manager Lite
+  - name: KiroLuker
     schemes:
+      - kiroluker
+      - klr
+      - kiroluler
       - kiro-manager-lite
       - kml
   # 社交登录（Google / GitHub）的回调地址被 Kiro 固定成 kiro://，登录期间必须
@@ -92,7 +94,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: Kiro Manager Lite
+  shortcutName: KiroLuker
   deleteAppDataOnUninstall: false
 linux:
   # 同上：linux-arm64 的预编译包本机没装，交叉编译会挂，只出 x64

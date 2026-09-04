@@ -94,9 +94,21 @@ export interface AccountSubscription {
   type: SubscriptionType
   title?: string
   rawType?: string
+  /** 上游是否允许升级，例如 UPGRADE_CAPABLE / NOT_UPGRADE_CAPABLE。 */
+  upgradeCapability?: string
+  /** 上游订阅管理目标；MANAGE 通常表示已有 Stripe 订阅记录。 */
+  managementTarget?: string
   /** 下次重置时间戳（ms） */
   expiresAt?: number
   daysRemaining?: number
+}
+
+/** 账号标签：先在全局标签目录中创建，再通过 id 关联到账号。 */
+export interface AccountTag {
+  id: string
+  name: string
+  /** CSS 十六进制颜色，例如 #7c3aed */
+  color: string
 }
 
 /** 账号实体 */
@@ -115,6 +127,10 @@ export interface Account {
   status: AccountStatus
   lastError?: string
   isActive: boolean
+  /** 关联到全局 AccountStoreData.tags 的标签 id */
+  tagIds: string[]
+  /** 支付页面地址；空字符串表示尚未设置 */
+  paymentLink: string
   createdAt: number
   lastUsedAt: number
   lastCheckedAt?: number
@@ -124,15 +140,19 @@ export interface Account {
 export interface AccountStoreData {
   version: number
   accounts: Account[]
+  tags: AccountTag[]
   activeAccountId?: string | null
 }
 
 /** 导出文件结构 */
 export interface AccountExportData {
-  app: 'kiro-account-lite'
+  /** 新导出使用 kiroluker；旧标识继续接受，保证历史完整备份可恢复。 */
+  app: 'kiroluker' | 'kiroluler' | 'kiro-account-lite'
   version: string
   exportedAt: number
   accounts: Omit<Account, 'isActive'>[]
+  /** 仅包含本次导出账号引用的标签；旧备份可能没有该字段。 */
+  tags?: AccountTag[]
 }
 
 /** 简化导入项（卡密 / OIDC JSON / CSV） */
@@ -152,6 +172,32 @@ export interface BatchResult {
   failed: number
   skipped: number
   messages: string[]
+}
+
+/** Kiro 返回的一个可购买订阅计划。 */
+export interface KiroSubscriptionPlan {
+  name: string
+  qSubscriptionType: string
+  description: {
+    title: string
+    billingInterval: string
+    featureHeader: string
+    features: string[]
+  }
+  pricing: {
+    amount: number
+    currency: string
+  }
+}
+
+export interface SubscriptionPlansResult {
+  plans: KiroSubscriptionPlan[]
+  disclaimer?: string[]
+}
+
+export interface SubscriptionLinkResult {
+  url: string
+  status?: string
 }
 
 // ============ IPC 结果 ============
@@ -574,6 +620,9 @@ export interface AppSettings {
   usagePrecision: boolean
   /** 在线登录默认用无痕窗口打开 */
   loginPrivateMode: boolean
+  /** 用户手动选择的私密浏览器可执行文件；自动检测失败时使用 */
+  privateBrowserPath: string
+  privateBrowserFamily: '' | 'chromium' | 'edge' | 'firefox'
   /** 记住上次填写的 Enterprise SSO 地址与区域 */
   enterpriseStartUrl: string
   enterpriseRegion: string
@@ -658,6 +707,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   privacyMode: false,
   usagePrecision: false,
   loginPrivateMode: false,
+  privateBrowserPath: '',
+  privateBrowserFamily: '',
   enterpriseStartUrl: '',
   enterpriseRegion: DEFAULT_REGION,
   autoRefresh: true,

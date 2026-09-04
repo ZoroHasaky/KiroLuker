@@ -13,7 +13,7 @@ import {
 } from '@ant-design/icons-vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useUpdateStore } from '@/stores/update'
-import kiroLogo from '@/assets/kiro-logo.png'
+import kirolukerLogo from '@/assets/kiroluker-logo.png'
 import qqGroup from '@/assets/qq-group.jpg'
 import authorAvatar from '@/assets/author_avatar.jpg'
 import sponsorWechat from '@/assets/sponsor_wechat.jpg'
@@ -47,7 +47,7 @@ async function checkUpdate(): Promise<void> {
 
 function manualUpdate(): void {
   checkOpen.value = false
-  open(REPO_URL)
+  open(`${PROJECT_REPO_URL}/releases`)
 }
 
 /** 关于页展示的功能清单，与 README 的功能特性保持一致 */
@@ -59,19 +59,18 @@ const features = [
   { name: '主动续期', desc: '在 IDE 当前账号的 Token 即将过期前抢先刷新并写盘，保持登录态不掉线' },
   { name: '账号测活', desc: '拉取真实可用模型并发起一次流式对话，验证账号是否可用' },
   { name: '积分与用量', desc: '订阅等级、积分明细、重置时间，并记录每次采样生成变化趋势' },
-  { name: 'API Key 管理', desc: '管理 ksk_ 开头的 Kiro API Key，同步订阅额度、测活、查看积分历史' },
-  { name: '本地网关', desc: '把 Kiro IDE 的 AI 请求接管到本地代理并改用 API Key，运行期间可随时换 Key' },
   { name: '常用工具', desc: '一键放行 Kiro 的终端命令确认框，关闭时还原开启前的配置' },
   { name: '系统日志', desc: '按级别、分类、关键字与时间筛选，可导出，打包版同样可诊断' },
   { name: '导入导出', desc: '卡密、JSON、CSV、TXT 互通，支持拖拽多个文件按顺序批量导入' },
-  { name: '隐私打码', desc: '一键隐藏邮箱、昵称与 API Key 等敏感信息' },
+  { name: '隐私打码', desc: '一键隐藏邮箱、昵称等敏感信息' },
   { name: '桌面端体验', desc: '系统托盘常驻、关闭行为可配、自定义协议唤起、单实例锁' },
   { name: '网络代理', desc: '支持 HTTP 代理，留空时回退系统环境变量' },
   { name: '主题定制', desc: '自定义主题色，深色 / 浅色模式' }
 ]
 
-/** 本项目仓库地址，头部按钮与检查更新指向同一个仓库 */
-const REPO_URL = 'https://github.com/lucks-cloud/kiro-manager-lite'
+const PROJECT_REPO_URL = 'https://github.com/ZoroHasaky/KiroLuker'
+/** 改名前的上游仓库，保留用于开源归属与历史追溯。 */
+const UPSTREAM_REPO_URL = 'https://github.com/lucks-cloud/kiro-manager-lite'
 
 const author = {
   name: 'lucks-cloud',
@@ -85,6 +84,7 @@ const sponsors = [
 ]
 
 const links = [
+  { label: '上游项目 kiro-manager-lite', url: UPSTREAM_REPO_URL },
   { label: '参考项目 Kiro-account-manager', url: 'https://github.com/chaogei/Kiro-account-manager' },
   { label: 'Kiro 官网', url: 'https://github.com/kirodotdev/Kiro' }
 ]
@@ -101,8 +101,8 @@ function open(url: string): void {
       <span class="hero-blob hero-blob-a" />
       <span class="hero-blob hero-blob-b" />
       <div class="hero-main">
-        <img class="hero-logo" :src="kiroLogo" alt="Kiro Manager Lite" />
-        <h2 class="hero-title">Kiro Manager Lite</h2>
+        <img class="hero-logo" :src="kirolukerLogo" alt="KiroLuker" />
+        <h2 class="hero-title">KiroLuker</h2>
         <p class="hero-version muted">版本 {{ info?.version || '-' }}</p>
         <a-space :size="12" wrap class="hero-actions">
           <a-button :loading="checking" @click="checkUpdate">
@@ -113,9 +113,9 @@ function open(url: string): void {
             <template #icon><CommentOutlined /></template>
             加入交流群
           </a-button>
-          <a-button @click="open(REPO_URL)">
+          <a-button @click="open(PROJECT_REPO_URL)">
             <template #icon><GithubOutlined /></template>
-            GitHub
+            项目仓库
           </a-button>
         </a-space>
       </div>
@@ -140,8 +140,8 @@ function open(url: string): void {
         </span>
       </template>
       <p class="intro-text">
-        Kiro Manager Lite 是一个 Kiro IDE 的多账号与 API Key 管理工具。支持多账号快速切换、
-        Token 自动刷新与主动续期、积分用量跟踪、账号测活，以及 Kiro API Key 管理和本地网关接管，
+        KiroLuker 是一个 Kiro IDE 多账号管理工具。支持多账号快速切换、
+        Token 自动刷新与主动续期、积分用量跟踪和账号测活，
         帮你在多个账号与订阅之间省去反复登录退出的力气。
       </p>
       <p class="intro-text">
@@ -167,7 +167,7 @@ function open(url: string): void {
       </ul>
     </a-card>
 
-    <a-card size="small" title="作者" style="margin-bottom: 16px">
+    <a-card size="small" title="原项目作者" style="margin-bottom: 16px">
       <div class="author">
         <a-avatar :size="56" :src="author.avatar" alt="作者头像" />
         <div class="author-main">
@@ -191,7 +191,7 @@ function open(url: string): void {
     <a-card size="small" title="赞助支持" style="margin-bottom: 16px">
       <p class="muted" style="margin: 0 0 14px">
         <HeartFilled style="color: #eb2f96" />
-        本项目免费开源，如果它帮你省了力气，可以请作者喝杯咖啡，完全自愿。
+        原项目免费开源，如果它帮你省了力气，可以请原作者喝杯咖啡，完全自愿。
       </p>
       <div class="sponsor-grid">
         <div v-for="item in sponsors" :key="item.label" class="sponsor-item">

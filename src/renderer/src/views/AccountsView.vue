@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, ref, watch } from 'vue'
+import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   CodeOutlined,
@@ -10,12 +10,14 @@ import {
   EyeInvisibleOutlined,
   EyeOutlined,
   FilterOutlined,
+  GithubOutlined,
   InboxOutlined,
   KeyOutlined,
   PlusOutlined,
   SearchOutlined,
   SortAscendingOutlined,
   SyncOutlined,
+  TagsOutlined,
   UploadOutlined
 } from '@ant-design/icons-vue'
 import AccountCard from '@/components/accounts/AccountCard.vue'
@@ -29,9 +31,11 @@ import EditAccountModal from '@/components/accounts/EditAccountModal.vue'
 import BatchNoteModal from '@/components/accounts/BatchNoteModal.vue'
 import AccountDetailDrawer from '@/components/accounts/AccountDetailDrawer.vue'
 import AccountTestModal from '@/components/accounts/AccountTestModal.vue'
-import CreateApiKeyModal from '@/components/accounts/CreateApiKeyModal.vue'
 import UsageHistoryModal from '@/components/accounts/UsageHistoryModal.vue'
 import SwitchResultModal from '@/components/accounts/SwitchResultModal.vue'
+import TagManagerModal from '@/components/accounts/TagManagerModal.vue'
+import AccountTagPickerModal from '@/components/accounts/AccountTagPickerModal.vue'
+import PaymentLinkModal from '@/components/accounts/PaymentLinkModal.vue'
 import { useAccountsStore } from '@/stores/accounts'
 import { useSettingsStore } from '@/stores/settings'
 import { displayEmail as maskedEmail } from '@/utils/display'
@@ -44,12 +48,17 @@ import {
   notifyResult
 } from '@/utils/ui'
 import { shouldSkipAccountUsageRefresh } from '@shared/refreshPolicy'
+import { buildOidcExportContent } from '@/utils/transfer'
 import type { Account, SwitchAccountResult } from '@shared/types'
 
 const accountsStore = useAccountsStore()
 const settingsStore = useSettingsStore()
 
 const addOpen = ref(false)
+const githubOpen = ref(false)
+const tagManagerOpen = ref(false)
+const tagTarget = ref<Account | null>(null)
+const paymentTarget = ref<Account | null>(null)
 /** 导入拆成两个入口：拖拽文件、粘贴文本 */
 const importFileOpen = ref(false)
 const importTextOpen = ref(false)
@@ -64,7 +73,6 @@ const batchNoteOpen = ref(false)
 const editTarget = ref<Account | null>(null)
 const detailTarget = ref<Account | null>(null)
 const testTarget = ref<Account | null>(null)
-const apiKeyTarget = ref<Account | null>(null)
 const usageTarget = ref<Account | null>(null)
 /** 每个账号当前进行中的操作 key，用于只给被点的按钮加载态 */
 const rowBusy = ref<Record<string, string | undefined>>({})
@@ -124,16 +132,42 @@ const activeFilterCount = computed(() => {
     f.statuses.length +
     f.subscriptions.length +
     f.idps.length +
+    f.tagIds.length +
     // != null：输入框清空时给的是 null，按 !== undefined 判断会把它算成一个生效条件
     (f.usageMin != null ? 1 : 0) +
     (f.usageMax != null ? 1 : 0) +
     (f.daysRemainingMin != null ? 1 : 0) +
-    (f.daysRemainingMax != null ? 1 : 0)
+    (f.daysRemainingMax != null ? 1 : 0) +
+    (f.createdAtFrom != null || f.createdAtToExclusive != null ? 1 : 0)
   )
 })
 
 function clearFilter(): void {
   accountsStore.applyFilter({ search: accountsStore.filter.search })
+}
+
+function localTodayRange(): { start: number; end: number } {
+  const current = new Date()
+  const start = new Date(current.getFullYear(), current.getMonth(), current.getDate()).getTime()
+  const end = new Date(current.getFullYear(), current.getMonth(), current.getDate() + 1).getTime()
+  return { start, end }
+}
+
+const onlyTodayActive = computed(() => {
+  const { start, end } = localTodayRange()
+  return accountsStore.filter.createdAtFrom === start &&
+    accountsStore.filter.createdAtToExclusive === end
+})
+
+function toggleToday(): void {
+  if (onlyTodayActive.value) {
+    accountsStore.filter.createdAtFrom = undefined
+    accountsStore.filter.createdAtToExclusive = undefined
+    return
+  }
+  const { start, end } = localTodayRange()
+  accountsStore.filter.createdAtFrom = start
+  accountsStore.filter.createdAtToExclusive = end
 }
 
 /** 与设置页的「隐私打码」是同一个开关，这里切换会一起持久化 */
@@ -238,6 +272,15 @@ function toggleSelectVisible(checked: boolean): void {
   })
 }
 
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && accountsStore.selectedIds.length) {
+    accountsStore.selectedIds = []
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+
 function displayEmail(email: string): string {
   return maskedEmail(email, privacyMode.value)
 }
@@ -280,18 +323,45 @@ async function openPortal(account: Account): Promise<void> {
   })
 }
 
-function copyToken(account: Account): void {
-  const { accessToken, refreshToken, clientId, clientSecret } = account.credentials
-  if (!accessToken && !refreshToken && !clientId && !clientSecret) {
+function copyOidc(account: Account): void {
+  if (!account.credentials.refreshToken) {
     return void message.warning('该账号没有可复制的凭证')
   }
-  const payload = {
-    accessToken: accessToken || '',
-    refreshToken: refreshToken || '',
-    clientId: clientId || '',
-    clientSecret: clientSecret || ''
+  copyText(buildOidcExportContent([account]), 'OIDC 精简 JSON 已复制到剪贴板')
+}
+
+function createTag(input: { name: string; color: string }): void {
+  const result = accountsStore.createTag(input.name, input.color)
+  if (!result.ok) return void message.error(result.error || '创建标签失败')
+  message.success('标签已创建')
+}
+
+function updateTag(input: { id: string; name: string; color: string }): void {
+  const result = accountsStore.updateTag(input.id, { name: input.name, color: input.color })
+  if (!result.ok) return void message.error(result.error || '更新标签失败')
+  message.success('标签已更新')
+}
+
+function removeTag(id: string): void {
+  const affected = accountsStore.removeTag(id)
+  message.success(affected ? `标签已删除，并从 ${affected} 个账号移除` : '标签已删除')
+}
+
+function saveAccountTags(accountId: string, tagIds: string[]): void {
+  if (!accountsStore.setAccountTags(accountId, tagIds)) {
+    return void message.error('账号不存在，标签保存失败')
   }
-  copyText(JSON.stringify(payload, null, 2), '凭证 JSON 已复制到剪贴板')
+  message.success('账号标签已保存')
+}
+
+function savePaymentLink(accountId: string, paymentLink: string): void {
+  accountsStore.updateAccount(accountId, { paymentLink })
+  message.success('支付链接已保存')
+}
+
+function clearPaymentLink(accountId: string): void {
+  accountsStore.updateAccount(accountId, { paymentLink: '' })
+  message.success('支付链接已清空')
 }
 
 const switchResult = ref<SwitchAccountResult | null>(null)
@@ -319,6 +389,8 @@ function clearDeletedAccountUi(ids: string[]): void {
   if (detailTarget.value && deleted.has(detailTarget.value.id)) detailTarget.value = null
   if (testTarget.value && deleted.has(testTarget.value.id)) testTarget.value = null
   if (usageTarget.value && deleted.has(usageTarget.value.id)) usageTarget.value = null
+  if (tagTarget.value && deleted.has(tagTarget.value.id)) tagTarget.value = null
+  if (paymentTarget.value && deleted.has(paymentTarget.value.id)) paymentTarget.value = null
   const nextBusy = { ...rowBusy.value }
   for (const id of deleted) delete nextBusy[id]
   rowBusy.value = nextBusy
@@ -430,7 +502,7 @@ function logoutIde(account: Account): void {
   <div class="accounts-page">
     <div class="accounts-header">
       <!-- 第一行：搜索 + 主操作 -->
-      <div class="toolbar">
+      <div class="toolbar account-toolbar">
         <a-input
           v-model:value="accountsStore.filter.search"
           allow-clear
@@ -440,35 +512,43 @@ function logoutIde(account: Account): void {
           <template #prefix><SearchOutlined /></template>
         </a-input>
 
-        <span class="toolbar-spacer" />
-
-        <a-button type="primary" @click="addOpen = true">
-          <template #icon><PlusOutlined /></template>
-          添加账号
-        </a-button>
-        <a-dropdown>
-          <a-button>
-            <template #icon><UploadOutlined /></template>
-            导入
-            <DownOutlined />
+        <div class="toolbar-actions">
+          <a-button @click="tagManagerOpen = true">
+            <template #icon><TagsOutlined /></template>
+            标签管理
           </a-button>
-          <template #overlay>
-            <a-menu>
-              <a-menu-item key="file" @click="importFileOpen = true">
-                <InboxOutlined />
-                从文件导入
-              </a-menu-item>
-              <a-menu-item key="text" @click="importTextOpen = true">
-                <CodeOutlined />
-                输入 JSON 导入
-              </a-menu-item>
-            </a-menu>
-          </template>
-        </a-dropdown>
-        <a-button @click="exportOpen = true">
-          <template #icon><DownloadOutlined /></template>
-          导出
-        </a-button>
+          <a-button @click="githubOpen = true">
+            <template #icon><GithubOutlined /></template>
+            添加 Github
+          </a-button>
+          <a-button type="primary" @click="addOpen = true">
+            <template #icon><PlusOutlined /></template>
+            添加账号
+          </a-button>
+          <a-dropdown>
+            <a-button>
+              <template #icon><UploadOutlined /></template>
+              导入
+              <DownOutlined />
+            </a-button>
+            <template #overlay>
+              <a-menu>
+                <a-menu-item key="file" @click="importFileOpen = true">
+                  <InboxOutlined />
+                  从文件导入
+                </a-menu-item>
+                <a-menu-item key="text" @click="importTextOpen = true">
+                  <CodeOutlined />
+                  输入 JSON 导入
+                </a-menu-item>
+              </a-menu>
+            </template>
+          </a-dropdown>
+          <a-button @click="exportOpen = true">
+            <template #icon><DownloadOutlined /></template>
+            导出
+          </a-button>
+        </div>
       </div>
 
       <!-- 第二行：统计 + 筛选 / 排序 / 批量 / 选择 -->
@@ -488,6 +568,14 @@ function logoutIde(account: Account): void {
         </a-tag>
 
         <span class="toolbar-spacer" />
+
+        <a-button
+          size="small"
+          :type="onlyTodayActive ? 'primary' : 'default'"
+          @click="toggleToday"
+        >
+          仅看今天
+        </a-button>
 
         <a-popover
           v-model:open="filterOpen"
@@ -631,11 +719,11 @@ function logoutIde(account: Account): void {
         <AccountCard
           v-if="item.kind === 'account'"
           :account="item.account"
+          :tags="accountsStore.tags"
           :selected="selectedIdSet.has(item.account.id)"
           :busy-action="rowBusy[item.account.id]"
           @toggle-select="(checked) => toggleSelect(item.account.id, checked)"
           @detail="detailTarget = item.account"
-          @create-api-key="apiKeyTarget = item.account"
           @portal="openPortal(item.account)"
           @edit="editTarget = item.account"
           @remove="removeOne(item.account)"
@@ -643,7 +731,9 @@ function logoutIde(account: Account): void {
           @logout="logoutIde(item.account)"
           @refresh-key="refreshKey(item.account)"
           @refresh-usage="refreshUsage(item.account)"
-          @copy-token="copyToken(item.account)"
+          @copy-oidc="copyOidc(item.account)"
+          @assign-tags="tagTarget = item.account"
+          @payment-link="paymentTarget = item.account"
           @test="testTarget = item.account"
           @usage="usageTarget = item.account"
         />
@@ -661,6 +751,12 @@ function logoutIde(account: Account): void {
 
     <!-- 所有重型弹层仅在用户实际打开时挂载，避免列表首帧执行其 setup 与监听逻辑。 -->
     <AddAccountModal v-if="addOpen" v-model:open="addOpen" @open-import="openImport" />
+    <AddAccountModal
+      v-if="githubOpen"
+      v-model:open="githubOpen"
+      initial-provider="Github"
+      require-private
+    />
     <ImportAccountsFileModal v-if="importFileOpen" v-model:open="importFileOpen" />
     <ImportAccountsTextModal v-if="importTextOpen" v-model:open="importTextOpen" />
     <ExportAccountsModal
@@ -680,11 +776,6 @@ function logoutIde(account: Account): void {
       @close="detailTarget = null"
     />
     <AccountTestModal v-if="testTarget" :account="testTarget" @close="testTarget = null" />
-    <CreateApiKeyModal
-      v-if="apiKeyTarget"
-      :account="apiKeyTarget"
-      @close="apiKeyTarget = null"
-    />
     <UsageHistoryModal
       v-if="usageTarget"
       :account="usageTarget"
@@ -695,6 +786,28 @@ function logoutIde(account: Account): void {
       v-model:open="switchModalOpen"
       :account-label="switchLabel"
       :result="switchResult"
+    />
+    <TagManagerModal
+      v-if="tagManagerOpen"
+      v-model:open="tagManagerOpen"
+      :tags="accountsStore.tags"
+      @create="createTag"
+      @update="updateTag"
+      @remove="removeTag"
+    />
+    <AccountTagPickerModal
+      v-if="tagTarget"
+      :account="tagTarget"
+      :tags="accountsStore.tags"
+      @save="saveAccountTags"
+      @close="tagTarget = null"
+    />
+    <PaymentLinkModal
+      v-if="paymentTarget"
+      :account="paymentTarget"
+      @save="savePaymentLink"
+      @clear="clearPaymentLink"
+      @close="paymentTarget = null"
     />
   </div>
 </template>
@@ -731,12 +844,27 @@ function logoutIde(account: Account): void {
 
 /* 搜索框占据左侧剩余空间，但不至于铺满整行 */
 .search-input {
-  width: 100%;
-  max-width: 480px;
+  flex: 1 1 280px;
+  width: auto;
+  min-width: 220px;
+  max-width: 360px;
 }
 
 .toolbar {
   margin-bottom: 10px;
+}
+
+.account-toolbar {
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.toolbar-actions {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 /* 统计与工具图标行 */

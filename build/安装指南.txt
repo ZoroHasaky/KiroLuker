@@ -1,4 +1,4 @@
-Kiro Manager Lite - macOS 安装指南与常见问题
+KiroLuker - macOS 安装指南与常见问题
 ================================================
 
 安装步骤
@@ -6,8 +6,8 @@ Kiro Manager Lite - macOS 安装指南与常见问题
 1. 在“苹果菜单”→“关于本机”查看芯片类型：
    - Apple M 系列芯片：下载文件名带 arm64 的安装包
    - Intel 芯片：下载文件名带 x64 的安装包
-2. 打开 DMG 后，把左侧的“Kiro Manager Lite”拖到右侧的“应用程序(Applications)”文件夹。
-3. 从“启动台”或“应用程序”文件夹启动 Kiro Manager Lite。
+2. 打开 DMG 后，把左侧的“KiroLuker”拖到右侧的“应用程序(Applications)”文件夹。
+3. 从“启动台”或“应用程序”文件夹启动 KiroLuker。
 
 
 重要：首次打开被拦截是正常现象，不是安装失败
@@ -19,7 +19,7 @@ Kiro Manager Lite - macOS 安装指南与常见问题
 情况一：提示“无法验证开发者”“来自身份不明的开发者”
 ----------------------------------------------------
 方法 A（推荐）：
-  1. 打开“应用程序”文件夹，找到 Kiro Manager Lite。
+  1. 打开“应用程序”文件夹，找到 KiroLuker。
   2. 按住键盘 Control 键并点击该应用图标（或用触控板双指点按）。
   3. 在弹出菜单中选择“打开”。
   4. 在再次弹出的提示中点击“打开”确认。
@@ -28,7 +28,7 @@ Kiro Manager Lite - macOS 安装指南与常见问题
 方法 B：
   1. 直接双击应用，出现拦截提示后不要删除。
   2. 打开“系统设置”→“隐私与安全性”。
-  3. 在页面下方找到关于 Kiro Manager Lite 的提示，点击“仍要打开”。
+  3. 在页面下方找到关于 KiroLuker 的提示，点击“仍要打开”。
 
 
 情况二：提示“已损坏，无法打开，应将其移到废纸篓”
@@ -39,7 +39,7 @@ Kiro Manager Lite - macOS 安装指南与常见问题
   1. 打开“终端”(Terminal)。
   2. 粘贴并执行下面这条命令（连同引号一起复制）：
 
-     xattr -cr "/Applications/Kiro Manager Lite.app"
+     xattr -cr "/Applications/KiroLuker.app"
 
   3. 执行后重新打开应用即可。
 
@@ -49,8 +49,7 @@ Kiro Manager Lite - macOS 安装指南与常见问题
 
 安全提示
 --------
-- 请只从官方 Releases 页面下载安装包，不要运行来源不明的二次打包版本：
-  https://github.com/lucks-cloud/kiro-manager-lite/releases
+- 请只使用自己构建或项目正式发布的安装包，不要运行来源不明的二次打包版本。
 - 不要为了安装本应用而全局关闭 macOS 的安全防护(SIP / Gatekeeper)。
   上面的放行方式都只针对本应用单个文件，足够使用。
 
