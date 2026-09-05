@@ -3,7 +3,6 @@ import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   AppstoreOutlined,
-  CodeOutlined,
   DeleteOutlined,
   DownOutlined,
   DownloadOutlined,
@@ -11,7 +10,6 @@ import {
   EyeOutlined,
   FilterOutlined,
   GithubOutlined,
-  InboxOutlined,
   KeyOutlined,
   PlusOutlined,
   SearchOutlined,
@@ -26,8 +24,7 @@ import AccountFilterPanel from '@/components/accounts/AccountFilterPanel.vue'
 import VirtualGrid from '@/components/common/VirtualGrid.vue'
 import VirtualList from '@/components/common/VirtualList.vue'
 import AddAccountModal from '@/components/accounts/AddAccountModal.vue'
-import ImportAccountsFileModal from '@/components/accounts/ImportAccountsFileModal.vue'
-import ImportAccountsTextModal from '@/components/accounts/ImportAccountsTextModal.vue'
+import ImportAccountsModal, { type ImportMode } from '@/components/accounts/ImportAccountsModal.vue'
 import ExportAccountsModal from '@/components/accounts/ExportAccountsModal.vue'
 import EditAccountModal from '@/components/accounts/EditAccountModal.vue'
 import AccountDetailDrawer from '@/components/accounts/AccountDetailDrawer.vue'
@@ -59,14 +56,13 @@ const githubOpen = ref(false)
 const tagManagerOpen = ref(false)
 const tagTarget = ref<Account | null>(null)
 const paymentTarget = ref<Account | null>(null)
-/** 导入拆成两个入口：拖拽文件、粘贴文本 */
-const importFileOpen = ref(false)
-const importTextOpen = ref(false)
+/** 工具栏与「添加账号」快捷入口共用同一个导入弹窗，并可指定默认方式。 */
+const importOpen = ref(false)
+const importMode = ref<ImportMode>('file')
 
-/** 「添加账号」弹窗里的导入入口：它会先关掉自己，这里只负责打开对应的导入弹窗 */
-function openImport(kind: 'file' | 'text'): void {
-  if (kind === 'file') importFileOpen.value = true
-  else importTextOpen.value = true
+function openImport(kind: ImportMode = 'file'): void {
+  importMode.value = kind
+  importOpen.value = true
 }
 const exportOpen = ref(false)
 const editTarget = ref<Account | null>(null)
@@ -472,25 +468,10 @@ function logoutIde(account: Account): void {
             <template #icon><PlusOutlined /></template>
             添加账号
           </a-button>
-          <a-dropdown>
-            <a-button>
-              <template #icon><UploadOutlined /></template>
-              导入
-              <DownOutlined />
-            </a-button>
-            <template #overlay>
-              <a-menu>
-                <a-menu-item key="file" @click="importFileOpen = true">
-                  <InboxOutlined />
-                  从文件导入
-                </a-menu-item>
-                <a-menu-item key="text" @click="importTextOpen = true">
-                  <CodeOutlined />
-                  输入 JSON 导入
-                </a-menu-item>
-              </a-menu>
-            </template>
-          </a-dropdown>
+          <a-button @click="openImport()">
+            <template #icon><UploadOutlined /></template>
+            导入
+          </a-button>
           <a-button @click="exportOpen = true">
             <template #icon><DownloadOutlined /></template>
             导出
@@ -720,8 +701,11 @@ function logoutIde(account: Account): void {
       initial-provider="Github"
       require-private
     />
-    <ImportAccountsFileModal v-if="importFileOpen" v-model:open="importFileOpen" />
-    <ImportAccountsTextModal v-if="importTextOpen" v-model:open="importTextOpen" />
+    <ImportAccountsModal
+      v-if="importOpen"
+      v-model:open="importOpen"
+      :initial-mode="importMode"
+    />
     <ExportAccountsModal
       v-if="exportOpen"
       v-model:open="exportOpen"
