@@ -804,6 +804,17 @@ function logoutIde(account: Account): void {
   justify-content: space-between;
 }
 
+/* 第一行从全局 large 尺寸略微收紧，给主操作留出更多横向空间。 */
+.account-toolbar :deep(.ant-input-affix-wrapper),
+.account-toolbar :deep(.ant-btn) {
+  height: 34px;
+  font-size: 13px;
+}
+
+.account-toolbar :deep(.ant-btn) {
+  padding-inline: 12px;
+}
+
 .toolbar-actions {
   display: flex;
   flex: 0 1 auto;
@@ -818,8 +829,27 @@ function logoutIde(account: Account): void {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  min-height: 30px;
   margin-bottom: 12px;
   font-size: 13px;
+}
+
+/* 第二行沿用紧凑字号，只把原 small 控件从 24px 提高到 28px。 */
+.meta-bar :deep(.ant-btn-sm),
+.meta-bar :deep(.ant-radio-button-wrapper) {
+  height: 28px;
+}
+
+.meta-bar :deep(.ant-btn-sm) {
+  padding-inline: 10px;
+}
+
+.meta-bar :deep(.ant-radio-button-wrapper) {
+  line-height: 26px;
+}
+
+.meta-bar :deep(.ant-tag) {
+  line-height: 24px;
 }
 
 .meta-bar .count-text {

@@ -204,11 +204,11 @@ function copyEmail(): void {
 <style scoped>
 .account-list-row {
   display: grid;
-  grid-template-columns: 28px minmax(86px, 0.45fr) minmax(225px, 1.25fr) minmax(160px, 0.8fr) minmax(170px, 0.9fr) minmax(190px, 1fr);
+  grid-template-columns: 28px 110px minmax(260px, 1.3fr) 180px minmax(220px, 0.9fr) 170px;
   gap: 10px;
   align-items: center;
   width: 100%;
-  min-width: 1050px;
+  min-width: 1020px;
   height: 100%;
   padding: 7px 10px;
   box-sizing: border-box;
