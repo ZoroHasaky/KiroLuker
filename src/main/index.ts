@@ -2,7 +2,7 @@ import { app, dialog, nativeImage, screen, shell, BrowserWindow } from 'electron
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { applyRuntimeSettings, registerIpc } from './ipc'
-import { getSettings, protectLegacyAccountBackups } from './store'
+import { getSettings, getLegacyKeyData, setLegacyKeyData, protectLegacyAccountBackups } from './store'
 import { normalizePortalLocale } from '../shared/portalLocale'
 import {
   cancelLogin,
@@ -25,10 +25,10 @@ import {
   scheduleForActiveAccount
 } from './proactiveRenewal'
 import { flushUsageHistory } from './usageHistory'
-import { flushGatewayHistory } from './gatewayHistory'
 import { initLogger, installConsoleBridge, log, shutdownLogger } from './logger'
 import { sendToRenderer } from './utils'
-import { initializeKeyService, shutdownKeyServiceSync } from './keyService'
+import { retireLegacyKeyGateway } from './legacyKeyGateway'
+import { restoreLegacyGatewayEndpoints } from './kiroSettings'
 import { retireShellAutoApprove } from './kiroPermissions'
 import { resolveRuntimePaths } from './runtimePaths'
 
@@ -224,7 +224,7 @@ app.on('open-url', (event, url) => {
   handleProtocolUrl(url, mainWindow)
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // 保留原 AppUserModelId，使 Windows 将改名版本识别为同一应用，避免通知/快捷方式断裂。
   electronApp.setAppUserModelId('dev.kiro.account.lite')
 
@@ -253,7 +253,16 @@ app.whenReady().then(() => {
       isQuitting = true
     }
   )
-  void initializeKeyService((status) => sendToRenderer(mainWindow, 'key-gateway:changed', status))
+  // 不再启动旧网关；只还原属于本应用的遗留端点。与权限清理串行，避免覆盖同一设置文件。
+  try {
+    await retireLegacyKeyGateway({
+      load: getLegacyKeyData,
+      save: setLegacyKeyData,
+      restore: (data) => restoreLegacyGatewayEndpoints(data.originalEndpoints, data.ports, data.settingsPath)
+    })
+  } catch (error) {
+    log('warn', `[LegacyGateway] 旧网关端点清理失败，恢复信息已保留，下次启动重试：${error instanceof Error ? error.message : String(error)}`)
+  }
   void protectLegacyAccountBackups()
     .then((migrated) => {
       if (migrated) log('info', `[Store] 已将 ${migrated} 份旧账号备份升级为系统加密格式`)
@@ -262,7 +271,7 @@ app.whenReady().then(() => {
       log('warn', `[Store] 旧账号备份加密迁移失败：${error instanceof Error ? error.message : String(error)}`)
     })
   // 常用工具模块已移除：还原本应用曾写入的 Kiro 命令放行配置。
-  void retireShellAutoApprove().catch((error) => {
+  await retireShellAutoApprove().catch((error) => {
     console.warn(`[KiroPermissions] 退出常用工具配置失败：${error instanceof Error ? error.message : String(error)}`)
   })
   // macOS 顶部菜单栏（中文菜单 + 页面导航），其他平台维持默认
@@ -311,9 +320,6 @@ app.on('will-quit', () => {
   unregisterProtocol()
   clearProactiveRenewal('app quitting')
   flushUsageHistory()
-  flushGatewayHistory()
-  // 同步还原 Kiro IDE 端点后再退出，避免 IDE 指向已停止的本地网关。
-  shutdownKeyServiceSync()
   destroyTray()
   void shutdownLogger()
 })

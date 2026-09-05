@@ -4,7 +4,6 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   HomeOutlined,
   TeamOutlined,
-  KeyOutlined,
   CreditCardOutlined,
   DollarCircleOutlined,
   FileTextOutlined,
@@ -18,14 +17,12 @@ import {
 import kirolukerLogo from '@/assets/kiroluker-logo.png'
 import { useSettingsStore } from '@/stores/settings'
 import { useAccountsStore } from '@/stores/accounts'
-import { useKeysStore } from '@/stores/keys'
 import { useUpdateStore } from '@/stores/update'
 
 const route = useRoute()
 const router = useRouter()
 const settingsStore = useSettingsStore()
 const accountsStore = useAccountsStore()
-const keysStore = useKeysStore()
 const updateStore = useUpdateStore()
 
 const collapsed = computed(() => settingsStore.settings.sidebarCollapsed)
@@ -48,11 +45,6 @@ const items = computed(() => [
     label: accountCount.value ? `账户管理（${accountCount.value}个）` : '账户管理',
     icon: TeamOutlined
   },
-  {
-    key: 'keys',
-    label: keysStore.count ? `API Key 管理（${keysStore.count}个）` : 'API Key 管理',
-    icon: KeyOutlined
-  },
   { key: 'subscription', label: '批量订阅', icon: DollarCircleOutlined },
   { key: 'billing', label: '账单信息', icon: CreditCardOutlined },
   { key: 'logs', label: '系统日志', icon: FileTextOutlined },
@@ -65,7 +57,7 @@ const items = computed(() => [
   <aside
     class="app-sidebar"
     :class="{ collapsed }"
-    :style="{ width: collapsed ? '80px' : '228px' }"
+    :style="{ width: collapsed ? '68px' : '208px' }"
   >
     <div class="sidebar-brand">
       <a-tooltip

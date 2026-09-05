@@ -243,9 +243,9 @@ export function setBillingConfig(config: BillingStoredConfig): void {
   store.set('billingConfig', { ...config, version: 1 })
 }
 
-// ============ Key 网关数据 ============
+// ============ 旧版 Key 数据：仅供升级清理，保留历史凭证 ============
 
-export function getKeyData(): KeyGatewayData {
+export function getLegacyKeyData(): KeyGatewayData {
   const data = store.get('keyData') as Partial<KeyGatewayData> | undefined
   // 用默认值打底，兼容旧数据缺字段
   const merged: KeyGatewayData = { ...DEFAULT_KEY_GATEWAY_DATA, ...(data ?? {}) }
@@ -266,7 +266,7 @@ export function getKeyData(): KeyGatewayData {
   return merged
 }
 
-export function setKeyData(data: KeyGatewayData): void {
+export function setLegacyKeyData(data: KeyGatewayData): void {
   store.set('keyData', {
     ...data,
     activeKeyId: data.enabled ? (data.activeKeyId ?? null) : null

@@ -4,7 +4,6 @@ import type {
   AccountSnapshot,
   AccountStoreData,
   AccountUsage,
-  ApiKeyChatTestInput,
   AppInfo,
   AppUpdateState,
   AppSettings,
@@ -17,14 +16,6 @@ import type {
   CreateApiKeyResult,
   DeleteApiKeyResult,
   IpcResult,
-  KeyGatewayConflict,
-  KeyGatewayData,
-  GatewayCallPoint,
-  KeyGatewayStatus,
-  KeyGatewayUsageStats,
-  KiroCapability,
-  KeyModelInfo,
-  KeyTestResult,
   KiroModelInfo,
   LocalKiroCredentials,
   LoginPollResult,
@@ -83,50 +74,6 @@ export interface Api extends BillingRendererApi {
     removed: number
   }>>
 
-  loadKeys: () => Promise<IpcResult<KeyGatewayData>>
-  addKey: (key: string, note?: string, region?: string) => Promise<IpcResult<KeyGatewayData>>
-  importKeys: (text: string, region?: string) => Promise<IpcResult<{
-    data: KeyGatewayData
-    added: number
-    skipped: number
-    invalid: number
-  }>>
-  updateKey: (id: string, note: string) => Promise<IpcResult<KeyGatewayData>>
-  /** 修改单个 Key 的区域 */
-  setKeyRegion: (
-    id: string,
-    region: string
-  ) => Promise<IpcResult<{ data: KeyGatewayData; status: KeyGatewayStatus }>>
-  deleteKey: (id: string) => Promise<IpcResult<KeyGatewayData>>
-  selectKey: (id: string | null) => Promise<IpcResult<{ data: KeyGatewayData; status: KeyGatewayStatus }>>
-  testKey: (id: string) => Promise<IpcResult<KeyTestResult>>
-  listKeyModels: (id: string) => Promise<IpcResult<KeyModelInfo[]>>
-  syncKey: (id: string) => Promise<IpcResult<KeyGatewayData>>
-  syncAllKeys: (concurrency?: number) => Promise<IpcResult<{
-    data: KeyGatewayData
-    success: number
-    failed: number
-    /** 因凭证确定性失效而被跳过的 Key 数量 */
-    skipped: number
-  }>>
-  getKeyGatewayStatus: () => Promise<IpcResult<KeyGatewayStatus>>
-  /** 探测当前 Kiro 是否支持 API Key 网关接管 */
-  getKiroCapability: () => Promise<IpcResult<KiroCapability>>
-  /** 各 Key 经网关产生的真实调用统计，按 keyId 索引 */
-  getKeyGatewayStats: () => Promise<IpcResult<Record<string, KeyGatewayUsageStats>>>
-  resetKeyGatewayStats: (
-    keyId?: string
-  ) => Promise<IpcResult<Record<string, KeyGatewayUsageStats>>>
-  /** 某个 Key 的网关调用历史，按分钟聚合，用于画曲线 */
-  getKeyGatewayHistory: (keyId: string) => Promise<IpcResult<GatewayCallPoint[]>>
-  inspectKeyGatewayConflict: () => Promise<IpcResult<KeyGatewayConflict | null>>
-  enableKeyGateway: (keyId?: string, force?: boolean) => Promise<IpcResult<KeyGatewayStatus>>
-  disableKeyGateway: () => Promise<IpcResult<KeyGatewayStatus>>
-  configureKeyGateway: (input: {
-    ports?: { krs: number; cps: number }
-  }) => Promise<IpcResult<{ data: KeyGatewayData; status: KeyGatewayStatus }>>
-  onKeyGatewayChanged: (handler: (status: KeyGatewayStatus) => void) => () => void
-
   verifyCredentials: (input: VerifyCredentialsInput) => Promise<IpcResult<AccountSnapshot>>
   refreshAccountToken: (account: Account) => Promise<IpcResult<RefreshTokenResult>>
   checkAccountStatus: (
@@ -177,13 +124,6 @@ export interface Api extends BillingRendererApi {
   chatTest: (requestId: string, input: ChatTestInput) => Promise<IpcResult<ChatTestResult>>
   cancelChatTest: (requestId: string) => Promise<IpcResult>
   onChatChunk: (handler: (payload: ChatTestChunk) => void) => () => void
-  keyChatTest: (
-    requestId: string,
-    input: ApiKeyChatTestInput
-  ) => Promise<IpcResult<ChatTestResult>>
-  cancelKeyChatTest: (requestId: string) => Promise<IpcResult>
-  onKeyChatChunk: (handler: (payload: ChatTestChunk) => void) => () => void
-
   startBuilderIdLogin: (
     region?: string,
     browserOptions?: BrowserOpenOptions

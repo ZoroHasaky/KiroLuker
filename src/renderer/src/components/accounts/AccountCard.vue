@@ -1,19 +1,12 @@
 <script setup lang="ts">
-import { computed, type Component } from 'vue'
+import { computed } from 'vue'
 import {
   CalendarOutlined,
   ClockCircleOutlined,
   CopyOutlined,
-  DeleteOutlined,
-  EditOutlined,
-  GlobalOutlined,
-  KeyOutlined,
-  LinkOutlined,
-  LogoutOutlined,
-  SyncOutlined,
-  TagsOutlined,
-  ThunderboltOutlined
+  TagsOutlined
 } from '@ant-design/icons-vue'
+import AccountActions from '@/components/accounts/AccountActions.vue'
 import { useSettingsStore } from '@/stores/settings'
 import {
   IDP_META,
@@ -40,8 +33,6 @@ const props = defineProps<{
   /** 正在进行中的操作，只让对应按钮转圈 */
   busyAction?: string | null
 }>()
-
-const busy = computed(() => !!props.busyAction)
 
 const emit = defineEmits<{
   'toggle-select': [boolean]
@@ -159,85 +150,6 @@ const tokenState = computed(() => {
   }
 })
 
-type ActionKey =
-  | 'logout'
-  | 'refresh-key'
-  | 'refresh-usage'
-  | 'copy-oidc'
-  | 'payment-link'
-  | 'test'
-  | 'portal'
-  | 'edit'
-  | 'remove'
-
-interface MenuEntry {
-  key: ActionKey
-  label: string
-  icon: Component
-}
-
-interface CardAction {
-  /** v-for 用的稳定标识；菜单型按钮自身不对应某个动作 */
-  id: string
-  title: string
-  icon: Component
-  /** 普通按钮点击后派发的动作 */
-  action?: ActionKey
-  /** 菜单型按钮的子项，与 action 互斥 */
-  menu?: MenuEntry[]
-  danger?: boolean
-  color?: string
-}
-
-/** 当前正被 Kiro IDE 使用的账号保留退出入口；不再提供把其它账号写入 IDE 的操作。 */
-const actions = computed<CardAction[]>(() => {
-  const items: CardAction[] = []
-  if (props.account.isActive) {
-    items.push({
-      id: 'logout',
-      action: 'logout',
-      title: '退出登录（清理 Kiro IDE 凭证）',
-      icon: LogoutOutlined,
-      color: '#52c41a'
-    })
-  }
-  items.push({
-    id: 'refresh',
-    title: '刷新',
-    icon: SyncOutlined,
-    menu: [
-      { key: 'refresh-key', label: '刷新密钥', icon: KeyOutlined },
-      { key: 'refresh-usage', label: '刷新用量与积分', icon: SyncOutlined }
-    ]
-  })
-  items.push(
-    { id: 'copy-oidc', action: 'copy-oidc', title: '复制 OIDC 精简 JSON', icon: CopyOutlined },
-    { id: 'payment-link', action: 'payment-link', title: '支付链接', icon: LinkOutlined },
-    { id: 'test', action: 'test', title: '测活（发一次真实对话）', icon: ThunderboltOutlined },
-    { id: 'portal', action: 'portal', title: '前往Kiro.dev官网', icon: GlobalOutlined },
-    { id: 'edit', action: 'edit', title: '编辑', icon: EditOutlined },
-    { id: 'remove', action: 'remove', title: '删除', icon: DeleteOutlined, danger: true }
-  )
-  return items
-})
-
-/** 菜单型按钮的加载态取自其任一子动作 */
-function isLoading(item: CardAction): boolean {
-  const keys = item.menu ? item.menu.map((entry) => entry.key) : item.action ? [item.action] : []
-  return keys.some((key) => props.busyAction === key)
-}
-
-/**
- * 动作按钮统一派发。
- * emit 的重载签名不接受联合类型，这里收窄成「无参事件名」的形态再调用；
- * ActionKey 已经限定了取值范围，不会派发出未声明的事件。
- */
-const emitAction = emit as (event: ActionKey) => void
-
-function trigger(key: ActionKey): void {
-  emitAction(key)
-}
-
 /** 快速复制始终使用真实邮箱；隐私模式只影响页面显示，不改变用户主动复制的内容。 */
 function copyEmail(): void {
   copyText(props.account.email, '账号邮箱已复制')
@@ -256,9 +168,9 @@ function copyEmail(): void {
         @click.stop
         @change="(e: any) => emit('toggle-select', e.target.checked)"
       />
-      <div class="identity" @click.stop="emit('detail')">
-        <span class="email" :title="privacy ? undefined : props.account.email">{{ email }}</span>
-        <span class="nickname">{{ nickname }}</span>
+      <div class="identity">
+        <span class="email" :title="privacy ? undefined : props.account.email" @click.stop="emit('detail')">{{ email }}</span>
+        <span class="nickname" @click.stop="emit('detail')">{{ nickname }}</span>
       </div>
       <a-tooltip title="复制账号邮箱">
         <a-button
@@ -274,7 +186,7 @@ function copyEmail(): void {
       <a-tag :color="status.color" class="status-tag">{{ status.text }}</a-tag>
     </div>
 
-    <div class="tag-row" @click.stop>
+    <div class="tag-row">
       <a-tag :color="subscription.color" :bordered="false">
         {{ subscriptionText }}
       </a-tag>
@@ -289,7 +201,7 @@ function copyEmail(): void {
       >
         {{ tag.name }}
       </a-tag>
-      <button class="tag-picker" type="button" title="给账号添加或修改标签" @click="emit('assign-tags')">
+      <button class="tag-picker" type="button" title="给账号添加或修改标签" @click.stop="emit('assign-tags')">
         <TagsOutlined />
         {{ accountTags.length ? '修改标签' : '添加标签' }}
       </button>
@@ -357,48 +269,19 @@ function copyEmail(): void {
           Token {{ tokenState.text }}
         </span>
       </div>
-      <div class="action-row" @click.stop>
-        <template v-for="item in actions" :key="item.id">
-          <a-dropdown v-if="item.menu" :disabled="busy && !isLoading(item)">
-            <a-button
-              type="text"
-              size="small"
-              class="action-btn"
-              :title="item.title"
-              :loading="isLoading(item)"
-              :disabled="busy && !isLoading(item)"
-            >
-              <template #icon><component :is="item.icon" /></template>
-            </a-button>
-            <template #overlay>
-              <a-menu>
-                <a-menu-item
-                  v-for="entry in item.menu"
-                  :key="entry.key"
-                  @click="trigger(entry.key)"
-                >
-                  <component :is="entry.icon" />
-                  {{ entry.label }}
-                </a-menu-item>
-              </a-menu>
-            </template>
-          </a-dropdown>
-          <a-tooltip v-else :title="item.title">
-            <a-button
-              type="text"
-              size="small"
-              class="action-btn"
-              :danger="item.danger"
-              :style="item.color ? { color: item.color } : undefined"
-              :loading="isLoading(item)"
-              :disabled="busy && !isLoading(item)"
-              @click="item.action && trigger(item.action)"
-            >
-              <template #icon><component :is="item.icon" /></template>
-            </a-button>
-          </a-tooltip>
-        </template>
-      </div>
+      <AccountActions
+        :active="props.account.isActive"
+        :busy-action="props.busyAction"
+        @logout="emit('logout')"
+        @refresh-key="emit('refresh-key')"
+        @refresh-usage="emit('refresh-usage')"
+        @copy-oidc="emit('copy-oidc')"
+        @payment-link="emit('payment-link')"
+        @test="emit('test')"
+        @portal="emit('portal')"
+        @edit="emit('edit')"
+        @remove="emit('remove')"
+      />
     </div>
   </div>
 </template>
@@ -407,10 +290,10 @@ function copyEmail(): void {
 .account-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px 16px 8px;
+  gap: 9px;
+  padding: 12px 12px 6px;
   border: 1px solid var(--kal-border);
-  border-radius: 16px;
+  border-radius: 14px;
   background: var(--kal-card-bg);
   transition:
     border-color 0.16s ease,
@@ -436,19 +319,20 @@ function copyEmail(): void {
 .card-head {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
 }
 
 .identity {
   flex: 1 1 auto;
   min-width: 0;
-  cursor: pointer;
   line-height: 1.35;
 }
 
 .email,
 .nickname {
   display: block;
+  width: max-content;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -459,7 +343,13 @@ function copyEmail(): void {
   font-size: 13.5px;
 }
 
-.identity:hover .email {
+.email,
+.nickname {
+  cursor: pointer;
+}
+
+.email:hover,
+.nickname:hover {
   color: var(--kal-primary);
 }
 
@@ -510,8 +400,8 @@ function copyEmail(): void {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  height: 24px;
-  padding: 0 9px;
+  height: 22px;
+  padding: 0 8px;
   border: 1px dashed var(--kal-primary);
   border-radius: 6px;
   background: transparent;
@@ -531,8 +421,8 @@ function copyEmail(): void {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 12px;
-  border-radius: 12px;
+  padding: 10px;
+  border-radius: 10px;
   background: var(--kal-block-bg);
   cursor: pointer;
   transition: background 0.16s ease;
@@ -584,8 +474,8 @@ function copyEmail(): void {
   display: flex;
   align-items: stretch;
   gap: 2px;
-  height: 14px;
-  margin: 8px 0 10px;
+  height: 12px;
+  margin: 6px 0 8px;
 }
 
 .bar {
@@ -613,9 +503,9 @@ function copyEmail(): void {
 .quota-block {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
   background: var(--kal-block-bg);
 }
 
@@ -679,7 +569,7 @@ function copyEmail(): void {
   justify-content: space-between;
   gap: 8px;
   border-top: 1px solid var(--kal-border);
-  padding: 6px 0;
+  padding: 4px 0;
   margin-top: auto;
 }
 
@@ -701,21 +591,4 @@ function copyEmail(): void {
   color: #fa8c16;
 }
 
-.action-row {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 0;
-}
-
-.action-btn {
-  width: 24px;
-  min-width: 24px;
-  height: 24px;
-  padding: 0;
-}
-
-.action-btn :deep(.anticon) {
-  font-size: 13px;
-}
 </style>

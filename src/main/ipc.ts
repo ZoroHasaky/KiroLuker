@@ -13,7 +13,7 @@ import { openAccountPortal } from './kiroPortal'
 import { createSubscriptionLink, getSubscriptionPlans } from './subscriptionService'
 import { clearKiroSsoCache, readKiroAuthToken, readLocalKiroCredentials } from './kiroAuth'
 import { isKiroRunning, restartKiroIde } from './kiroProcess'
-import { listKiroModels, streamApiKeyChat, streamKiroChat } from './kiroChat'
+import { listKiroModels, streamKiroChat } from './kiroChat'
 import {
   cancelLogin,
   completeSocialLogin,
@@ -29,10 +29,6 @@ import {
   openUrl,
   type BrowserOpenOptions
 } from './browser'
-import { detectKiroCapability } from './kiroCapability'
-import { setGatewayRetryPolicy } from './keyGateway'
-import { getGatewayStats, resetGatewayStats } from './gatewayStats'
-import { getPoints } from './gatewayHistory'
 import { setTraySnapshot, setTrayEnabled } from './tray'
 import {
   clearProactiveRenewal,
@@ -54,25 +50,6 @@ import {
 import { clearLogs, exportLogs, getLogDir, queryLogs } from './logger'
 import { buildXlsx } from './xlsxWriter'
 import { BillingService } from './billingService'
-import {
-  addKey,
-  configureGateway,
-  deleteKey,
-  disableGateway,
-  enableGateway,
-  getGatewayStatus,
-  importKeys,
-  inspectGatewayConflict,
-  listKeyModels,
-  loadKeys,
-  recordChatTestResult,
-  selectKey,
-  syncAllKeys,
-  syncKey,
-  testKey,
-  updateKey,
-  updateKeyRegion
-} from './keyService'
 import { errorMessage } from '../shared/errors'
 import { sendToRenderer } from './utils'
 import {
@@ -103,7 +80,6 @@ import type {
   AccountStoreData,
   AccountUsage,
   AppSettings,
-  ApiKeyChatTestInput,
   ChatTestInput,
   IpcResult,
   LogQuery,
@@ -148,13 +124,6 @@ export function applyRuntimeSettings(settings: AppSettings): void {
   setProxyConfig(settings.proxyEnabled, settings.proxyUrl)
   void configureUpdaterProxy()
   setInAppLocale(settings.portalLocale)
-  // “常用工具”模块已移除，历史设置不再启用网关自动重试。
-  setGatewayRetryPolicy(
-    false,
-    settings.gatewayRetryStatuses,
-    settings.gatewayRetryMaxAttempts,
-    settings.gatewayRetryDelayMs
-  )
 }
 
 export function registerIpc(
@@ -306,50 +275,14 @@ export function registerIpc(
 
   handle('kiro:restart-ide', async () => ok(await restartKiroIde()))
 
-  // ============ Kiro API Key 管理 / 本地网关 ============
-  handle('keys:load', () => ok(loadKeys()))
-  handle('keys:add', (_e, key: string, note?: string, region?: string) =>
-    ok(addKey(key, note, region))
-  )
-  handle('keys:import', (_e, text: string, region?: string) => ok(importKeys(text, region)))
-  handle('keys:update', (_e, id: string, note: string) => ok(updateKey(id, note)))
-  handle('keys:set-region', async (_e, id: string, region: string) =>
-    ok(await updateKeyRegion(id, region))
-  )
-  handle('keys:delete', (_e, id: string) => ok(deleteKey(id)))
-  handle('keys:select', async (_e, id: string) => ok(await selectKey(id)))
-  handle('keys:test', async (_e, id: string) => ok(await testKey(id)))
-  handle('keys:models', async (_e, id: string) => ok(await listKeyModels(id)))
-  handle('keys:sync', async (_e, id: string) => ok(await syncKey(id)))
-  handle('keys:sync-all', async (_e, concurrency?: number) => ok(await syncAllKeys(concurrency)))
-
-  handle('key-gateway:status', async () => ok(await getGatewayStatus()))
-  handle('key-gateway:capability', async () => ok(await detectKiroCapability()))
-  handle('key-gateway:stats', () => ok(getGatewayStats()))
-  handle('key-gateway:stats-reset', (_e, keyId?: string) => {
-    resetGatewayStats(keyId)
-    return ok(getGatewayStats())
-  })
-  /** 某个 Key 的调用历史（按分钟聚合），用于画请求 / 成功率 / 积分曲线 */
-  handle('key-gateway:history', (_e, keyId: string) => ok(getPoints(keyId)))
-  handle('key-gateway:inspect-conflict', async () => ok(await inspectGatewayConflict()))
-  handle('key-gateway:enable', async (_e, keyId?: string, force?: boolean) =>
-    ok(await enableGateway(keyId, { force: !!force }))
-  )
-  handle('key-gateway:disable', async () => ok(await disableGateway()))
-  handle('key-gateway:configure', async (_e, input: { ports?: { krs: number; cps: number } }) =>
-    ok(await configureGateway(input))
-  )
-
   // ============ 账号测活（真实对话）============
 
   handle('kiro:list-models', async (_e, input: Parameters<typeof listKiroModels>[0]) =>
     ok(await listKiroModels(input))
   )
 
-  // 一个请求一个 AbortController，账号与 API Key 测活分别管理，避免 requestId 相同时相互取消。
+  // 一个账号测活请求对应一个 AbortController。
   const accountChatAborters = new Map<string, AbortController>()
-  const keyChatAborters = new Map<string, AbortController>()
 
   handle('kiro:chat-test', async (event, requestId: string, input: ChatTestInput) => {
     const controller = new AbortController()
@@ -375,46 +308,6 @@ export function registerIpc(
 
   handle('kiro:chat-cancel', (_e, requestId: string) => {
     accountChatAborters.get(requestId)?.abort(new Error('用户取消'))
-    return ok()
-  })
-
-  // API Key 在线对话测活：凭证只在主进程读取，不下发到渲染层。
-  handle('keys:chat-test', async (event, requestId: string, input: ApiKeyChatTestInput) => {
-    const data = loadKeys()
-    const entry = data.keys.find((key) => key.id === input.keyId)
-    if (!entry) return fail('未找到该 API Key')
-    const controller = new AbortController()
-    keyChatAborters.set(requestId, controller)
-    try {
-      const result = await streamApiKeyChat(
-        entry.key,
-        entry.region,
-        { modelId: input.modelId, message: input.message },
-        {
-          onDelta: (delta) => {
-            if (!event.sender.isDestroyed()) {
-              event.sender.send('keys:chat-chunk', { requestId, delta })
-            }
-          }
-        },
-        controller.signal
-      )
-      // 真实对话是唯一能查出封禁/失效的途径，结论必须落库，否则卡片仍显示「正常」
-      recordChatTestResult(entry.id, undefined)
-      return ok(result)
-    } catch (error) {
-      // 用户主动中止不构成测活结论，不能据此把 Key 标成异常
-      if (!controller.signal.aborted) {
-        recordChatTestResult(entry.id, errorMessage(error))
-      }
-      throw error
-    } finally {
-      if (keyChatAborters.get(requestId) === controller) keyChatAborters.delete(requestId)
-    }
-  })
-
-  handle('keys:chat-cancel', (_e, requestId: string) => {
-    keyChatAborters.get(requestId)?.abort(new Error('用户取消'))
     return ok()
   })
 

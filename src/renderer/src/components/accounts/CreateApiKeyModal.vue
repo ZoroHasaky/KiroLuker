@@ -175,7 +175,7 @@ onMounted(loadList)
 <template>
   <a-modal
     :open="true"
-    :title="`API Key 管理（${email}）`"
+    :title="`账号 API Key（${email}）`"
     centered
     width="780px"
     :mask-closable="false"
@@ -190,7 +190,7 @@ onMounted(loadList)
             <a-form-item label="密钥名称">
               <a-input
                 v-model:value="label"
-                placeholder="例如：本地网关（留空则随机生成密钥名称）"
+                placeholder="例如：开发环境（留空则随机生成密钥名称）"
                 :maxlength="64"
                 allow-clear
                 @press-enter="submit"

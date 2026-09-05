@@ -19,8 +19,7 @@ const router = createRouter({
     {
       path: '/keys',
       name: 'keys',
-      component: () => import('@/views/KeysView.vue'),
-      meta: { title: 'API Key 管理' }
+      redirect: '/home'
     },
     {
       path: '/subscription',

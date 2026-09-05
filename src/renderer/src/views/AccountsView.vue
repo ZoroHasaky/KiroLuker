@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, h, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, h, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import {
+  AppstoreOutlined,
   CodeOutlined,
   DeleteOutlined,
   DownOutlined,
@@ -16,11 +17,14 @@ import {
   SearchOutlined,
   SyncOutlined,
   TagsOutlined,
+  UnorderedListOutlined,
   UploadOutlined
 } from '@ant-design/icons-vue'
 import AccountCard from '@/components/accounts/AccountCard.vue'
+import AccountListRow from '@/components/accounts/AccountListRow.vue'
 import AccountFilterPanel from '@/components/accounts/AccountFilterPanel.vue'
 import VirtualGrid from '@/components/common/VirtualGrid.vue'
+import VirtualList from '@/components/common/VirtualList.vue'
 import AddAccountModal from '@/components/accounts/AddAccountModal.vue'
 import ImportAccountsFileModal from '@/components/accounts/ImportAccountsFileModal.vue'
 import ImportAccountsTextModal from '@/components/accounts/ImportAccountsTextModal.vue'
@@ -45,7 +49,7 @@ import {
 } from '@/utils/ui'
 import { shouldSkipAccountUsageRefresh } from '@shared/refreshPolicy'
 import { buildOidcExportContent } from '@/utils/transfer'
-import type { Account } from '@shared/types'
+import type { Account, AppSettings } from '@shared/types'
 
 const accountsStore = useAccountsStore()
 const settingsStore = useSettingsStore()
@@ -156,6 +160,14 @@ function togglePrivacy(): void {
   void settingsStore.update({ privacyMode: !privacyMode.value })
 }
 
+type AccountViewMode = AppSettings['accountViewMode']
+const viewMode = computed(() => settingsStore.settings.accountViewMode)
+
+function setViewMode(mode: AccountViewMode): void {
+  if (mode === viewMode.value) return
+  void settingsStore.update({ accountViewMode: mode })
+}
+
 const sorted = computed(() => {
   const list = [...accountsStore.filtered]
   // 排序下拉已移除：固定让 IDE 当前账号置顶，其余按添加时间倒序。
@@ -176,7 +188,7 @@ function gridItemKey(item: GridItem): string {
   return item.kind === 'add' ? '__add__' : item.account.id
 }
 
-const gridRef = ref<{ scrollToTop: () => void } | null>(null)
+const contentRef = ref<{ scrollToTop: () => void } | null>(null)
 
 /**
  * 回到顶部的触发条件：筛选条件（含搜索词）变化。
@@ -188,7 +200,13 @@ const gridRef = ref<{ scrollToTop: () => void } | null>(null)
  */
 const scrollResetKey = computed(() => JSON.stringify(accountsStore.filter))
 
-watch(scrollResetKey, () => gridRef.value?.scrollToTop())
+watch([scrollResetKey, viewMode], () => {
+  void nextTick(() => contentRef.value?.scrollToTop())
+})
+
+function accountItemKey(account: Account): string {
+  return account.id
+}
 
 /** 账号上千时用 Set 做包含判断，别用 includes 扫数组 */
 const selectedIdSet = computed(() => new Set(accountsStore.selectedIds))
@@ -546,6 +564,25 @@ function logoutIde(account: Account): void {
 
         <a-divider type="vertical" style="margin: 0 2px" />
 
+        <a-radio-group
+          class="view-switch"
+          size="small"
+          button-style="solid"
+          :value="viewMode"
+          @change="(event: any) => setViewMode(event.target.value)"
+        >
+          <a-radio-button value="card" aria-label="卡片模式" title="卡片模式">
+            <AppstoreOutlined />
+            <span>卡片</span>
+          </a-radio-button>
+          <a-radio-button value="list" aria-label="列表模式" title="列表模式">
+            <UnorderedListOutlined />
+            <span>列表</span>
+          </a-radio-button>
+        </a-radio-group>
+
+        <a-divider type="vertical" style="margin: 0 2px" />
+
         <!-- 两种刷新收进同一个菜单：它们互斥，全局任务状态一次只容得下一条 -->
         <a-dropdown :disabled="busy">
           <a-button size="small" :loading="refreshing">
@@ -618,15 +655,21 @@ function logoutIde(account: Account): void {
       </a-empty>
     </div>
 
-    <!-- 全量渲染交给虚拟滚动，上千个账号也只保留视口内的 DOM -->
+    <div v-else-if="!sorted.length" class="grid-placeholder">
+      <a-empty description="没有匹配筛选条件的账号">
+        <a-button @click="accountsStore.applyFilter({})">清除搜索和筛选</a-button>
+      </a-empty>
+    </div>
+
+    <!-- 卡片与列表都使用虚拟滚动，上千个账号也只保留视口内的 DOM -->
     <VirtualGrid
-      v-else
-      ref="gridRef"
+      v-else-if="viewMode === 'card'"
+      ref="contentRef"
       :items="gridItems"
       :item-key="gridItemKey"
-      :min-column-width="320"
-      :gap="14"
-      :estimated-height="312"
+      :min-column-width="300"
+      :gap="10"
+      :estimated-height="286"
     >
       <template #default="{ item }">
         <AccountCard
@@ -657,9 +700,37 @@ function logoutIde(account: Account): void {
       </template>
     </VirtualGrid>
 
-    <div v-if="!sorted.length && accountsStore.accounts.length" class="no-match muted">
-      没有匹配筛选条件的账号
-    </div>
+    <VirtualList
+      v-else
+      ref="contentRef"
+      class="account-list"
+      :items="sorted"
+      :item-key="accountItemKey"
+      :row-height="72"
+      :buffer-rows="8"
+    >
+      <template #default="{ item: account }">
+        <AccountListRow
+          :account="account"
+          :tags="accountsStore.tags"
+          :selected="selectedIdSet.has(account.id)"
+          :busy-action="rowBusy[account.id]"
+          @toggle-select="(checked) => toggleSelect(account.id, checked)"
+          @detail="detailTarget = account"
+          @portal="openPortal(account)"
+          @edit="editTarget = account"
+          @remove="removeOne(account)"
+          @logout="logoutIde(account)"
+          @refresh-key="refreshKey(account)"
+          @refresh-usage="refreshUsage(account)"
+          @copy-oidc="copyOidc(account)"
+          @assign-tags="tagTarget = account"
+          @payment-link="paymentTarget = account"
+          @test="testTarget = account"
+          @usage="usageTarget = account"
+        />
+      </template>
+    </VirtualList>
 
     <!-- 所有重型弹层仅在用户实际打开时挂载，避免列表首帧执行其 setup 与监听逻辑。 -->
     <AddAccountModal v-if="addOpen" v-model:open="addOpen" @open-import="openImport" />
@@ -736,13 +807,6 @@ function logoutIde(account: Account): void {
   place-items: center;
 }
 
-.no-match {
-  flex: 0 0 auto;
-  padding: 6px 0 2px;
-  text-align: center;
-  font-size: 13px;
-}
-
 /* 搜索框占据左侧剩余空间，但不至于铺满整行 */
 .search-input {
   flex: 1 1 280px;
@@ -783,17 +847,31 @@ function logoutIde(account: Account): void {
   white-space: nowrap;
 }
 
+.view-switch :deep(.ant-radio-button-wrapper) {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.account-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  border: 1px solid var(--kal-border);
+  border-radius: 12px;
+  background: var(--kal-card-bg);
+}
+
 /* 末尾的「添加账号」卡片：虚线框，高度跟着单元格走 */
 .add-card {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 20px;
+  gap: 5px;
+  padding: 16px;
   cursor: pointer;
   border: 1px dashed var(--kal-border);
-  border-radius: 16px;
+  border-radius: 14px;
   /* 和账号卡片同一个底色，只用虚线边框区分 */
   background: var(--kal-card-bg);
   color: inherit;
@@ -808,7 +886,7 @@ function logoutIde(account: Account): void {
 }
 
 .add-card-icon {
-  font-size: 26px;
+  font-size: 24px;
   color: var(--kal-primary);
 }
 

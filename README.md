@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.3-6c5ce7" alt="version">
+  <img src="https://img.shields.io/badge/version-1.2.4-6c5ce7" alt="version">
   <img src="https://img.shields.io/badge/updated-2026--09--05-2f9e44" alt="updated">
   <img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="license">
   <img src="https://img.shields.io/badge/platform-macOS%20arm64%20%7C%20Windows%20x64-lightgrey" alt="platform">
@@ -51,34 +51,19 @@
 - 页面内的跳转全程留在应用内（含站外链接与二级弹窗），不会跳到系统浏览器丢掉会话
 - 请求头伪装成普通 Chrome，并可在设置的「内置浏览器」里指定地区（内置 50 个常用地区，也支持自定义 BCP 47 标签）
 
-### 🔑 API Key 管理
-
-- 支持单个添加、批量导入、搜索、订阅 / 状态 / 用量 / 重置时间筛选、排序、导出和批量删除
-- 每个 Key 独立绑定区域，展示订阅档位、注册邮箱、User ID、额度、重置时间和异常原因
-- 支持单个与批量刷新、真实对话测活、批量测活，以及按模型消耗倍率选择测试模型
-- 大量 Key 使用虚拟网格渲染；详情、历史、测活和导入导出弹窗均按需挂载，减少首屏开销
-
-### 🌐 本地网关与调用统计
-
-- 本地 KRS / CPS 网关可将 Kiro IDE 请求接管到指定 API Key，支持运行中即时切换 Key
-- 自动探测当前 Kiro 版本是否真正支持自定义网关端点，并监视配置被 IDE 回写后的自动恢复
-- 按真实请求统计请求数、成功率、RPM 和服务端权威积分消耗，辅助请求与对话请求分开计数
-- 网关调用历史按分钟聚合并持久化，可查看请求数 / 成功率 / 积分曲线、明细和汇总数据
-
 ### 📈 用量与历史
 
-- 账号和 API Key 每次刷新都会记录积分变化，支持平滑趋势曲线、明细表、清空与 Excel 导出
+- 账号每次刷新都会记录积分变化，支持平滑趋势曲线、明细表、清空与 Excel 导出
 - 历史曲线采用不过冲的单调平滑插值，时间轴末端标签完整显示
-- 删除账号或 Key 时同步清理关联历史、网关统计和备份残留，避免孤儿数据继续占用存储
+- 删除账号时同步清理关联历史和备份残留，避免孤儿数据继续占用存储
 
 ### 📦 导入与导出
 
 - 账号支持卡密、精简 JSON、完整备份 JSON、CSV 和 TXT，可粘贴内容或一次选择多个文件导入
 - 导出范围只有一条规则：**勾选了就导勾选的，没勾选就导全部**，不需要在弹窗里再选一次
-- API Key 导出两种格式：`apikey----地区`（分隔符与卡密一致，可回导并还原区域）或每行一个裸 Key
 - 导出可保存到文件或复制到剪贴板，账号导出可选择是否包含敏感凭证
 - 导出成功后自动打开所在文件夹并选中该文件，也可在设置里关掉
-- 账号与 Key 的大批量校验 / 刷新并发数均可配置
+- 账号的大批量校验 / 刷新并发数可配置
 
 ### 🖥️ 桌面端体验
 
@@ -102,7 +87,7 @@
 - **内置浏览器**：指定应用内打开的网页使用哪个地区，50 个常用地区可搜索选择，也可自定义 BCP 47 标签。
   只影响应用内的网页，不改界面语言、也不影响账号所属的 AWS 区域
 - 导出后是否自动定位到文件、Token / 用量自动刷新间隔、主动续期、批量与导入并发数
-- REST / CBOR 用量接口、HTTP 代理、网关端口，以及数据、备份和日志目录快捷打开
+- REST / CBOR 用量接口、HTTP 代理，以及数据、备份和日志目录快捷打开
 
 ---
 
@@ -111,7 +96,7 @@
 KiroLuker 的安装包由 [GitHub Releases](https://github.com/ZoroHasaky/KiroLuker/releases) 发布。
 开发测试可在 Windows 下双击 [`测试运行.bat`](测试运行.bat)。
 
-**最新版本：v1.2.3**（2026-09-05） · 变更详情见 [CHANGELOG.md](CHANGELOG.md)
+**最新版本：v1.2.4**（2026-09-05） · 变更详情见 [CHANGELOG.md](CHANGELOG.md)
 
 ### 选择对应的安装包
 
@@ -175,14 +160,6 @@ KiroLuker 的安装包由 [GitHub Releases](https://github.com/ZoroHasaky/KiroLu
 
 ![账号测活](docs/screenshots/account-online-test.png)
 
-### API Key 管理
-
-![API Key 管理](docs/screenshots/apikey.png)
-
-### API Key 网关
-
-![API Key 网关](docs/screenshots/apikey-gateway.png)
-
 ### 系统日志
 
 ![系统日志](docs/screenshots/system-log.png)
@@ -245,7 +222,6 @@ src/
     types.ts             共享类型与默认设置
     errors.ts            错误归一与「是否确定性失败」判定
     refreshPolicy.ts     刷新跳过策略（手动 / 自动共用一份）
-    retryPolicy.ts       网关重试的状态码口径
     regions.ts           AWS 区域列表与分组
     portalLocale.ts      内置浏览器地区：预设、归一化、Accept-Language
     subscription.ts      订阅档位归一
@@ -264,18 +240,12 @@ src/
     kiroAuth.ts          IDE 凭证文件读写与 profileArn 决策
     kiroChat.ts          测活：模型列表与流式对话
     kiroEndpoints.ts     端点、区域映射与客户端 UA（服务端按版本号准入）
-    kiroSettings.ts      IDE settings.json 读写与端点接管
+    kiroSettings.ts      IDE settings.json 读写与旧网关端点还原
     kiroPermissions.ts   旧版权限配置的安全还原与清理
-    kiroCapability.ts    当前 IDE 版本是否支持自定义网关端点
     kiroProcess.ts       IDE 进程检测、打开、关闭与重启
     kiroPortal.ts        前往官网：应用内私密窗口与地区
-    ── API Key 网关
-    keyService.ts        Key 管理与网关编排
-    keyGateway.ts        本地 KRS / CPS 转发
-    gatewayStats.ts      请求数、成功率、RPM 与积分统计
-    gatewayHistory.ts    按分钟聚合的调用历史持久化
-    eventStream.ts       AWS event-stream 帧解析
-    localPorts.ts        端口占用探测与释放
+    legacyKeyGateway.ts  仅清理旧版接管状态，保留历史 Key 数据
+    eventStream.ts       AWS event-stream 帧解析（账号流式测活）
     ── 基础设施
     net.ts               统一 fetch 与代理
     store.ts             加密持久化与滚动备份
@@ -287,9 +257,9 @@ src/
     xlsxWriter.ts        Excel 导出
   preload/               contextBridge 暴露的 API 白名单
   renderer/src/
-    stores/              Pinia：accounts / keys / settings / update
-    views/               Home / Accounts / Keys / Subscription / Billing / Logs / Settings / About
-    components/          layout、accounts、keys、common
+    stores/              Pinia：accounts / settings / update
+    views/               Home / Accounts / Subscription / Billing / Logs / Settings / About
+    components/          layout、accounts、common
     utils/               格式化、打码、导入导出、图表、托盘桥接
 ```
 
@@ -303,13 +273,13 @@ src/
 - Google / GitHub 在线登录期间会临时把 `kiro://` 协议注册到本应用（Kiro 授权服务只接受这个固定回调地址），登录结束或应用退出时立即注销，不会长期抢占 Kiro IDE 的协议
 - Enterprise SSO 的回调服务器只监听 `127.0.0.1` 的随机端口，授权完成即关闭，state 与 PKCE 全程校验
 - 「前往官网」用的是不持久化的内存会话分区，退出即清；每次打开前先清空 cookie，不会串号，也不会写入你自己浏览器的登录态
-- 开启本地网关会改写 Kiro IDE 的端点配置，改前留备份、关闭时还原
+- 独立 API Key 管理及本地网关功能已移除。升级启动只还原仍指向旧网关端口的 IDE 端点，保留历史 Key 和统计文件；不会覆盖其它工具后来修改的端点。
 
 ---
 
 ## 🔖 更新日志
 
-各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.2.3，最后更新于 2026-09-05。
+各版本变更记录见 [CHANGELOG.md](CHANGELOG.md)，当前版本 v1.2.4，最后更新于 2026-09-05。
 
 ---
 

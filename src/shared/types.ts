@@ -422,12 +422,6 @@ export interface KiroModelInfo {
   rate?: number
 }
 
-export interface ApiKeyChatTestInput {
-  keyId: string
-  modelId: string
-  message: string
-}
-
 /** 账号测活：发起一次真实的流式对话 */
 export interface ChatTestInput {
   accountId: string
@@ -621,6 +615,8 @@ export interface AppSettings {
   sidebarCollapsed: boolean
   /** 隐私打码：列表与详情中隐藏邮箱、昵称等隐私信息 */
   privacyMode: boolean
+  /** 账户管理页展示模式；旧版本没有该字段时默认使用卡片 */
+  accountViewMode: 'card' | 'list'
   /** 显示两位小数积分 */
   usagePrecision: boolean
   /** 在线登录默认用无痕窗口打开 */
@@ -653,14 +649,6 @@ export interface AppSettings {
   proxyUrl: string
   /** 删除前二次确认 */
   confirmBeforeDelete: boolean
-  /** 自动刷新 API Key 的订阅与积分用量 */
-  autoRefreshApiKeyUsage: boolean
-  /** API Key 用量刷新间隔（分钟） */
-  apiKeyUsageRefreshInterval: number
-  /** API Key 批量同步并发数 */
-  apiKeyRefreshConcurrency: number
-  /** 删除 API Key 前二次确认 */
-  confirmBeforeDeleteApiKey: boolean
   /**
    * 导出成功后是否在文件管理器里定位该文件。
    * 导出的多是凭证类文件，用户下一步基本都要去拿它，所以默认打开；
@@ -678,25 +666,6 @@ export interface AppSettings {
    */
   proactiveRenewalEnabled: boolean
   /**
-   * 网关遇到可恢复错误时自动续接：开启后本地网关碰到指定状态码会自己退避重发，
-   * 不把错误抛给 Kiro IDE，对话不会中断、不需要用户手动点继续。
-   *
-   * 始终使用同一个 Key，不会替换成别的 Key。
-   */
-  gatewayAutoRetryThrottle: boolean
-  /**
-   * 哪些 HTTP 状态码触发自动重试，取值见 shared/retryPolicy 的 RETRYABLE_STATUS_OPTIONS。
-   *
-   * 只能是错误状态码：2xx 一旦开始流式输出就已经有内容写给 IDE，无法重放。
-   * 即使勾选了 402 / 429，若响应里的 reason 表明是本周期额度用尽，仍会直接透传——
-   * 那种情况重试 100% 失败，只会白等。
-   */
-  gatewayRetryStatuses: number[]
-  /** 单个请求最多尝试几次（含首次），超过就把错误透传给 IDE */
-  gatewayRetryMaxAttempts: number
-  /** 两次尝试之间的固定间隔（ms） */
-  gatewayRetryDelayMs: number
-  /**
    * 内置浏览器（前往官网）访问 Kiro 网页端时使用的地区。
    *
    * 同时决定 Accept-Language 请求头与 Chromium 的界面区域，
@@ -710,6 +679,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   darkMode: false,
   sidebarCollapsed: false,
   privacyMode: false,
+  accountViewMode: 'card',
   usagePrecision: false,
   loginPrivateMode: false,
   privateBrowserPath: '',
@@ -726,26 +696,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   proxyEnabled: false,
   proxyUrl: '',
   confirmBeforeDelete: true,
-  autoRefreshApiKeyUsage: true,
-  apiKeyUsageRefreshInterval: 5,
-  apiKeyRefreshConcurrency: 5,
-  confirmBeforeDeleteApiKey: true,
   revealExportedFile: true,
   trayEnabled: true,
   closeAction: 'minimize',
   proactiveRenewalEnabled: true,
-  // 默认关闭：自动重试会让请求看起来变慢，且可能掩盖真实的限流问题，交给用户显式开启
-  gatewayAutoRetryThrottle: false,
-  // 默认只勾选纯粹的临时性故障：限流与服务端 5xx。402 / 403 这类要用户自己决定
-  gatewayRetryStatuses: [429, 500, 502, 503, 504],
-  // 固定间隔重试，10 次也只多花 1 秒左右，对话不会有明显卡顿
-  gatewayRetryMaxAttempts: 10,
-  gatewayRetryDelayMs: 100,
   portalLocale: DEFAULT_PORTAL_LOCALE
 }
 
 // ============================================
-// Key 管理（Kiro API Key / ksk_ 网关）
+// 旧版 Key 数据（仅为保留历史数据和还原遗留 IDE 端点，不再提供管理功能）
 // ============================================
 
 /**
@@ -798,25 +757,7 @@ export interface KeyEntry {
   lastChatCheckedAt?: number
 }
 
-/** API Key 的检查状态，与账号的 AccountStatus 不同：Key 只关心「查得通不通」 */
-export type KeyStatus = 'normal' | 'error' | 'unchecked'
-
-/** API Key 列表的筛选条件 */
-export interface KeyFilter {
-  /** 订阅档位，判定口径与账号一致（见 shared/subscription） */
-  subscriptions: SubscriptionType[]
-  statuses: KeyStatus[]
-  /** 用量占比下限（0-1） */
-  usageMin?: number
-  /** 用量占比上限（0-1） */
-  usageMax?: number
-  /** 额度重置剩余天数下限（含） */
-  daysRemainingMin?: number
-  /** 额度重置剩余天数上限（含） */
-  daysRemainingMax?: number
-}
-
-/** Key 网关持久化数据 */
+/** 旧版 Key 网关持久化数据，仅供升级清理；保留 keys，不删除用户历史凭证。 */
 export interface KeyGatewayData {
   version: number
   keys: KeyEntry[]
@@ -847,145 +788,4 @@ export const DEFAULT_KEY_GATEWAY_DATA: KeyGatewayData = {
   enabled: false,
   region: 'us-east-1',
   ports: { krs: 19830, cps: 19831 }
-}
-
-/** 单个模型信息（Key 网关测活返回） */
-export interface KeyModelInfo {
-  id: string
-  name?: string
-  rate?: number
-}
-
-/** 测试一个 API Key 的结果 */
-export interface KeyTestResult {
-  modelCount: number
-  defaultModel: string
-  subscription: string
-  tier: string
-  used: number | null
-  total: number | null
-  models: KeyModelInfo[]
-}
-
-/**
- * 开启网关前检测到的接管冲突：Kiro IDE 的端点已经指向别的本地网关。
- * 结构化返回冲突端点与端口，界面才能给出「强制接管」而不是只报错。
- */
-export interface KeyGatewayConflict {
-  /** 面向用户的说明文案 */
-  message: string
-  /** 冲突的本地端点，如 http://127.0.0.1:19820 */
-  endpoints: string[]
-  /** 冲突端点对应的本地端口，用于强制接管时释放 */
-  ports: number[]
-}
-
-/** 强制接管时对单个冲突端口的处理结果 */
-export interface KeyGatewayReleaseResult {
-  port: number
-  /** 该端口上监听的进程（不含本应用自身） */
-  pids: number[]
-  /** 端口是否已不再被其它进程占用 */
-  stopped: boolean
-  message: string
-}
-
-/** 应用当前网关状态后回传给渲染进程的运行时信息 */
-export interface KeyGatewayStatus {
-  enabled: boolean
-  /** 两个本地代理是否都已监听并通过健康检查 */
-  running: boolean
-  /** 已选择、下一次网关请求将使用的 Key；不代表最近实际使用 */
-  activeKeyId: string | null
-  /** 当前网关会话最近一次真实转发所使用的 Key */
-  lastForwardedKeyId: string | null
-  /** 最近一次真实转发准备发送到上游的时间戳（ms） */
-  lastForwardedAt?: number
-  /** 最近实际使用的 Key 是否来自当前已接管的网关运行会话 */
-  observedInCurrentSession: boolean
-  /**
-   * IDE 的 AI 请求是否确实由本网关接管。
-   * 磁盘端点已绑定，或本次网关会话近期有过真实转发（IDE 进程内存里仍持有本地端点）。
-   * 判定接管请用这个字段，而不是单看 endpointsBound。
-   */
-  ideTakenOver: boolean
-  /**
-   * 接管中但磁盘端点已被外部改写（典型为 Kiro IDE 启动时按自身内存回写清空）。
-   * 端点守护会自动改回，持续为真说明守护没能生效，IDE 重启后接管会失效。
-   */
-  endpointsHijacked: boolean
-  /** 当前 Key 的区域，也是网关转发实际使用的区域；未选择 Key 时为默认区域 */
-  region: string
-  ports: { krs: number; cps: number }
-  /** settings.json 端点是否已成功指向本地代理 */
-  endpointsBound: boolean
-  /** 是否需要重启 / 重载 Kiro IDE 才能生效 */
-  needRestart: boolean
-  /** Kiro IDE settings.json 路径（用于提示） */
-  settingsPath?: string
-  /** 过程中的说明信息 */
-  message?: string
-}
-
-/**
- * 单个 API Key 经本地网关产生的实际调用统计。
- *
- * 全部来自网关对真实请求的观测：请求数与状态码由转发层计数，
- * 积分消耗来自响应流里的 MeteringEvent（服务端权威值，Kiro 的计费口径）。
- * 不统计 token——该协议的响应流里不带 tokenUsage，拿不到有效数据。
- */
-/**
- * 网关调用的一条时间序列记录，按分钟聚合。
- * 逐请求存会让长期使用后记录数爆炸，按分钟桶聚合足够画曲线。
- */
-export interface GatewayCallPoint {
-  /** 该分钟桶的起始时间戳（ms） */
-  at: number
-  /** 该分钟内的对话请求数 */
-  requests: number
-  /** 其中成功的次数 */
-  succeeded: number
-  /** 该分钟内消耗的积分 */
-  credits: number
-}
-
-export interface KeyGatewayUsageStats {
-  /** 对话请求数（generateAssistantResponse），即用户理解的「发了几次对话」 */
-  requests: number
-  /** 对话请求里的 2xx 响应数 */
-  succeeded: number
-  /** 对话请求里的非 2xx 响应数（含网络异常） */
-  failed: number
-  /**
-   * 辅助请求总数与失败数：/mcp、模型列表、用量查询这些。
-   * 单独统计是因为 /mcp 在 API Key 鉴权下稳定返回 403，
-   * 混进成功率会让「对话其实全部成功」显示成 40% 这类误导数字。
-   */
-  auxRequests: number
-  auxFailed: number
-  /** 最近一分钟的请求数，即当前 RPM。只在内存中统计，重启后重新计算 */
-  rpm: number
-  /** MeteringEvent 累计计费用量，即积分消耗 */
-  metered: number
-  /** 计费单位，来自 MeteringEvent.unitPlural／unit，实测为 credits */
-  meteredUnit?: string
-  /** 最近一次对话请求的时间戳（ms） */
-  lastRequestAt?: number
-}
-
-/**
- * 当前安装的 Kiro IDE 是否支持 API Key 网关接管。
- * 判据是扩展 dist 里是否读取 krsEndpoints / cpsEndpoints，而非版本号比较。
- */
-export interface KiroCapability {
-  /** Kiro 安装目录下的 resources/app；没找到时为 undefined */
-  appRoot?: string
-  /** product.json 里的 IDE 版本 */
-  version?: string
-  /** kiro-agent 扩展版本 */
-  agentVersion?: string
-  /** IDE 是否会读取 krsEndpoints / cpsEndpoints，即能否被本应用接管 */
-  supportsKeyGateway: boolean
-  /** 判定依据说明，用于日志与界面提示 */
-  reason?: string
 }

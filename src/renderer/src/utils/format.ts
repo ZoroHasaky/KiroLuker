@@ -1,4 +1,4 @@
-import type { AccountStatus, IdpType, KeyStatus, SubscriptionType } from '@shared/types'
+import type { AccountStatus, IdpType, SubscriptionType } from '@shared/types'
 
 /** 打码结果缓存：账号多、重渲染频繁，避免反复算 md5 */
 const maskedEmailCache = new Map<string, string>()
@@ -203,13 +203,6 @@ export function subscriptionLabel(subscription: {
   title?: string
 }): string {
   return subscription.title || subscriptionMeta(subscription.type).text
-}
-
-/** API Key 的检查状态：卡片标签与筛选 chip 共用 */
-export const KEY_STATUS_META: Record<KeyStatus, { text: string; color: string }> = {
-  normal: { text: '正常', color: 'green' },
-  error: { text: '异常', color: 'red' },
-  unchecked: { text: '未检查', color: 'default' }
 }
 
 export const IDP_META: Record<IdpType, { text: string; color: string }> = {

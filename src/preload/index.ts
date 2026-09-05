@@ -50,32 +50,6 @@ const api = {
   /** 用该账号凭证在私密窗口打开 Kiro 官网后台 */
   openAccountPortal: (account: unknown) => invoke('accounts:open-portal', account),
 
-  // Kiro API Key 管理 / 本地网关
-  loadKeys: () => invoke('keys:load'),
-  addKey: (key: string, note?: string, region?: string) =>
-    invoke('keys:add', key, note, region),
-  importKeys: (text: string, region?: string) => invoke('keys:import', text, region),
-  updateKey: (id: string, note: string) => invoke('keys:update', id, note),
-  setKeyRegion: (id: string, region: string) => invoke('keys:set-region', id, region),
-  deleteKey: (id: string) => invoke('keys:delete', id),
-  selectKey: (id: string | null) => invoke('keys:select', id),
-  testKey: (id: string) => invoke('keys:test', id),
-  listKeyModels: (id: string) => invoke('keys:models', id),
-  syncKey: (id: string) => invoke('keys:sync', id),
-  syncAllKeys: (concurrency?: number) => invoke('keys:sync-all', concurrency),
-  getKeyGatewayStatus: () => invoke('key-gateway:status'),
-  getKiroCapability: () => invoke('key-gateway:capability'),
-  getKeyGatewayStats: () => invoke('key-gateway:stats'),
-  resetKeyGatewayStats: (keyId?: string) => invoke('key-gateway:stats-reset', keyId),
-  getKeyGatewayHistory: (keyId: string) => invoke('key-gateway:history', keyId),
-  inspectKeyGatewayConflict: () => invoke('key-gateway:inspect-conflict'),
-  enableKeyGateway: (keyId?: string, force?: boolean) =>
-    invoke('key-gateway:enable', keyId, force),
-  disableKeyGateway: () => invoke('key-gateway:disable'),
-  configureKeyGateway: (input: unknown) => invoke('key-gateway:configure', input),
-  onKeyGatewayChanged: (handler: (payload: unknown) => void) =>
-    subscribe('key-gateway:changed', handler),
-
   // 账号操作
   verifyCredentials: (input: unknown) => invoke('accounts:verify', input),
   refreshAccountToken: (account: unknown) => invoke('accounts:refresh-token', account),
@@ -103,11 +77,6 @@ const api = {
   cancelChatTest: (requestId: string) => invoke('kiro:chat-cancel', requestId),
   onChatChunk: (handler: (payload: { requestId: string; delta: string }) => void) =>
     subscribe('kiro:chat-chunk', handler),
-  keyChatTest: (requestId: string, input: unknown) => invoke('keys:chat-test', requestId, input),
-  cancelKeyChatTest: (requestId: string) => invoke('keys:chat-cancel', requestId),
-  onKeyChatChunk: (handler: (payload: { requestId: string; delta: string }) => void) =>
-    subscribe('keys:chat-chunk', handler),
-
   // 在线登录
   startBuilderIdLogin: (region?: string, browserOptions?: unknown) =>
     invoke('login:start-builder-id', region, browserOptions),
