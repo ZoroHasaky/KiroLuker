@@ -11,7 +11,6 @@ import AccountActions from '@/components/accounts/AccountActions.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { displayEmail } from '@/utils/display'
 import {
-  IDP_META,
   STATUS_META,
   formatCreditsPair,
   formatDate,
@@ -52,7 +51,6 @@ const precision = computed(() => settingsStore.settings.usagePrecision)
 
 const email = computed(() => displayEmail(props.account.email, privacy.value))
 const status = computed(() => STATUS_META[props.account.status])
-const idp = computed(() => IDP_META[props.account.idp])
 const subscription = computed(() => subscriptionMeta(props.account.subscription.type))
 const subscriptionText = computed(() => subscriptionLabel(props.account.subscription))
 
@@ -112,6 +110,11 @@ function copyEmail(): void {
       />
     </div>
 
+    <div class="account-state-cell">
+      <a-tag :color="status.color">{{ status.text }}</a-tag>
+      <a-tag :color="subscription.color" :bordered="false">{{ subscriptionText }}</a-tag>
+    </div>
+
     <div class="identity-cell">
       <div class="identity-line">
         <button
@@ -145,10 +148,7 @@ function copyEmail(): void {
     </div>
 
     <div class="labels-cell">
-      <div class="system-tags">
-        <a-tag :color="status.color">{{ status.text }}</a-tag>
-        <a-tag :color="subscription.color" :bordered="false">{{ subscriptionText }}</a-tag>
-        <a-tag :color="idp.color" :bordered="false">{{ idp.text }}</a-tag>
+      <div class="account-flags">
         <a-tag v-if="props.account.isActive" color="green" :bordered="false">当前使用</a-tag>
         <a-tooltip v-if="props.account.lastError" placement="top">
           <template #title><span class="error-tip">{{ props.account.lastError }}</span></template>
@@ -204,11 +204,11 @@ function copyEmail(): void {
 <style scoped>
 .account-list-row {
   display: grid;
-  grid-template-columns: 28px minmax(225px, 1.25fr) minmax(280px, 1.55fr) minmax(170px, 0.9fr) minmax(190px, 1fr);
+  grid-template-columns: 28px minmax(86px, 0.45fr) minmax(225px, 1.25fr) minmax(160px, 0.8fr) minmax(170px, 0.9fr) minmax(190px, 1fr);
   gap: 10px;
   align-items: center;
   width: 100%;
-  min-width: 1110px;
+  min-width: 1050px;
   height: 100%;
   padding: 7px 10px;
   box-sizing: border-box;
@@ -240,11 +240,26 @@ function copyEmail(): void {
   justify-content: center;
 }
 
+.account-state-cell,
 .identity-cell,
 .labels-cell,
 .usage-cell,
 .time-cell {
   min-width: 0;
+}
+
+.account-state-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.account-state-cell :deep(.ant-tag) {
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .identity-cell {
@@ -310,7 +325,7 @@ function copyEmail(): void {
   gap: 3px;
 }
 
-.system-tags,
+.account-flags,
 .account-tags {
   display: flex;
   align-items: center;
@@ -320,7 +335,11 @@ function copyEmail(): void {
   white-space: nowrap;
 }
 
-.system-tags :deep(.ant-tag),
+.account-flags {
+  min-height: 20px;
+}
+
+.account-flags :deep(.ant-tag),
 .account-tags :deep(.ant-tag) {
   height: 20px;
   margin: 0;

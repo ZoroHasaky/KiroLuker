@@ -16,13 +16,11 @@ import {
 } from '@ant-design/icons-vue'
 import kirolukerLogo from '@/assets/kiroluker-logo.png'
 import { useSettingsStore } from '@/stores/settings'
-import { useAccountsStore } from '@/stores/accounts'
 import { useUpdateStore } from '@/stores/update'
 
 const route = useRoute()
 const router = useRouter()
 const settingsStore = useSettingsStore()
-const accountsStore = useAccountsStore()
 const updateStore = useUpdateStore()
 
 const collapsed = computed(() => settingsStore.settings.sidebarCollapsed)
@@ -32,19 +30,13 @@ function navigate(info: { key: string | number }): void {
   void router.push({ name: String(info.key) })
 }
 
-const accountCount = computed(() => accountsStore.stats.total)
-
 const darkModeLabel = computed(() =>
   settingsStore.settings.darkMode ? '浅色模式' : '深色模式'
 )
 
 const items = computed(() => [
   { key: 'home', label: '主页', icon: HomeOutlined },
-  {
-    key: 'accounts',
-    label: accountCount.value ? `账户管理（${accountCount.value}个）` : '账户管理',
-    icon: TeamOutlined
-  },
+  { key: 'accounts', label: '账户管理', icon: TeamOutlined },
   { key: 'subscription', label: '批量订阅', icon: DollarCircleOutlined },
   { key: 'billing', label: '账单信息', icon: CreditCardOutlined },
   { key: 'logs', label: '系统日志', icon: FileTextOutlined },
@@ -57,7 +49,7 @@ const items = computed(() => [
   <aside
     class="app-sidebar"
     :class="{ collapsed }"
-    :style="{ width: collapsed ? '68px' : '208px' }"
+    :style="{ width: collapsed ? '60px' : '188px' }"
   >
     <div class="sidebar-brand">
       <a-tooltip

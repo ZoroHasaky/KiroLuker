@@ -91,16 +91,6 @@ body {
   background: var(--kal-body-bg);
 }
 
-.app-titlebar {
-  height: 44px;
-  flex: 0 0 44px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--kal-border);
-}
-
 .app-content {
   flex: 1 1 auto;
   min-height: 0;

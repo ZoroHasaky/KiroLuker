@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { Modal } from 'ant-design-vue'
 import zhCN from 'ant-design-vue/es/locale/zh_CN'
 import AppSidebar from '@/components/layout/AppSidebar.vue'
-import AppTitleBar from '@/components/layout/AppTitleBar.vue'
+import AccountTaskProgress from '@/components/layout/AccountTaskProgress.vue'
 import UpdateAvailableModal from '@/components/common/UpdateAvailableModal.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useAccountsStore } from '@/stores/accounts'
@@ -93,13 +93,13 @@ watch(
     <div class="app-shell">
       <AppSidebar />
       <div class="app-body">
-        <AppTitleBar />
         <main class="app-content">
           <!-- 不使用 out-in 淡出：旧页面先消失会放大重型页面挂载时的白屏感。 -->
           <router-view />
         </main>
       </div>
     </div>
+    <AccountTaskProgress />
     <UpdateAvailableModal />
   </a-config-provider>
 </template>

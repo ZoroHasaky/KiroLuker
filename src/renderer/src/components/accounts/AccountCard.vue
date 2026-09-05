@@ -9,7 +9,6 @@ import {
 import AccountActions from '@/components/accounts/AccountActions.vue'
 import { useSettingsStore } from '@/stores/settings'
 import {
-  IDP_META,
   STATUS_META,
   subscriptionMeta,
   formatCheckedAt,
@@ -88,7 +87,6 @@ const filledBars = computed(() => Math.round((percent.value / 100) * BAR_COUNT))
 const barColor = computed(() => usageColor(props.account.usage.percentUsed || 0))
 
 const status = computed(() => STATUS_META[props.account.status])
-const idp = computed(() => IDP_META[props.account.idp])
 const subscription = computed(() => subscriptionMeta(props.account.subscription.type))
 /** 订阅展示名：优先接口给的标题 */
 const subscriptionText = computed(() => subscriptionLabel(props.account.subscription))
@@ -168,6 +166,12 @@ function copyEmail(): void {
         @click.stop
         @change="(e: any) => emit('toggle-select', e.target.checked)"
       />
+      <div class="account-state">
+        <a-tag :color="status.color">{{ status.text }}</a-tag>
+        <a-tag :color="subscription.color" :bordered="false">
+          {{ subscriptionText }}
+        </a-tag>
+      </div>
       <div class="identity">
         <span class="email" :title="privacy ? undefined : props.account.email" @click.stop="emit('detail')">{{ email }}</span>
         <span class="nickname" @click.stop="emit('detail')">{{ nickname }}</span>
@@ -183,14 +187,9 @@ function copyEmail(): void {
           <CopyOutlined />
         </a-button>
       </a-tooltip>
-      <a-tag :color="status.color" class="status-tag">{{ status.text }}</a-tag>
     </div>
 
     <div class="tag-row">
-      <a-tag :color="subscription.color" :bordered="false">
-        {{ subscriptionText }}
-      </a-tag>
-      <a-tag :color="idp.color" :bordered="false">{{ idp.text }}</a-tag>
       <a-tag v-if="props.account.isActive" color="green" :bordered="false">当前使用</a-tag>
       <a-tag
         v-for="tag in accountTags"
@@ -358,9 +357,19 @@ function copyEmail(): void {
   color: var(--kal-muted);
 }
 
-.status-tag {
-  margin: 0;
+.account-state {
+  display: flex;
   flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.account-state :deep(.ant-tag) {
+  max-width: 96px;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .copy-email-btn {

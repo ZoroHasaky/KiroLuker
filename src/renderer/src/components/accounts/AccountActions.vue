@@ -76,8 +76,8 @@ const actions = computed<AccountAction[]>(() => {
     title: '刷新',
     icon: SyncOutlined,
     menu: [
-      { key: 'refresh-key', label: '刷新密钥', icon: KeyOutlined },
-      { key: 'refresh-usage', label: '刷新用量与积分', icon: SyncOutlined }
+      { key: 'refresh-key', label: '密钥', icon: KeyOutlined },
+      { key: 'refresh-usage', label: '用量', icon: SyncOutlined }
     ]
   })
   items.push(

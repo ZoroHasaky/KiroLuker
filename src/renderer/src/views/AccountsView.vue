@@ -94,16 +94,6 @@ const usageRefreshing = computed(
 )
 const refreshing = computed(() => keyRefreshing.value || usageRefreshing.value)
 
-/** 菜单按钮上直接反映正在跑的那条任务，不必展开菜单才知道进度 */
-const refreshButtonText = computed(() => {
-  if (keyRefreshing.value) return '正在刷新密钥...'
-  if (usageRefreshing.value) {
-    const scope = visibleSelectedCount.value ? `${visibleSelectedCount.value}个账户` : ''
-    return `正在刷新${scope}用量/积分...`
-  }
-  return `刷新密钥/用量/积分${batchScopeSuffix.value}`
-})
-
 const stats = computed(() => accountsStore.stats)
 
 const filterOpen = ref(false)
@@ -219,14 +209,6 @@ const visibleSelectedCount = computed(() => {
   }
   return count
 })
-
-/**
- * 批量刷新按钮的范围后缀：有勾选时只刷勾选的账号，把数量带到按钮上。
- * 取可见勾选数而非全部勾选数，与 batch() 实际会处理的条数对齐。
- */
-const batchScopeSuffix = computed(() =>
-  visibleSelectedCount.value ? `（${visibleSelectedCount.value}个）` : ''
-)
 
 const allVisibleSelected = computed(
   () => sorted.value.length > 0 && visibleSelectedCount.value === sorted.value.length
@@ -516,9 +498,43 @@ function logoutIde(account: Account): void {
         </div>
       </div>
 
-      <!-- 第二行：统计 + 筛选 / 批量 / 选择 -->
+      <!-- 第二行：选择 / 视图 / 统计 + 筛选 / 批量 -->
       <div class="meta-bar">
+        <a-checkbox
+          :checked="allVisibleSelected"
+          :indeterminate="someVisibleSelected"
+          :disabled="sorted.length === 0"
+          @change="(e: any) => toggleSelectVisible(e.target.checked)"
+        >
+          全选
+        </a-checkbox>
         <span class="count-text">共 {{ sorted.length }} 个账号</span>
+        <template v-if="accountsStore.selectedIds.length">
+          <span class="count-text">已选 {{ accountsStore.selectedIds.length }}</span>
+          <a-button type="link" size="small" @click="accountsStore.selectedIds = []">
+            清空
+          </a-button>
+        </template>
+
+        <a-radio-group
+          class="view-switch"
+          size="small"
+          button-style="solid"
+          :value="viewMode"
+          @change="(event: any) => setViewMode(event.target.value)"
+        >
+          <a-radio-button value="card" aria-label="卡片模式" title="卡片模式">
+            <AppstoreOutlined />
+            <span>卡片</span>
+          </a-radio-button>
+          <a-radio-button value="list" aria-label="列表模式" title="列表模式">
+            <UnorderedListOutlined />
+            <span>列表</span>
+          </a-radio-button>
+        </a-radio-group>
+
+        <a-divider type="vertical" style="margin: 0 2px" />
+
         <a-tag v-if="stats.byStatus.active" color="green" :bordered="false">
           正常 {{ stats.byStatus.active }}
         </a-tag>
@@ -564,41 +580,22 @@ function logoutIde(account: Account): void {
 
         <a-divider type="vertical" style="margin: 0 2px" />
 
-        <a-radio-group
-          class="view-switch"
-          size="small"
-          button-style="solid"
-          :value="viewMode"
-          @change="(event: any) => setViewMode(event.target.value)"
-        >
-          <a-radio-button value="card" aria-label="卡片模式" title="卡片模式">
-            <AppstoreOutlined />
-            <span>卡片</span>
-          </a-radio-button>
-          <a-radio-button value="list" aria-label="列表模式" title="列表模式">
-            <UnorderedListOutlined />
-            <span>列表</span>
-          </a-radio-button>
-        </a-radio-group>
-
-        <a-divider type="vertical" style="margin: 0 2px" />
-
         <!-- 两种刷新收进同一个菜单：它们互斥，全局任务状态一次只容得下一条 -->
         <a-dropdown :disabled="busy">
           <a-button size="small" :loading="refreshing">
             <template #icon><SyncOutlined /></template>
-            {{ refreshButtonText }}
+            刷新
             <DownOutlined v-if="!refreshing" />
           </a-button>
           <template #overlay>
             <a-menu>
               <a-menu-item key="refresh" @click="batch('refresh')">
                 <KeyOutlined />
-                刷新密钥{{ batchScopeSuffix }}
+                密钥
               </a-menu-item>
               <a-menu-item key="check" @click="batch('check')">
                 <SyncOutlined />
-                刷新用量与积分{{ batchScopeSuffix }}
+                用量
               </a-menu-item>
             </a-menu>
           </template>
@@ -624,23 +621,6 @@ function logoutIde(account: Account): void {
           <template #icon><DeleteOutlined /></template>
           删除（{{ accountsStore.selectedIds.length }}个）
         </a-button>
-
-        <a-divider type="vertical" style="margin: 0 2px" />
-
-        <a-checkbox
-          :checked="allVisibleSelected"
-          :indeterminate="someVisibleSelected"
-          :disabled="sorted.length === 0"
-          @change="(e: any) => toggleSelectVisible(e.target.checked)"
-        >
-          全选
-        </a-checkbox>
-        <template v-if="accountsStore.selectedIds.length">
-          <span class="count-text">已选 {{ accountsStore.selectedIds.length }}</span>
-          <a-button type="link" size="small" @click="accountsStore.selectedIds = []">
-            清空
-          </a-button>
-        </template>
       </div>
     </div>
 
