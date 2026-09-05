@@ -49,7 +49,7 @@ const items = computed(() => [
   <aside
     class="app-sidebar"
     :class="{ collapsed }"
-    :style="{ width: collapsed ? '60px' : '188px' }"
+    :style="{ width: collapsed ? '60px' : '172px' }"
   >
     <div class="sidebar-brand">
       <a-tooltip

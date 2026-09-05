@@ -197,12 +197,21 @@ export function subscriptionMeta(type: SubscriptionType): { text: string; color:
   return SUBSCRIPTION_META[type] ?? SUBSCRIPTION_META.Free
 }
 
-/** 订阅展示名：优先用接口给的标题，缺失时回退到内部枚举文案 */
+/**
+ * 订阅展示名：隐藏上游标题中的 Kiro 品牌前缀，并统一英文单词的首字母大小写。
+ * 接口可能返回 KIRO PRO、Kiro pro max 等不同写法，界面统一显示为 Pro、Pro Max。
+ */
 export function subscriptionLabel(subscription: {
   type: SubscriptionType
   title?: string
 }): string {
-  return subscription.title || subscriptionMeta(subscription.type).text
+  const fallback = subscriptionMeta(subscription.type).text
+  const source = subscription.title?.trim() || fallback
+  const withoutKiro = source.replace(/^\s*kiro(?:[\s_-]+|$)/i, '').replace(/_/g, ' ').trim()
+  const display = withoutKiro.replace(/[A-Za-z]+/g, (word) =>
+    word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+  )
+  return display || fallback
 }
 
 export const IDP_META: Record<IdpType, { text: string; color: string }> = {

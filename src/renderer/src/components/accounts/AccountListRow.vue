@@ -110,41 +110,43 @@ function copyEmail(): void {
       />
     </div>
 
-    <div class="account-state-cell">
-      <a-tag :color="status.color">{{ status.text }}</a-tag>
-      <a-tag :color="subscription.color" :bordered="false">{{ subscriptionText }}</a-tag>
-    </div>
-
-    <div class="identity-cell">
-      <div class="identity-line">
-        <button
-          class="email email-detail"
-          type="button"
-          :title="privacy ? '查看账号详情' : props.account.email"
-          @click.stop="emit('detail')"
-        >
-          {{ email }}
-        </button>
-        <a-tooltip title="复制账号邮箱">
-          <button class="copy-email" type="button" aria-label="复制账号邮箱" @click.stop="copyEmail">
-            <CopyOutlined />
-          </button>
-        </a-tooltip>
+    <div class="identity-group">
+      <div class="account-state-cell">
+        <a-tag :color="status.color">{{ status.text }}</a-tag>
+        <a-tag :color="subscription.color" :bordered="false">{{ subscriptionText }}</a-tag>
       </div>
-      <AccountActions
-        class="identity-actions"
-        :active="props.account.isActive"
-        :busy-action="props.busyAction"
-        @logout="emit('logout')"
-        @refresh-key="emit('refresh-key')"
-        @refresh-usage="emit('refresh-usage')"
-        @copy-oidc="emit('copy-oidc')"
-        @payment-link="emit('payment-link')"
-        @test="emit('test')"
-        @portal="emit('portal')"
-        @edit="emit('edit')"
-        @remove="emit('remove')"
-      />
+
+      <div class="identity-cell">
+        <div class="identity-line">
+          <button
+            class="email email-detail"
+            type="button"
+            :title="privacy ? '查看账号详情' : props.account.email"
+            @click.stop="emit('detail')"
+          >
+            {{ email }}
+          </button>
+          <a-tooltip title="复制账号邮箱">
+            <button class="copy-email" type="button" aria-label="复制账号邮箱" @click.stop="copyEmail">
+              <CopyOutlined />
+            </button>
+          </a-tooltip>
+        </div>
+        <AccountActions
+          class="identity-actions"
+          :active="props.account.isActive"
+          :busy-action="props.busyAction"
+          @logout="emit('logout')"
+          @refresh-key="emit('refresh-key')"
+          @refresh-usage="emit('refresh-usage')"
+          @copy-oidc="emit('copy-oidc')"
+          @payment-link="emit('payment-link')"
+          @test="emit('test')"
+          @portal="emit('portal')"
+          @edit="emit('edit')"
+          @remove="emit('remove')"
+        />
+      </div>
     </div>
 
     <div class="labels-cell">
@@ -204,11 +206,11 @@ function copyEmail(): void {
 <style scoped>
 .account-list-row {
   display: grid;
-  grid-template-columns: 28px 110px 300px 90px 280px 170px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 28px 370px 64px 210px 170px minmax(0, 1fr);
+  gap: 8px;
   align-items: center;
   width: 100%;
-  min-width: 1038px;
+  min-width: 882px;
   height: 100%;
   padding: 7px 10px;
   box-sizing: border-box;
@@ -240,12 +242,20 @@ function copyEmail(): void {
   justify-content: center;
 }
 
+.identity-group,
 .account-state-cell,
 .identity-cell,
 .labels-cell,
 .usage-cell,
 .time-cell {
   min-width: 0;
+}
+
+.identity-group {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  column-gap: 6px;
+  align-items: center;
 }
 
 .account-state-cell {

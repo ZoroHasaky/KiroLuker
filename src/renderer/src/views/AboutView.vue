@@ -2,22 +2,13 @@
 import { computed, ref } from 'vue'
 import {
   CheckCircleFilled,
-  CheckOutlined,
   CloseCircleFilled,
-  CommentOutlined,
   GithubOutlined,
-  HeartFilled,
-  InfoCircleFilled,
   SyncOutlined,
-  ThunderboltFilled
 } from '@ant-design/icons-vue'
 import { useSettingsStore } from '@/stores/settings'
 import { useUpdateStore } from '@/stores/update'
 import kirolukerLogo from '@/assets/kiroluker-logo.png'
-import qqGroup from '@/assets/qq-group.jpg'
-import authorAvatar from '@/assets/author_avatar.jpg'
-import sponsorWechat from '@/assets/sponsor_wechat.jpg'
-import sponsorAlipay from '@/assets/sponsor_alipay.jpg'
 
 const settingsStore = useSettingsStore()
 const updateStore = useUpdateStore()
@@ -28,7 +19,6 @@ const checking = computed(() => updateStore.checking)
 const checkResult = computed(() => updateStore.result)
 const checkOpen = ref(false)
 const checkError = ref('')
-const groupOpen = ref(false)
 
 /** 手动检查始终访问 GitHub；先打开状态弹窗，再在弹窗中呈现最终结果。 */
 async function checkUpdate(): Promise<void> {
@@ -50,36 +40,9 @@ function manualUpdate(): void {
   open(`${PROJECT_REPO_URL}/releases`)
 }
 
-/** 关于页展示的功能清单，与 README 的功能特性保持一致 */
-const features = [
-  { name: '多账号管理', desc: '添加、编辑、删除多个 Kiro 账号，支持搜索和多维筛选' },
-  { name: '三种添加方式', desc: '在线登录（Google / GitHub / Builder ID / Enterprise SSO）、OIDC 凭证、读取本地 Kiro 登录态' },
-  { name: '自动刷新', desc: 'Token 与积分用量各自独立的开关与间隔，冷启动会补跑一轮' },
-  { name: '主动续期', desc: '在 IDE 当前账号的 Token 即将过期前抢先刷新并写盘，保持登录态不掉线' },
-  { name: '账号测活', desc: '拉取真实可用模型并发起一次流式对话，验证账号是否可用' },
-  { name: '积分与用量', desc: '订阅等级、积分明细、重置时间，并记录每次采样生成变化趋势' },
-  { name: '系统日志', desc: '按级别、分类、关键字与时间筛选，可导出，打包版同样可诊断' },
-  { name: '导入导出', desc: '卡密、JSON、CSV、TXT 互通，支持拖拽多个文件按顺序批量导入' },
-  { name: '隐私打码', desc: '一键隐藏邮箱、昵称等敏感信息' },
-  { name: '桌面端体验', desc: '系统托盘常驻、关闭行为可配、自定义协议唤起、单实例锁' },
-  { name: '网络代理', desc: '支持 HTTP 代理，留空时回退系统环境变量' },
-  { name: '主题定制', desc: '自定义主题色，深色 / 浅色模式' }
-]
-
 const PROJECT_REPO_URL = 'https://github.com/ZoroHasaky/KiroLuker'
 /** 改名前的上游仓库，保留用于开源归属与历史追溯。 */
 const UPSTREAM_REPO_URL = 'https://github.com/lucks-cloud/kiro-manager-lite'
-
-const author = {
-  name: 'lucks-cloud',
-  url: 'https://github.com/lucks-cloud',
-  avatar: authorAvatar
-}
-
-const sponsors = [
-  { label: '微信', image: sponsorWechat },
-  { label: '支付宝', image: sponsorAlipay }
-]
 
 const links = [
   { label: '上游项目 kiro-manager-lite', url: UPSTREAM_REPO_URL },
@@ -94,7 +57,7 @@ function open(url: string): void {
 
 <template>
   <div>
-    <!-- 头部：品牌标识 + 版本 + 检查更新 / 交流群 -->
+    <!-- 头部：品牌标识、版本与更新入口 -->
     <section class="hero">
       <span class="hero-blob hero-blob-a" />
       <span class="hero-blob hero-blob-b" />
@@ -106,10 +69,6 @@ function open(url: string): void {
           <a-button :loading="checking" @click="checkUpdate">
             <template #icon><SyncOutlined /></template>
             检查更新
-          </a-button>
-          <a-button @click="groupOpen = true">
-            <template #icon><CommentOutlined /></template>
-            加入交流群
           </a-button>
           <a-button @click="open(PROJECT_REPO_URL)">
             <template #icon><GithubOutlined /></template>
@@ -128,75 +87,6 @@ function open(url: string): void {
         <a-descriptions-item label="Node">{{ info?.node || '-' }}</a-descriptions-item>
         <a-descriptions-item label="技术栈">Vue 3 · Vite · Pinia · Ant Design Vue · Electron</a-descriptions-item>
       </a-descriptions>
-    </a-card>
-
-    <a-card size="small" class="intro-card" style="margin-bottom: 16px">
-      <template #title>
-        <span class="card-title">
-          <InfoCircleFilled class="card-title-icon" />
-          关于本应用
-        </span>
-      </template>
-      <p class="intro-text">
-        KiroLuker 是一个 Kiro IDE 多账号管理工具。支持账号集中管理、
-        Token 自动刷新与主动续期、积分用量跟踪和账号测活，
-        帮你在多个账号与订阅之间省去反复登录退出的力气。
-      </p>
-      <p class="intro-text">
-        本应用使用 Electron + Vue 3 + TypeScript 开发，支持 Windows、macOS 和 Linux 平台。
-        所有账号数据均加密保存在本机，不会上传到任何服务器。
-      </p>
-    </a-card>
-
-    <a-card size="small" class="feature-card" style="margin-bottom: 16px">
-      <template #title>
-        <span class="card-title">
-          <ThunderboltFilled class="card-title-icon" />
-          主要功能
-        </span>
-      </template>
-      <ul class="feature-list">
-        <li v-for="item in features" :key="item.name" class="feature-item">
-          <CheckOutlined class="feature-check" />
-          <span class="feature-name">{{ item.name }}</span>
-          <span class="feature-sep">：</span>
-          <span class="feature-desc muted">{{ item.desc }}</span>
-        </li>
-      </ul>
-    </a-card>
-
-    <a-card size="small" title="原项目作者" style="margin-bottom: 16px">
-      <div class="author">
-        <a-avatar :size="56" :src="author.avatar" alt="作者头像" />
-        <div class="author-main">
-          <div class="author-name">{{ author.name }}</div>
-          <!-- 保留 href 让链接可聚焦，实际跳转交给系统浏览器 -->
-          <a
-            class="author-link mono"
-            :href="author.url"
-            @click.prevent="open(author.url)"
-          >
-            {{ author.url }}
-          </a>
-        </div>
-        <a-button @click="open(author.url)">
-          <template #icon><GithubOutlined /></template>
-          GitHub 主页
-        </a-button>
-      </div>
-    </a-card>
-
-    <a-card size="small" title="赞助支持" style="margin-bottom: 16px">
-      <p class="muted" style="margin: 0 0 14px">
-        <HeartFilled style="color: #eb2f96" />
-        原项目免费开源，如果它帮你省了力气，可以请原作者喝杯咖啡，完全自愿。
-      </p>
-      <div class="sponsor-grid">
-        <div v-for="item in sponsors" :key="item.label" class="sponsor-item">
-          <img class="sponsor-qr" :src="item.image" :alt="`${item.label}收款码`" />
-          <span class="sponsor-label muted">{{ item.label }}</span>
-        </div>
-      </div>
     </a-card>
 
     <a-card size="small" title="致谢与许可" class="credits-card">
@@ -260,82 +150,10 @@ function open(url: string): void {
       </template>
     </a-modal>
 
-    <!-- 用户交流群 -->
-    <a-modal v-model:open="groupOpen" title="用户交流群" :width="440" centered :footer="null">
-      <div class="group-box">
-        <img class="group-qr" :src="qqGroup" alt="QQ 交流群二维码" />
-        <span class="muted group-tip">用 QQ 扫码加入交流群</span>
-      </div>
-    </a-modal>
   </div>
 </template>
 
 <style scoped>
-/* ============ 关于本应用 / 主要功能 ============ */
-.card-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.card-title-icon {
-  color: var(--kal-primary);
-}
-
-.intro-card :deep(.ant-card-body),
-.feature-card :deep(.ant-card-body) {
-  padding: 16px;
-}
-
-.intro-text {
-  margin: 0 0 12px;
-  font-size: 13px;
-  line-height: 1.9;
-}
-
-.intro-text:last-child {
-  margin-bottom: 0;
-}
-
-.feature-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.feature-item {
-  display: flex;
-  align-items: baseline;
-  gap: 2px;
-  padding: 4px 0;
-  font-size: 13px;
-  line-height: 1.8;
-}
-
-.feature-check {
-  flex: 0 0 auto;
-  margin-right: 6px;
-  color: var(--kal-primary);
-  font-size: 12px;
-}
-
-.feature-name {
-  flex: 0 0 auto;
-  font-weight: 600;
-  color: var(--kal-primary);
-}
-
-.feature-sep {
-  flex: 0 0 auto;
-  color: var(--kal-muted);
-}
-
-/* 说明文字占据剩余宽度，长句在窄窗口下正常换行 */
-.feature-desc {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
 /* small 卡片默认 12px 内边距，大号按钮在其中显得贴边，单独放宽上下留白 */
 .credits-card :deep(.ant-card-body) {
   padding: 16px 12px 20px;
@@ -609,75 +427,4 @@ function open(url: string): void {
   text-align: left;
 }
 
-/* ============ 交流群弹窗 ============ */
-.group-box {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-}
-
-/* 原图是竖长图，宽度撑满弹窗的同时限高，避免小窗口下弹窗超出视口 */
-.group-qr {
-  width: 100%;
-  max-width: 380px;
-  height: auto;
-  max-height: 62vh;
-  object-fit: contain;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.group-tip {
-  font-size: 12px;
-}
-
-.author {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.author-main {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.author-name {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.author-link {
-  font-size: 12px;
-  word-break: break-all;
-}
-
-.sponsor-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-
-.sponsor-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 10px;
-  border-radius: 10px;
-  background: var(--kal-block-bg);
-}
-
-/* 只固定宽度，高度按原图比例走，避免二维码被压变形 */
-.sponsor-qr {
-  width: 260px;
-  height: auto;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.sponsor-label {
-  font-size: 12px;
-}
 </style>
