@@ -11,6 +11,7 @@ import {
 import { createAccountApiKey, deleteAccountApiKey, listAccountApiKeys } from './kiroApiKey'
 import { openAccountPortal } from './kiroPortal'
 import { createSubscriptionLink, getSubscriptionPlans } from './subscriptionService'
+import { checkSubscriptionRenewal, switchSubscriptionToFree } from './stripePortalService'
 import { clearKiroSsoCache, readKiroAuthToken, readLocalKiroCredentials } from './kiroAuth'
 import { isKiroRunning, restartKiroIde } from './kiroProcess'
 import { listKiroModels, streamKiroChat } from './kiroChat'
@@ -191,6 +192,14 @@ export function registerIpc(
 
   handle('accounts:open-portal', async (_e, account: Account) =>
     ok(await openAccountPortal(account))
+  )
+
+  handle('accounts:subscription-renewal', async (_e, account: Account) =>
+    ok(await checkSubscriptionRenewal(account))
+  )
+
+  handle('accounts:subscription-free', async (_e, account: Account) =>
+    ok(await switchSubscriptionToFree(account))
   )
 
   handle('accounts:subscription-plans', async (_e, account: Account) =>

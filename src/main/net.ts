@@ -38,6 +38,11 @@ export function getEffectiveProxyUrl(): string {
   )
 }
 
+/** 后台官网会话：仅显式应用代理覆盖 Chromium 系统代理。 */
+export function getConfiguredProxyUrl(): string {
+  return proxyEnabled ? proxyUrl : ''
+}
+
 export function setProxyConfig(enabled: boolean, url: string): void {
   proxyEnabled = enabled
   proxyUrl = normalizeProxyUrl(url)
@@ -207,13 +212,18 @@ export async function httpRequest(
     headers?: Record<string, string>
     body?: string | Buffer
     timeoutMs?: number
+    /** 敏感门户请求禁止自动重定向，避免临时凭证流向其他地址。 */
+    redirect?: 'follow' | 'error' | 'manual'
   } = {}
 ): Promise<HttpResponse> {
-  const { method = 'GET', headers, body, timeoutMs = 30_000 } = options
+  const { method = 'GET', headers, body, timeoutMs = 30_000, redirect = 'follow' } = options
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
-    const res = await undiciFetch(url, buildInit(method, headers, body, controller.signal))
+    const res = await undiciFetch(url, {
+      ...buildInit(method, headers, body, controller.signal),
+      redirect
+    })
     return {
       ok: res.ok,
       status: res.status,

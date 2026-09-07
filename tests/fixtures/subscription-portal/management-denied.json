@@ -1,0 +1,8 @@
+{
+  "source": "Kiro official portal, read-only observation 2026-09-07; no account identifiers",
+  "httpStatus": 401,
+  "body": {
+    "__type": "com.amazon.kirowebportalservice#UnauthorizedException",
+    "message": "Authentication required or access denied."
+  }
+}

@@ -171,5 +171,9 @@ export function normalizeSubscriptionLink(input: unknown): SubscriptionLinkResul
 }
 
 export function isSubscriptionAuthError(error?: string): boolean {
+  // 新官网链路的 401 也可能是管理权限拒绝或 Stripe 短时会话失效，不能盲刷 Kiro Token。
+  if (error && /^\[(?:官网会话初始化|生成管理链接|跳转校验|读取 Stripe 门户|读取订阅|提交变更|提交后复核)\]/.test(error)) {
+    return /官网(?:会话|凭证)已过期/.test(error)
+  }
   return !!error && /\b401\b|invalid\s+(?:bearer\s+)?token|token\s+(?:is\s+)?expired/i.test(error)
 }

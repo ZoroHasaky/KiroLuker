@@ -36,6 +36,10 @@ import type {
   XlsxSheet
 } from '../shared/types'
 import type { BillingRendererApi } from '../shared/billing'
+import type {
+  SubscriptionRenewalInfo,
+  SwitchSubscriptionToFreeResult
+} from '../shared/subscriptionFree'
 
 interface BrowserOpenOptions {
   privateMode?: boolean
@@ -79,6 +83,10 @@ export interface Api extends BillingRendererApi {
   checkAccountStatus: (
     account: Account
   ) => Promise<IpcResult<AccountSnapshot> & { banned?: boolean }>
+  /** 只读检查 Stripe 门户的当前计划和续费安排。 */
+  checkSubscriptionRenewal: (account: Account) => Promise<IpcResult<SubscriptionRenewalInfo>>
+  /** 经用户确认后切为 Free；可能周期末生效，不自动重试。 */
+  switchSubscriptionToFree: (account: Account) => Promise<IpcResult<SwitchSubscriptionToFreeResult>>
   /** 读取当前账号可购买的 Kiro 订阅计划。 */
   getSubscriptionPlans: (account: Account) => Promise<IpcResult<SubscriptionPlansResult>>
   /** 生成指定计划的 Kiro/Stripe 官方订阅链接。 */

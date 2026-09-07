@@ -1,0 +1,4 @@
+{
+  "source": "Kiro official GenerateSubscriptionManagementUrl, read-only observation 2026-09-07; all query values replaced",
+  "encodedVerificationUrl": "https://billing.stripe.com/p/session?secret=fixture-secret"
+}

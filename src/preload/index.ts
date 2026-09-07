@@ -55,6 +55,8 @@ const api = {
   refreshAccountToken: (account: unknown) => invoke('accounts:refresh-token', account),
   checkAccountStatus: (account: unknown) => invoke('accounts:check-status', account),
   getSubscriptionPlans: (account: unknown) => invoke('accounts:subscription-plans', account),
+  checkSubscriptionRenewal: (account: unknown) => invoke('accounts:subscription-renewal', account),
+  switchSubscriptionToFree: (account: unknown) => invoke('accounts:subscription-free', account),
   createSubscriptionLink: (account: unknown, subscriptionType: string) =>
     invoke('accounts:subscription-link', account, subscriptionType),
 

@@ -1,0 +1,43 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "sub_fixture",
+      "object": "subscription",
+      "status": "active",
+      "cancel_at_period_end": false,
+      "current_period_end": 1800000000,
+      "has_update_scheduled": true,
+      "transition_at": 1800000000,
+      "items": [
+        {
+          "id": "si_fixture",
+          "object": "subscription_item",
+          "quantity": 1,
+          "price_details": {
+            "id": "price_fixturePaid",
+            "product": {
+              "name": "Kiro Pro"
+            }
+          }
+        }
+      ],
+      "upcoming_invoice": {
+        "amount_due": 0,
+        "lines": {
+          "data": [
+            {
+              "price_details": {
+                "id": "price_1RpBqGIHUhwdEnrTbZ8CIM0l",
+                "product": {
+                  "name": "Kiro Free"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "has_more": false
+}

@@ -37,7 +37,7 @@ const darkModeLabel = computed(() =>
 const items = computed(() => [
   { key: 'home', label: '主页', icon: HomeOutlined },
   { key: 'accounts', label: '账户管理', icon: TeamOutlined },
-  { key: 'subscription', label: '批量订阅', icon: DollarCircleOutlined },
+  { key: 'subscription', label: '订阅管理', icon: DollarCircleOutlined },
   { key: 'billing', label: '账单信息', icon: CreditCardOutlined },
   { key: 'logs', label: '系统日志', icon: FileTextOutlined },
   { key: 'settings', label: '设置', icon: SettingOutlined },

@@ -25,7 +25,7 @@ const router = createRouter({
       path: '/subscription',
       name: 'subscription',
       component: () => import('@/views/SubscriptionView.vue'),
-      meta: { title: '批量订阅' }
+      meta: { title: '订阅管理' }
     },
     { path: '/tools', redirect: '/home' },
     {
