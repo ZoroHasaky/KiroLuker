@@ -53,7 +53,19 @@ test('完整备份导入重映射标签和账号 ID，并保持凭证格式隔�
         saveAccounts: async (data) => {
           saved.push(data)
           return { success: true }
-        }
+        },
+        recordUsagePoint: async () => ({ success: true }),
+        verifyCredentials: async (input) => ({
+          success: true,
+          data: {
+            email: input.refreshToken === 'json-payment-refresh' ? 'json-payment@example.com' : 'unexpected@example.com',
+            userId: 'json-payment-user',
+            accessToken: 'json-payment-access',
+            refreshToken: input.refreshToken,
+            subscription: { type: 'Free' },
+            usage: { current: 0, limit: 0, percentUsed: 0, lastUpdated: 0 }
+          }
+        })
       }
     }
 
@@ -147,7 +159,23 @@ test('完整备份导入重映射标签和账号 ID，并保持凭证格式隔�
       })
       assert.equal(content.includes(first.paymentLink), false, `${format} 不得包含支付链接`)
     }
-    assert.equal(saved.length, 1, '导入应一次性持久化')
+    const compactJson = transfer.parseImportContent(JSON.stringify([{
+      email: 'json-payment@example.com',
+      refreshToken: 'json-payment-refresh',
+      provider: 'BuilderId',
+      paymentLink: 'https://pay.example/json-payment'
+    }]))
+    assert.equal(compactJson.items.length, 1)
+    assert.equal(compactJson.items[0].paymentLink, 'https://pay.example/json-payment')
+    const importedCompact = await store.importItems(compactJson.items)
+    assert.equal(importedCompact.success, 1)
+    assert.equal(
+      store.accounts.find((item) => item.email === 'json-payment@example.com')?.paymentLink,
+      'https://pay.example/json-payment',
+      '精简 JSON 的 paymentLink 必须在凭证校验后写入账户'
+    )
+
+    assert.equal(saved.length, 2, '精简 JSON 导入也应一次性持久化')
   } finally {
     await server.close()
     delete globalThis.window

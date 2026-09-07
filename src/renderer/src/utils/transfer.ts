@@ -155,16 +155,25 @@ export function parseImportContent(raw: string): ParsedImport {
     // 精简 JSON 数组 / 单对象
     const list = Array.isArray(parsed) ? parsed : [parsed]
     const items = list
-      .map((entry: Record<string, string>) => ({
-        email: entry.email,
-        password: entry.password,
-        refreshToken: entry.refreshToken || entry.refresh_token || '',
-        clientId: entry.clientId || entry.client_id,
-        clientSecret: entry.clientSecret || entry.client_secret,
-        region: entry.region,
-        provider: entry.provider || entry.idp,
-        nickname: entry.nickname
-      }))
+      .map((entry: unknown) => {
+        const data = entry && typeof entry === 'object' && !Array.isArray(entry)
+          ? entry as Record<string, unknown>
+          : {}
+        const text = (value: unknown): string | undefined =>
+          typeof value === 'string' ? value : undefined
+        return {
+          email: text(data.email),
+          password: text(data.password),
+          refreshToken: text(data.refreshToken) || text(data.refresh_token) || '',
+          clientId: text(data.clientId) || text(data.client_id),
+          clientSecret: text(data.clientSecret) || text(data.client_secret),
+          region: text(data.region),
+          provider: text(data.provider) || text(data.idp),
+          nickname: text(data.nickname),
+          // JSON 使用账户的标准字段名；不接受 payment_link 等猜测字段。
+          paymentLink: text(data.paymentLink)
+        }
+      })
       .filter((item) => !!item.refreshToken)
     return { items }
   } catch {

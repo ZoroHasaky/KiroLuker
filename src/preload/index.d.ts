@@ -1,3 +1,4 @@
+import type { BrowserRendererApi } from '../shared/browser'
 import type {
   Account,
   AccountApiKeyList,
@@ -68,7 +69,7 @@ export interface ImportedFile {
   path: string
 }
 
-export interface Api extends BillingRendererApi {
+export interface Api extends BillingRendererApi, BrowserRendererApi {
   md5: (text: string) => string
 
   loadAccounts: () => Promise<IpcResult<AccountStoreData>>

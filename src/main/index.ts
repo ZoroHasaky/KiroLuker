@@ -1,3 +1,4 @@
+import { browserManager } from './browserManager'
 import { app, dialog, nativeImage, screen, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -308,8 +309,13 @@ app.on('window-all-closed', () => {
 })
 
 // 兜住所有退出入口（Cmd+Q、应用菜单退出、系统关机等），让 close 拦截失效
-app.on('before-quit', () => {
+let browserShutdownComplete = false
+app.on('before-quit', (event) => {
   isQuitting = true
+  if (!browserShutdownComplete) {
+    event.preventDefault()
+    void browserManager.shutdown().finally(() => { browserShutdownComplete = true; app.quit() })
+  }
 })
 
 // 退出前一定要把临时接管的 kiro:// 协议还给 Kiro IDE，

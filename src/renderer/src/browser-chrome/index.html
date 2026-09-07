@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws:; base-uri 'none'; form-action 'none'; object-src 'none'" />
+    <title>临时浏览器</title>
+  </head>
+  <body>
+    <main id="browser-chrome" aria-label="浏览器工具栏">
+      <div class="tab-strip">
+        <div id="tabs" role="tablist" aria-label="标签页"></div>
+        <button id="new-tab" class="icon-button" type="button" aria-label="新建标签页" title="新建标签页 (Ctrl+T)" disabled>+</button>
+      </div>
+      <form id="address-form" class="address-toolbar" aria-label="导航">
+        <button id="back" class="icon-button" type="button" aria-label="后退" title="后退 (Alt+←)" disabled>←</button>
+        <button id="forward" class="icon-button" type="button" aria-label="前进" title="前进 (Alt+→)" disabled>→</button>
+        <button id="reload" class="icon-button" type="button" aria-label="重新加载" title="重新加载" disabled>↻</button>
+        <input id="address" type="text" inputmode="url" aria-label="网址" placeholder="输入网址，按 Enter 访问" autocomplete="off" autocapitalize="off" spellcheck="false" disabled />
+        <button id="go" type="submit" disabled>访问</button>
+      </form>
+      <div class="status-bar">
+        <span class="session-badge" title="关闭窗口后清理临时 Cookie、缓存与站点存储">临时会话 · 关闭清理</span>
+        <span id="proxy-status" title="出口 IP 仅为启动时验证样本；轮换上游后续可能变化，并非持续保证。">正在读取出口…</span>
+        <span id="status" role="status" aria-live="polite" aria-atomic="true">正在连接浏览器…</span>
+      </div>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

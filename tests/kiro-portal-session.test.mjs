@@ -302,108 +302,50 @@ test('missing credentials reject before clearing any session, and storage failur
 function loadVisiblePortal() {
   const { api: helper } = loadHelper()
   const defaultSession = new FakeSession()
-  const visibleSession = new FakeSession()
-  const partitions = []
-  const windows = []
-  const externalUrls = []
-  class FakeContents extends EventEmitter {
-    setUserAgent(value) { this.userAgent = value }
-    setWindowOpenHandler(handler) { this.openHandler = handler }
-  }
-  class FakeWindow extends EventEmitter {
-    webContents = new FakeContents()
-    loads = []
-    minimized = false
-    destroyed = false
-    focuses = 0
-    restores = 0
-    constructor(options) { super(); this.options = structuredClone(options); windows.push(this) }
-    isDestroyed() { return this.destroyed }
-    setTitle(title) { this.title = title }
-    async loadURL(url, options) { this.loads.push([url, structuredClone(options)]) }
-    isMinimized() { return this.minimized }
-    restore() { this.minimized = false; this.restores++ }
-    focus() { this.focuses++ }
-  }
+  const opened = []
   const portal = loadModule('kiroPortal', {
     './kiroPortalSession': helper,
-    electron: {
-      BrowserWindow: FakeWindow,
-      screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 1920, height: 1080 } }) },
-      session: {
-        defaultSession,
-        fromPartition(partition) {
-          assert.equal(partition, 'kiro-portal-private')
-          partitions.push(partition)
-          return visibleSession
-        }
-      },
-      shell: { openExternal: async (url) => { externalUrls.push(url) } }
-    }
-  }, { console: { info() {} } })
-  return { portal, helper, defaultSession, visibleSession, partitions, windows, externalUrls, FakeWindow }
+    './browserManager': { browserManager: { async open(request) { opened.push(structuredClone(request)); return { id: `window-${opened.length}` } } } },
+    electron: { session: { defaultSession, fromPartition() { assert.fail('The old shared portal partition must not be reused') } } }
+  })
+  return { portal, helper, defaultSession, opened }
 }
 
-test('setInAppLocale keeps its public behavior and updates only default and visible-session languages', () => {
-  const { portal, helper, defaultSession, visibleSession, partitions } = loadVisiblePortal()
+test('setInAppLocale retains backend locale but does not mutate independent browser fingerprints', () => {
+  const { portal, helper, defaultSession } = loadVisiblePortal()
   const background = new FakeSession()
+  const browser = new FakeSession()
   helper.configurePortalSession(background)
+  helper.configurePortalSession(browser, { acceptLanguage: 'en-US,en;q=0.9' })
   portal.setInAppLocale('ja-JP')
-  for (const ses of [defaultSession, visibleSession]) {
-    assert.equal(ses.userAgent, 'Original app Electron/35.7.5')
-    assert.equal(ses.language, portalLocale.acceptLanguageFor('ja-JP'))
-    assert.deepEqual(ses.events, [])
-  }
-  assert.equal(background.userAgentCalls.length, 1)
+  assert.equal(defaultSession.userAgent, 'Original app Electron/35.7.5')
+  assert.equal(defaultSession.language, portalLocale.acceptLanguageFor('ja-JP'))
+  assert.deepEqual(defaultSession.events, [])
   assert.equal(background.requestHeaders({})['Accept-Language'], portalLocale.acceptLanguageFor('ja-JP'))
-  assert.deepEqual(background.events, [])
-  assert.deepEqual(partitions, ['kiro-portal-private'])
+  assert.equal(browser.requestHeaders({})['Accept-Language'], 'en-US,en;q=0.9')
+  assert.deepEqual(browser.events, [])
 })
 
-test('visible portal retains partition, window reuse, sizing, navigation and sandbox isolation', async () => {
-  const { portal, helper, defaultSession, visibleSession, windows, externalUrls, FakeWindow } = loadVisiblePortal()
-  await assert.rejects(portal.openAccountPortal(account('BuilderId', {
-    credentials: { accessToken: '', refreshToken: '' }
-  })), /账号缺少凭证/)
-  assert.equal(windows.length, 0)
+test('visible portal preserves public return shape and delegates each click by account ID only', async () => {
+  const { portal, helper, opened } = loadVisiblePortal()
+  for (const value of [null, {}, { id: '' }, { id: 123 }]) {
+    await assert.rejects(portal.openAccountPortal(value), /有效账号/)
+  }
   const first = account('Google')
   assert.deepEqual(structuredClone(await portal.openAccountPortal(first)), { url: helper.KIRO_PORTAL_ORIGIN })
-  assert.equal(windows.length, 1)
-  const window = windows[0]
-  const preferences = { partition: 'kiro-portal-private', contextIsolation: true, nodeIntegration: false, sandbox: true }
-  assert.deepEqual(window.options, {
-    width: 1600, height: 1000, title: 'Kiro 官网', autoHideMenuBar: true, webPreferences: preferences
-  })
-  assert.equal(window.webContents.userAgent, helper.CHROME_UA)
-  assert.equal(window.title, `Kiro 官网 - ${first.email}`)
-  assert.deepEqual(window.loads, [[helper.KIRO_PORTAL_ORIGIN, { userAgent: helper.CHROME_UA }]])
-  window.minimized = true
-  await portal.openAccountPortal(account('BuilderId', { email: 'second@example.invalid' }))
-  assert.equal(windows.length, 1)
-  assert.equal(window.title, 'Kiro 官网 - second@example.invalid')
-  assert.equal(window.loads.length, 2)
-  assert.equal(window.restores, 1)
-  assert.equal(window.focuses, 2)
-  assert.equal(visibleSession.cookieJar.get('Idp'), 'BuilderId')
-  assert.deepEqual(defaultSession.events, [])
-  for (const url of ['https://app.kiro.dev/', 'https://billing.stripe.com/fixture', 'http://example.invalid/']) {
-    assert.deepEqual(structuredClone(window.webContents.openHandler({ url })), {
-      action: 'allow',
-      overrideBrowserWindowOptions: { width: 1600, height: 1000, autoHideMenuBar: true, webPreferences: preferences }
-    })
-  }
-  assert.deepEqual(structuredClone(window.webContents.openHandler({ url: 'mailto:fixture@example.invalid' })), { action: 'deny' })
-  assert.deepEqual(externalUrls, ['mailto:fixture@example.invalid'])
-  const child = new FakeWindow({})
-  window.webContents.emit('did-create-window', child)
-  assert.equal(child.webContents.userAgent, helper.CHROME_UA)
-  assert.equal(child.webContents.openHandler({ url: 'https://example.invalid/' }).action, 'allow')
-  const grandchild = new FakeWindow({})
-  child.webContents.emit('did-create-window', grandchild)
-  assert.equal(grandchild.webContents.openHandler({ url: 'https://example.invalid/' }).action, 'allow')
-  window.destroyed = true
-  window.emit('closed')
   await portal.openAccountPortal(first)
-  assert.equal(windows.length, 4)
-  assert.notEqual(windows.at(-1), window)
+  await portal.openAccountPortal({ ...first, id: 'another' })
+  assert.deepEqual(opened, [{ accountId: first.id }, { accountId: first.id }, { accountId: 'another' }])
+  assert.equal(JSON.stringify(opened).includes(first.credentials.accessToken), false)
+})
+
+test('custom browser UA cannot inherit contradictory default Chromium hints', () => {
+  const { api } = loadHelper()
+  const ses = new FakeSession()
+  api.configurePortalSession(ses, { userAgent: 'FixtureBrowser/1.0', acceptLanguage: 'fr-FR,fr;q=0.9' })
+  const headers = ses.requestHeaders({ 'sec-ch-ua-full-version': 'old-version', 'X-Fixture': 'value' })
+  assert.equal(headers['User-Agent'], 'FixtureBrowser/1.0')
+  assert.equal(headers['Accept-Language'], 'fr-FR,fr;q=0.9')
+  assert.equal(Object.keys(headers).some((key) => key.toLowerCase().startsWith('sec-ch-ua')), false)
+  assert.equal(headers['X-Fixture'], 'value')
 })

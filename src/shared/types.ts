@@ -165,6 +165,8 @@ export interface AccountImportItem {
   region?: string
   provider?: string
   nickname?: string
+  /** 精简 JSON 导入时保留的付款链接；其它文本格式不携带此字段。 */
+  paymentLink?: string
 }
 
 export interface BatchResult {

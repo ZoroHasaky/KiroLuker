@@ -74,7 +74,7 @@ const hasCredentialItems = computed(() =>
 const placeholder = `支持以下任意一种格式：
 
 1) 卡密：邮箱----密码----RefreshToken----ClientId----ClientSecret----登录方式
-2) 精简 JSON 数组：[{ "email": "a@b.c", "refreshToken": "...", "provider": "BuilderId" }]
+2) 精简 JSON 数组：[{ "email": "a@b.c", "refreshToken": "...", "provider": "BuilderId", "paymentLink": "https://…" }]
 3) 本应用导出的完整 JSON（含用量、订阅快照）
 4) CSV（带表头）/ TXT（邮箱,RefreshToken,昵称,登录方式）`
 

@@ -24,7 +24,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: { index: resolve(__dirname, 'src/preload/index.ts') }
+        input: { index: resolve(__dirname, 'src/preload/index.ts'), browserChrome: resolve(__dirname, 'src/preload/browserChrome.ts') }
       }
     }
   },
@@ -44,6 +44,16 @@ export default defineConfig({
         dts: false,
         resolvers: [AntDesignVueResolver({ importStyle: false })]
       }),
+      // vite-plugin-html's single-page inject is ignored with multiple HTML entries.
+      // Inject this existing placeholder before either HTML entry is transformed.
+      {
+        name: 'inject-build-time',
+        enforce: 'pre',
+        transformIndexHtml: {
+          order: 'pre',
+          handler: (html) => html.replaceAll('<%- buildTime %>', buildTime)
+        }
+      },
       // 压缩首页 html，并把打包时间注入进去
       createHtmlPlugin({
         minify: true,
@@ -56,6 +66,7 @@ export default defineConfig({
     build: {
       emptyOutDir: true, // 是否清空目录
       rollupOptions: {
+        input: { index: resolve(__dirname, 'src/renderer/index.html'), browserChrome: resolve(__dirname, 'src/renderer/src/browser-chrome/index.html') },
         treeshake: true, // 开启 Tree Shaking，消除未使用的代码，减小最终的包大小
         onwarn(warning, warn) {
           // 自动过滤空 chunk 警告

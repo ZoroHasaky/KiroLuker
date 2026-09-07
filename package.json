@@ -1,6 +1,6 @@
 {
   "name": "kiroluker",
-  "version": "1.2.9",
+  "version": "1.2.10",
   "description": "KiroLuker - Kiro 多账号管理工具",
   "main": "./out/main/index.js",
   "author": "KiroLuker",
@@ -25,7 +25,10 @@
     "build:linux": "npm run prepack:dist && electron-builder --linux",
     "build:all": "npm run prepack:dist && electron-builder --mac --win --linux",
     "build:unpack": "npm run prepack:dist && electron-builder --dir",
-    "test:subscription-ui": "node scripts/test-subscription-management-ui.mjs"
+    "test:subscription-ui": "node scripts/test-subscription-management-ui.mjs",
+    "test:browser-ui": "node scripts/test-browser-management-ui.mjs",
+    "test:browser-runtime": "node scripts/test-browser-runtime.mjs",
+    "test:browser": "npm run test:browser-ui && npm run test:browser-runtime"
   },
   "dependencies": {
     "@electron-toolkit/utils": "4.0.0",
@@ -33,6 +36,7 @@
     "electron-store": "8.2.0",
     "electron-updater": "6.8.9",
     "pinyin-pro": "^3.29.3",
+    "proxy-chain": "3.0.0",
     "undici": "7.13.0"
   },
   "devDependencies": {

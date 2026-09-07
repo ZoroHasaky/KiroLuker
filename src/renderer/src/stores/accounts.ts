@@ -275,6 +275,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     note?: string
     startUrl?: string
     profileArn?: string
+    paymentLink?: string
   }
 
   function buildAccount(snapshot: AccountSnapshot, input: BuildInput): Account {
@@ -307,7 +308,7 @@ export const useAccountsStore = defineStore('accounts', () => {
       status: 'active',
       isActive: false,
       tagIds: [],
-      paymentLink: '',
+      paymentLink: input.paymentLink || '',
       createdAt: now,
       lastUsedAt: now,
       lastCheckedAt: now
@@ -512,7 +513,8 @@ export const useAccountsStore = defineStore('accounts', () => {
                 region: item.region,
                 provider: idp,
                 password: item.password,
-                nickname: item.nickname
+                nickname: item.nickname,
+                paymentLink: item.paymentLink
               }
             )
           )

@@ -17,6 +17,12 @@ const router = createRouter({
       meta: { title: '账户管理' }
     },
     {
+      path: '/browser',
+      name: 'browser',
+      component: () => import('@/views/BrowserView.vue'),
+      meta: { title: '临时浏览器' }
+    },
+    {
       path: '/keys',
       name: 'keys',
       redirect: '/home'

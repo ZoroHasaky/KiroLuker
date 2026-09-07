@@ -1,3 +1,4 @@
+import type { BrowserConfigPatch, BrowserOpenRequest, BrowserWindowSummary } from '../shared/browser'
 import { contextBridge, ipcRenderer, clipboard } from 'electron'
 import { createHash } from 'crypto'
 
@@ -49,6 +50,17 @@ const api = {
     invoke('accounts:delete-api-key', account, keyId),
   /** 用该账号凭证在私密窗口打开 Kiro 官网后台 */
   openAccountPortal: (account: unknown) => invoke('accounts:open-portal', account),
+
+  // 独立浏览器管理；外部网页没有这些能力。
+  getBrowserConfig: () => invoke('browser:config'),
+  saveBrowserConfig: (patch: BrowserConfigPatch) => invoke('browser:save-config', patch),
+  checkBrowserProxy: () => invoke('browser:check-proxy'),
+  getBrowserWindows: () => invoke('browser:windows'),
+  openBrowserWindow: (request: BrowserOpenRequest) => invoke('browser:open', request),
+  focusBrowserWindow: (id: string) => invoke('browser:focus', id),
+  closeBrowserWindow: (id: string) => invoke('browser:close', id),
+  onBrowserWindowsChanged: (callback: (windows: BrowserWindowSummary[]) => void) =>
+    subscribe('browser:windows-changed', callback),
 
   // 账号操作
   verifyCredentials: (input: unknown) => invoke('accounts:verify', input),

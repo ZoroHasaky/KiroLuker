@@ -10,6 +10,7 @@ import {
 } from './accountService'
 import { createAccountApiKey, deleteAccountApiKey, listAccountApiKeys } from './kiroApiKey'
 import { openAccountPortal } from './kiroPortal'
+import { registerBrowserIpc, requireBrowserManagerSender } from './browserIpc'
 import { createSubscriptionLink, getSubscriptionPlans } from './subscriptionService'
 import { checkSubscriptionRenewal, switchSubscriptionToFree } from './stripePortalService'
 import { clearKiroSsoCache, readKiroAuthToken, readLocalKiroCredentials } from './kiroAuth'
@@ -135,6 +136,7 @@ export function registerIpc(
     (state) => sendToRenderer(getWindow(), 'app:update-state', state),
     prepareToInstallUpdate
   )
+  registerBrowserIpc(getWindow)
   // ============ 数据持久化 ============
   handle('accounts:load', () => ok(getAccountData()))
 
@@ -190,9 +192,10 @@ export function registerIpc(
     return ok(result)
   })
 
-  handle('accounts:open-portal', async (_e, account: Account) =>
-    ok(await openAccountPortal(account))
-  )
+  handle('accounts:open-portal', async (event, account: Account) => {
+    requireBrowserManagerSender(event, getWindow())
+    return ok(await openAccountPortal(account))
+  })
 
   handle('accounts:subscription-renewal', async (_e, account: Account) =>
     ok(await checkSubscriptionRenewal(account))

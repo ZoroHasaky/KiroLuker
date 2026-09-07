@@ -53,16 +53,26 @@ export function getPortalAcceptLanguage(): string {
  * 统一改写该会话发出的请求头。
  * 除了 UA 与客户端提示，再兜一层：任何残留 Electron 字样的头都清掉。
  */
-export function configurePortalSession(ses: Electron.Session): void {
+export function configurePortalSession(
+  ses: Electron.Session,
+  overrides?: { userAgent?: string; acceptLanguage?: string }
+): void {
   // 第二个参数就是该会话的 Accept-Language，会一并影响子资源请求
-  ses.setUserAgent(CHROME_UA, acceptLanguage)
+  const userAgent = overrides?.userAgent || CHROME_UA
+  ses.setUserAgent(userAgent, overrides?.acceptLanguage || acceptLanguage)
   ses.webRequest.onBeforeSendHeaders((details, callback) => {
     const requestHeaders: Record<string, string> = { ...details.requestHeaders }
-    requestHeaders['User-Agent'] = CHROME_UA
-    requestHeaders['Accept-Language'] = acceptLanguage
+    requestHeaders['User-Agent'] = userAgent
+    requestHeaders['Accept-Language'] = overrides?.acceptLanguage || acceptLanguage
     requestHeaders['sec-ch-ua'] = SEC_CH_UA
     requestHeaders['sec-ch-ua-mobile'] = '?0'
     requestHeaders['sec-ch-ua-platform'] = `"${platformBrand()}"`
+    // Custom UA must not inherit contradictory Chromium client hints.
+    if (userAgent !== CHROME_UA) {
+      for (const name of Object.keys(requestHeaders)) {
+        if (name.toLowerCase().startsWith('sec-ch-ua')) delete requestHeaders[name]
+      }
+    }
     for (const [name, value] of Object.entries(requestHeaders)) {
       if (typeof value === 'string' && value.includes('Electron')) delete requestHeaders[name]
     }

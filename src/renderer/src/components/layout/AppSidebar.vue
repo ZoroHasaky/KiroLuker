@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   HomeOutlined,
+  GlobalOutlined,
   TeamOutlined,
   CreditCardOutlined,
   DollarCircleOutlined,
@@ -37,6 +38,7 @@ const darkModeLabel = computed(() =>
 const items = computed(() => [
   { key: 'home', label: '主页', icon: HomeOutlined },
   { key: 'accounts', label: '账户管理', icon: TeamOutlined },
+  { key: 'browser', label: '临时浏览器', icon: GlobalOutlined },
   { key: 'subscription', label: '订阅管理', icon: DollarCircleOutlined },
   { key: 'billing', label: '账单信息', icon: CreditCardOutlined },
   { key: 'logs', label: '系统日志', icon: FileTextOutlined },
