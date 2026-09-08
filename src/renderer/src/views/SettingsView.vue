@@ -25,6 +25,7 @@ import { bodyPopupContainer, confirmDanger } from '@/utils/ui'
 import ExportAccountsModal from '@/components/accounts/ExportAccountsModal.vue'
 import ImportAccountsModal from '@/components/accounts/ImportAccountsModal.vue'
 import BillingSettingsCard from '@/components/settings/BillingSettingsCard.vue'
+import WebControlSettingsCard from '@/components/settings/WebControlSettingsCard.vue'
 
 const settingsStore = useSettingsStore()
 const accountsStore = useAccountsStore()
@@ -402,6 +403,8 @@ function clearAll(): void {
     </a-card>
 
     <BillingSettingsCard />
+
+    <WebControlSettingsCard />
 
     <a-card size="small" title="批量导入" style="margin-bottom: 16px">
       <a-form v-bind="FORM_LAYOUT">

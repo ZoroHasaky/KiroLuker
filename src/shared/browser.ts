@@ -1,4 +1,8 @@
+import type { IpcResult } from './types'
+
 /** Browser UI contracts. Secrets are write-only; remote web pages never receive this API. */
+export type BrowserProxyMode = 'socks5' | 'dynamic-http'
+
 export interface BrowserFingerprint {
   /** Empty means the bundled Chromium/host-platform Chrome UA. */
   userAgent: string
@@ -12,17 +16,25 @@ export interface BrowserFingerprint {
 export interface BrowserConfig {
   proxy: {
     enabled: boolean
+    /** Static SOCKS5, or a whitelist API which returns an HTTP CONNECT proxy. */
+    mode: BrowserProxyMode
+    /** Static SOCKS5 endpoint only. */
     host: string
     port: number
     username: string
     passwordSet: boolean
+    /** HTTPS whitelist API returning one `IP:port` value. Dynamic mode only. */
+    apiUrl: string
+    /** Local HTTP proxy used both to request the API and reach the returned endpoint. */
+    apiProxyHost: string
+    apiProxyPort: number
   }
   fingerprint: BrowserFingerprint
 }
 
 export interface BrowserConfigPatch {
   proxy: Omit<BrowserConfig['proxy'], 'passwordSet'> & {
-    /** Omitted preserves the stored secret; empty string explicitly clears it. */
+    /** Omitted preserves the stored secret in SOCKS5 mode; empty string explicitly clears it. */
     password?: string
   }
   fingerprint: BrowserFingerprint
@@ -87,7 +99,6 @@ export type BrowserChromeCommand =
   | { type: 'back' | 'forward' | 'reload' | 'stop' }
 
 export const BROWSER_CHROME_HEIGHT = 112
-import type { IpcResult } from './types'
 
 export interface BrowserRendererApi {
   getBrowserConfig(): Promise<IpcResult<BrowserConfig>>

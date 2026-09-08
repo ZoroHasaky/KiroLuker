@@ -2,7 +2,7 @@ import Store from 'electron-store'
 import { safeStorage } from 'electron'
 import { isIP } from 'node:net'
 import { getSettings } from './store'
-import type { BrowserConfig, BrowserConfigPatch, BrowserFingerprint, BrowserResolvedConfig } from '../shared/browser'
+import type { BrowserConfig, BrowserConfigPatch, BrowserFingerprint, BrowserProxyMode, BrowserResolvedConfig } from '../shared/browser'
 
 const CONTROLS = /[\u0000-\u001f\u007f-\u009f]/
 type RecordValue = Record<string, unknown>
@@ -26,6 +26,13 @@ function integer(value: unknown, min: number, max: number, field: string): numbe
   return value
 }
 
+function proxyMode(value: unknown): BrowserProxyMode {
+  // Stored v1 configurations and direct callers are static SOCKS5 configurations.
+  if (value === undefined || value === 'socks5') return 'socks5'
+  if (value === 'dynamic-http') return value
+  throw new Error('代理模式无效')
+}
+
 /** Pure validation: never include the submitted value (especially credentials) in errors. */
 export function validateBrowserProxyHost(value: unknown, required = true): string {
   const host = text(value, '代理地址')
@@ -38,6 +45,21 @@ export function validateBrowserProxyHost(value: unknown, required = true): strin
     (label) => /^[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?$/i.test(label)
   )) throw new Error('代理地址须为不含端口的 IP 或域名')
   return host
+}
+
+export function validateBrowserProxyApiUrl(value: unknown, required = true): string {
+  const apiUrl = text(value, '动态代理 API 地址').trim()
+  if (!apiUrl && !required) return ''
+  if (!apiUrl || apiUrl.length > 2048) throw new Error('动态代理 API 地址无效')
+  try {
+    const parsed = new URL(apiUrl)
+    if (parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password || parsed.hash) {
+      throw new Error()
+    }
+    return parsed.href
+  } catch {
+    throw new Error('动态代理 API 地址须为不含凭据或片段的 HTTPS 地址')
+  }
 }
 
 export function validateBrowserLanguage(value: unknown): string {
@@ -83,21 +105,27 @@ export function validateBrowserFingerprint(value: unknown): BrowserFingerprint {
 export function validateBrowserProxy(value: unknown): BrowserResolvedConfig['proxy'] {
   const proxy = object(value, '代理配置')
   if (typeof proxy.enabled !== 'boolean') throw new Error('代理开关须为布尔值')
+  const mode = proxyMode(proxy.mode)
   const username = text(proxy.username, '代理用户名')
   const password = text(proxy.password, '代理密码')
   if (Buffer.byteLength(username, 'utf8') > 255 || Buffer.byteLength(password, 'utf8') > 255) {
     throw new Error('代理用户名和密码各自不能超过 255 字节')
   }
+  const dynamic = mode === 'dynamic-http'
   return {
     enabled: proxy.enabled,
-    host: validateBrowserProxyHost(proxy.host, proxy.enabled),
+    mode,
+    host: validateBrowserProxyHost(proxy.host, proxy.enabled && !dynamic),
     port: integer(proxy.port, 1, 65535, '代理端口'),
     username,
-    password
+    password,
+    apiUrl: validateBrowserProxyApiUrl(proxy.apiUrl === undefined ? '' : proxy.apiUrl, proxy.enabled && dynamic),
+    apiProxyHost: validateBrowserProxyHost(proxy.apiProxyHost === undefined ? '' : proxy.apiProxyHost, proxy.enabled && dynamic),
+    apiProxyPort: integer(proxy.apiProxyPort === undefined ? 7897 : proxy.apiProxyPort, 1, 65535, '本机 HTTP 代理端口')
   }
 }
 
-/** The patch contract is a complete form; only password is optional (omitted retains it). */
+/** The patch contract is a complete form; only password is optional (omitted retains it in SOCKS5 mode). */
 export function validateBrowserConfigPatch(value: unknown, previousPassword = ''): BrowserResolvedConfig {
   const patch = object(value, '浏览器配置')
   const proxy = object(patch.proxy, '代理配置')
@@ -111,14 +139,26 @@ export function defaultBrowserConfig(portalLocale: unknown = 'zh-CN'): BrowserRe
   let language = 'zh-CN'
   try { language = validateBrowserLanguage(portalLocale) } catch { /* Invalid legacy preference. */ }
   return {
-    proxy: { enabled: false, host: '', port: 1080, username: '', password: '' },
+    proxy: {
+      enabled: false, mode: 'socks5', host: '', port: 1080, username: '', password: '',
+      apiUrl: '', apiProxyHost: '', apiProxyPort: 7897
+    },
     fingerprint: { userAgent: '', language, timezone: '', width: 1280, height: 900 }
   }
 }
 
 interface StoredBrowserConfig {
-  version: 1
-  proxy: { enabled: boolean; host: string; port: number; encryptedCredentials: string }
+  version: 2
+  proxy: {
+    enabled: boolean
+    mode: BrowserProxyMode
+    host: string
+    port: number
+    apiUrl: string
+    apiProxyHost: string
+    apiProxyPort: number
+    encryptedCredentials: string
+  }
   fingerprint: BrowserFingerprint
 }
 interface BrowserStore { config: StoredBrowserConfig }
@@ -143,9 +183,9 @@ function secureStorageRequired(): void {
 }
 
 function encodeConfig(config: BrowserResolvedConfig): StoredBrowserConfig {
-  const { enabled, host, port, username, password } = config.proxy
+  const { enabled, mode, host, port, username, password, apiUrl, apiProxyHost, apiProxyPort } = config.proxy
   let encryptedCredentials = ''
-  if (username || password) {
+  if (mode === 'socks5' && (username || password)) {
     secureStorageRequired()
     try {
       encryptedCredentials = safeStorage.encryptString(JSON.stringify({ username, password })).toString('base64')
@@ -154,7 +194,11 @@ function encodeConfig(config: BrowserResolvedConfig): StoredBrowserConfig {
       throw new Error('无法安全加密代理凭据')
     }
   }
-  return { version: 1, proxy: { enabled, host, port, encryptedCredentials }, fingerprint: { ...config.fingerprint } }
+  return {
+    version: 2,
+    proxy: { enabled, mode, host, port, apiUrl, apiProxyHost, apiProxyPort, encryptedCredentials },
+    fingerprint: { ...config.fingerprint }
+  }
 }
 
 function readConfig(): BrowserResolvedConfig {
@@ -173,7 +217,8 @@ function readConfig(): BrowserResolvedConfig {
   }
   const config = object(stored, '已保存的浏览器配置')
   const proxy = object(config.proxy, '已保存的代理配置')
-  if (config.version !== 1 || typeof proxy.encryptedCredentials !== 'string') {
+  const legacy = config.version === 1
+  if ((!legacy && config.version !== 2) || typeof proxy.encryptedCredentials !== 'string') {
     throw new Error('浏览器配置存储格式无效')
   }
   let credentials = { username: '', password: '' }
@@ -192,7 +237,17 @@ function readConfig(): BrowserResolvedConfig {
       throw new Error('无法解密代理凭据，请重新填写或清空')
     }
   }
-  return validateBrowserConfigPatch({ proxy: { ...proxy, ...credentials }, fingerprint: config.fingerprint })
+  return validateBrowserConfigPatch({
+    proxy: {
+      ...proxy,
+      mode: legacy ? 'socks5' : proxy.mode,
+      apiUrl: legacy ? '' : proxy.apiUrl,
+      apiProxyHost: legacy ? '' : proxy.apiProxyHost,
+      apiProxyPort: legacy ? 7897 : proxy.apiProxyPort,
+      ...credentials
+    },
+    fingerprint: config.fingerprint
+  })
 }
 
 function writeConfig(config: StoredBrowserConfig): void {
@@ -204,8 +259,11 @@ function writeConfig(config: StoredBrowserConfig): void {
 }
 
 function publicConfig(config: BrowserResolvedConfig): BrowserConfig {
-  const { enabled, host, port, username, password } = config.proxy
-  return { proxy: { enabled, host, port, username, passwordSet: password.length > 0 }, fingerprint: { ...config.fingerprint } }
+  const { enabled, mode, host, port, username, password, apiUrl, apiProxyHost, apiProxyPort } = config.proxy
+  return {
+    proxy: { enabled, mode, host, port, username, passwordSet: password.length > 0, apiUrl, apiProxyHost, apiProxyPort },
+    fingerprint: { ...config.fingerprint }
+  }
 }
 
 export function getBrowserConfig(): BrowserConfig {
@@ -218,10 +276,15 @@ export function getResolvedBrowserConfig(): BrowserResolvedConfig {
 }
 
 export function saveBrowserConfig(patch: BrowserConfigPatch): BrowserConfig {
-  // Validate before any read/write. Explicitly clearing credentials must work even if
-  // an old OS key is lost; only an omitted password needs decryption of the old value.
+  // Validate before any read/write. Dynamic mode has no SOCKS secret and deliberately
+  // clears stale SOCKS credentials instead of retaining an unused encrypted value.
   const config = validateBrowserConfigPatch(patch)
-  if (patch.proxy.password === undefined) config.proxy.password = readConfig().proxy.password
+  if (config.proxy.mode === 'socks5' && patch.proxy.password === undefined) {
+    config.proxy.password = readConfig().proxy.password
+  } else if (config.proxy.mode === 'dynamic-http') {
+    config.proxy.username = ''
+    config.proxy.password = ''
+  }
   writeConfig(encodeConfig(config))
   return publicConfig(config)
 }

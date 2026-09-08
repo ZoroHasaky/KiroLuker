@@ -36,8 +36,9 @@ const api = {
 
   // 数据
   loadAccounts: () => invoke('accounts:load'),
-  saveAccounts: (data: unknown) => invoke('accounts:save', data),
+  saveAccounts: (base: unknown, data: unknown) => invoke('accounts:save', base, data),
   deleteAccounts: (ids: string[]) => invoke('accounts:delete', ids),
+  onAccountsChanged: (handler: (data: unknown) => void) => subscribe('accounts:changed', handler),
 
   /** 用账号凭证向 Kiro 控制面申请一个新的 API Key */
   createAccountApiKey: (account: unknown, label: string) =>
@@ -123,6 +124,13 @@ const api = {
   clearBillingSecrets: (names: string[]) => invoke('billing:clear-secrets', names),
   clearBillingConfig: () => invoke('billing:clear-config'),
   generateBillingInfo: () => invoke('billing:generate'),
+
+  // Web 控制面板（管理员密码不会回传或缓存到渲染进程）
+  getWebControlConfig: () => invoke('web-control:get-config'),
+  saveWebControlSettings: (patch: unknown) => invoke('web-control:save-settings', patch),
+  setWebControlPassword: (password: string) => invoke('web-control:set-password', password),
+  startWebControl: () => invoke('web-control:start'),
+  stopWebControl: () => invoke('web-control:stop'),
   getAppInfo: () => invoke('app:info'),
   checkUpdate: () => invoke('app:check-update'),
   getUpdateState: () => invoke('app:update-state'),

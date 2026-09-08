@@ -19,7 +19,10 @@ const settingsStore = useSettingsStore()
 const privacy = computed(() => settingsStore.settings.privacyMode)
 const savedConfig = ref<BrowserConfig | null>(null)
 const draft = reactive<BrowserConfig>({
-  proxy: { enabled: false, host: '', port: 1080, username: '', passwordSet: false },
+  proxy: {
+    enabled: false, mode: 'socks5', host: '', port: 1080, username: '', passwordSet: false,
+    apiUrl: '', apiProxyHost: '', apiProxyPort: 7897
+  },
   fingerprint: { language: navigator.language, timezone: '', userAgent: '', width: 1280, height: 900 }
 })
 const password = ref('')
@@ -79,12 +82,15 @@ async function loadConfig(): Promise<void> {
 }
 
 function createPatch(): BrowserConfigPatch {
-  const { enabled, host, port, username } = draft.proxy
+  const { enabled, mode, host, port, username, apiUrl, apiProxyHost, apiProxyPort } = draft.proxy
   return {
     proxy: {
-      enabled, host: host.trim(), port, username,
+      enabled, mode, host: host.trim(), port, username,
+      apiUrl: apiUrl.trim(), apiProxyHost: apiProxyHost.trim(), apiProxyPort,
       // Never send an empty secret accidentally: blank means preserve, explicit clear means remove.
-      ...(clearPassword.value ? { password: '' } : password.value !== '' ? { password: password.value } : {})
+      ...(mode === 'socks5' && (clearPassword.value ? true : password.value !== '')
+        ? { password: clearPassword.value ? '' : password.value }
+        : {})
     },
     fingerprint: {
       ...draft.fingerprint,
@@ -110,15 +116,29 @@ function validHost(host: string): boolean {
 
 function validate(patch: BrowserConfigPatch): string {
   const { proxy, fingerprint } = patch
-  const strings = [proxy.host, proxy.username, proxy.password || '', fingerprint.language, fingerprint.timezone, fingerprint.userAgent]
+  const strings = [
+    proxy.host, proxy.username, proxy.password || '', proxy.apiUrl, proxy.apiProxyHost,
+    fingerprint.language, fingerprint.timezone, fingerprint.userAgent
+  ]
   const encoder = new TextEncoder()
   if (strings.some((value) => /[\u0000-\u001f\u007f-\u009f]/.test(value) || new TextDecoder().decode(encoder.encode(value)) !== value)) {
     return '配置不能包含换行、控制字符或无效 Unicode。'
   }
-  if ((proxy.enabled || proxy.host) && !validHost(proxy.host)) return '请填写有效的 SOCKS5 主机名或 IP（不含协议、端口或路径）。'
-  if ([proxy.username, proxy.password || ''].some((value) => encoder.encode(value).length > 255)) return 'SOCKS5 用户名和密码各不能超过 255 个 UTF-8 字节。'
-  if (!Number.isInteger(patch.proxy.port) || patch.proxy.port < 1 || patch.proxy.port > 65535) {
+  if (proxy.mode !== 'socks5' && proxy.mode !== 'dynamic-http') return '请选择有效的代理模式。'
+  if (!Number.isInteger(proxy.port) || proxy.port < 1 || proxy.port > 65535 || !Number.isInteger(proxy.apiProxyPort) || proxy.apiProxyPort < 1 || proxy.apiProxyPort > 65535) {
     return '代理端口必须为 1–65535 的整数。'
+  }
+  if (proxy.mode === 'socks5') {
+    if ((proxy.enabled || proxy.host) && !validHost(proxy.host)) return '请填写有效的 SOCKS5 主机名或 IP（不含协议、端口或路径）。'
+    if ([proxy.username, proxy.password || ''].some((value) => encoder.encode(value).length > 255)) return 'SOCKS5 用户名和密码各不能超过 255 个 UTF-8 字节。'
+  } else if (proxy.enabled) {
+    if (!validHost(proxy.apiProxyHost)) return '请填写本机 HTTP 代理的主机名或 IP（不含协议、端口或路径）。'
+    try {
+      const apiUrl = new URL(proxy.apiUrl)
+      if (apiUrl.protocol !== 'https:' || !apiUrl.hostname || apiUrl.username || apiUrl.password || apiUrl.hash) throw new Error()
+    } catch {
+      return '动态代理 API 必须是无凭据、无片段的 HTTPS 地址。'
+    }
   }
   if (fingerprint.language.length > 255 || !/^[a-z]{2,8}(?:-[a-z\d]{1,8})*$/i.test(fingerprint.language)) return '语言标签无效，请使用 zh-CN、en-US 等格式。'
   try {
@@ -279,32 +299,61 @@ onUnmounted(() => {
       <a-spin :spinning="loading">
         <a-form layout="vertical" :model="draft" :disabled="!savedConfig || configBusy" @finish="saveConfig">
           <div class="config-grid">
-            <a-card title="SOCKS5 代理" size="small">
+            <a-card title="代理" size="small">
               <div class="switch-row">
-                <label for="browser-proxy-enabled">启用自定义 SOCKS5</label>
+                <label for="browser-proxy-enabled">启用自定义代理</label>
                 <a-switch id="browser-proxy-enabled" v-model:checked="draft.proxy.enabled" data-testid="proxy-enabled" />
               </div>
-              <p class="muted field-help">关闭时使用系统网络（可能受系统代理影响），不使用自定义 SOCKS5。</p>
-              <div class="host-port-grid">
-                <a-form-item label="主机" html-for="browser-proxy-host">
-                  <a-input id="browser-proxy-host" v-model:value="draft.proxy.host" :disabled="!draft.proxy.enabled" placeholder="主机名或 IP，不含 socks5://" autocomplete="off" />
-                </a-form-item>
-                <a-form-item label="端口" html-for="browser-proxy-port">
-                  <a-input-number id="browser-proxy-port" v-model:value="draft.proxy.port" @input="draft.proxy.port = Number($event)" :disabled="!draft.proxy.enabled" :min="1" :max="65535" :precision="0" />
-                </a-form-item>
-              </div>
-              <a-form-item label="用户名（可选）" html-for="browser-proxy-username">
-                <a-input id="browser-proxy-username" v-model:value="draft.proxy.username" :type="privacy ? 'password' : 'text'" :disabled="!draft.proxy.enabled" autocomplete="off" />
+              <p class="muted field-help">关闭时使用系统网络（可能受系统代理影响），不使用自定义代理。</p>
+              <a-form-item label="代理模式" html-for="browser-proxy-mode">
+                <a-select id="browser-proxy-mode" v-model:value="draft.proxy.mode" :disabled="!draft.proxy.enabled">
+                  <a-select-option value="socks5">静态 SOCKS5</a-select-option>
+                  <a-select-option value="dynamic-http">白名单动态 HTTP API</a-select-option>
+                </a-select>
               </a-form-item>
-              <a-form-item label="密码（只写，不回显）" html-for="browser-proxy-password">
-                <a-input id="browser-proxy-password" v-model:value="password" type="password" :disabled="!draft.proxy.enabled || clearPassword" autocomplete="new-password" :placeholder="draft.proxy.passwordSet ? '已保存密码；留空保持不变' : '未设置密码'" />
-                <div class="password-note">
-                  <span class="muted">{{ clearPassword ? '保存后将清除密码。' : draft.proxy.passwordSet ? '已有密码已保存，不会读取或回显。' : '未保存密码。' }}</span>
-                  <a-button data-testid="clear-proxy-password" type="link" danger :disabled="!draft.proxy.passwordSet && !clearPassword" @click="clearPassword = !clearPassword; password = ''">
-                    {{ clearPassword ? '取消清除' : '清除已保存密码' }}
-                  </a-button>
+
+              <template v-if="draft.proxy.mode === 'socks5'">
+                <div class="host-port-grid">
+                  <a-form-item label="主机" html-for="browser-proxy-host">
+                    <a-input id="browser-proxy-host" v-model:value="draft.proxy.host" :disabled="!draft.proxy.enabled" placeholder="主机名或 IP，不含 socks5://" autocomplete="off" />
+                  </a-form-item>
+                  <a-form-item label="端口" html-for="browser-proxy-port">
+                    <a-input-number id="browser-proxy-port" v-model:value="draft.proxy.port" @input="draft.proxy.port = Number($event)" :disabled="!draft.proxy.enabled" :min="1" :max="65535" :precision="0" />
+                  </a-form-item>
                 </div>
-              </a-form-item>
+                <a-form-item label="用户名（可选）" html-for="browser-proxy-username">
+                  <a-input id="browser-proxy-username" v-model:value="draft.proxy.username" :type="privacy ? 'password' : 'text'" :disabled="!draft.proxy.enabled" autocomplete="off" />
+                </a-form-item>
+                <a-form-item label="密码（只写，不回显）" html-for="browser-proxy-password">
+                  <a-input id="browser-proxy-password" v-model:value="password" type="password" :disabled="!draft.proxy.enabled || clearPassword" autocomplete="new-password" :placeholder="draft.proxy.passwordSet ? '已保存密码；留空保持不变' : '未设置密码'" />
+                  <div class="password-note">
+                    <span class="muted">{{ clearPassword ? '保存后将清除密码。' : draft.proxy.passwordSet ? '已有密码已保存，不会读取或回显。' : '未保存密码。' }}</span>
+                    <a-button data-testid="clear-proxy-password" type="link" danger :disabled="!draft.proxy.passwordSet && !clearPassword" @click="clearPassword = !clearPassword; password = ''">
+                      {{ clearPassword ? '取消清除' : '清除已保存密码' }}
+                    </a-button>
+                  </div>
+                </a-form-item>
+              </template>
+
+              <template v-else>
+                <a-form-item label="动态代理 API（HTTPS）" html-for="browser-proxy-api-url">
+                  <a-input id="browser-proxy-api-url" v-model:value="draft.proxy.apiUrl" :disabled="!draft.proxy.enabled" placeholder="https://provider.example/api?..." autocomplete="off" />
+                </a-form-item>
+                <div class="host-port-grid">
+                  <a-form-item label="本机 HTTP 代理主机" html-for="browser-proxy-api-host">
+                    <a-input id="browser-proxy-api-host" v-model:value="draft.proxy.apiProxyHost" :disabled="!draft.proxy.enabled" placeholder="127.0.0.1" autocomplete="off" />
+                  </a-form-item>
+                  <a-form-item label="端口" html-for="browser-proxy-api-port">
+                    <a-input-number id="browser-proxy-api-port" v-model:value="draft.proxy.apiProxyPort" @input="draft.proxy.apiProxyPort = Number($event)" :disabled="!draft.proxy.enabled" :min="1" :max="65535" :precision="0" />
+                  </a-form-item>
+                </div>
+                <a-alert
+                  type="info"
+                  show-icon
+                  message="动态 API 与返回的 HTTP 代理都会经此本机代理连接"
+                  description="用于满足供应商的来源 IP 白名单；返回内容必须是单个 IP:端口。链路失败不会回退为直连。"
+                />
+              </template>
             </a-card>
 
             <a-card title="浏览器指纹" size="small">
@@ -340,7 +389,7 @@ onUnmounted(() => {
       </a-spin>
 
       <div v-if="proxyCheck" class="check-result" role="status" data-testid="browser-proxy-result">
-        <a-tag color="green">验证成功 · {{ savedConfig?.proxy.enabled ? 'SOCKS5' : '系统网络' }}</a-tag>
+        <a-tag color="green">验证成功 · {{ savedConfig?.proxy.enabled ? savedConfig.proxy.mode === 'dynamic-http' ? '动态 HTTP API' : 'SOCKS5' : '系统网络' }}</a-tag>
         <span class="mono">{{ proxyCheck.ip }}</span>
         <span>{{ proxyCheck.country || '国家/地区未知' }}</span>
         <span class="muted">{{ proxyCheck.latencyMs }} ms · {{ new Date(proxyCheck.checkedAt).toLocaleString() }}（仅本次验证）</span>

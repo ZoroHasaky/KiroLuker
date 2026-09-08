@@ -7,10 +7,12 @@ import { join } from 'path'
 export function resolveRuntimePaths(appPath: string): {
   preload: string
   renderer: string
+  web: string
 } {
   const outputRoot = join(appPath, 'out')
   return {
     preload: join(outputRoot, 'preload', 'index.js'),
-    renderer: join(outputRoot, 'renderer', 'index.html')
+    renderer: join(outputRoot, 'renderer', 'index.html'),
+    web: join(outputRoot, 'renderer', 'web')
   }
 }

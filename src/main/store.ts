@@ -19,6 +19,12 @@ import {
   DEFAULT_BILLING_CONFIG,
   type BillingStoredConfig
 } from '../shared/billing'
+import {
+  DEFAULT_WEB_CONTROL_AUTH,
+  DEFAULT_WEB_CONTROL_SETTINGS,
+  type WebControlAuthData,
+  type WebControlSettings
+} from '../shared/webControl'
 
 /** permissions.yaml 开启前的原始状态 */
 export interface ShellApproveYamlBackup {
@@ -50,6 +56,8 @@ interface Schema {
   keyData: KeyGatewayData
   billingConfig: BillingStoredConfig
   shellApproveBackup: ShellApproveBackup | null
+  webControlSettings: WebControlSettings
+  webControlAuth: WebControlAuthData
 }
 
 const EMPTY_DATA: AccountStoreData = {
@@ -71,7 +79,9 @@ const STORE_DEFAULTS: Schema = {
   settings: DEFAULT_SETTINGS,
   keyData: DEFAULT_KEY_GATEWAY_DATA,
   billingConfig: DEFAULT_BILLING_CONFIG,
-  shellApproveBackup: null
+  shellApproveBackup: null,
+  webControlSettings: DEFAULT_WEB_CONTROL_SETTINGS,
+  webControlAuth: DEFAULT_WEB_CONTROL_AUTH
 }
 
 function createStore(): Store<Schema> {
@@ -243,6 +253,31 @@ export function setBillingConfig(config: BillingStoredConfig): void {
   store.set('billingConfig', { ...config, version: 1 })
 }
 
+// ============ Web 控制面板（敏感认证资料只在主进程）============
+
+export function getWebControlSettings(): WebControlSettings {
+  return { ...DEFAULT_WEB_CONTROL_SETTINGS, ...(store.get('webControlSettings') as Partial<WebControlSettings>) }
+}
+
+export function setWebControlSettings(settings: Partial<WebControlSettings>): WebControlSettings {
+  const next = { ...getWebControlSettings(), ...settings }
+  store.set('webControlSettings', next)
+  return next
+}
+
+export function getWebControlAuth(): WebControlAuthData {
+  const raw = store.get('webControlAuth') as Partial<WebControlAuthData> | undefined
+  return {
+    ...DEFAULT_WEB_CONTROL_AUTH,
+    ...(raw ?? {}),
+    version: 1,
+    apiKeys: Array.isArray(raw?.apiKeys) ? raw.apiKeys : []
+  }
+}
+
+export function setWebControlAuth(auth: WebControlAuthData): void {
+  store.set('webControlAuth', { ...auth, version: 1, apiKeys: [...auth.apiKeys] })
+}
 // ============ 旧版 Key 数据：仅供升级清理，保留历史凭证 ============
 
 export function getLegacyKeyData(): KeyGatewayData {

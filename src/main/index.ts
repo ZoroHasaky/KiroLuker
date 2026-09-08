@@ -32,6 +32,7 @@ import { retireLegacyKeyGateway } from './legacyKeyGateway'
 import { restoreLegacyGatewayEndpoints } from './kiroSettings'
 import { retireShellAutoApprove } from './kiroPermissions'
 import { resolveRuntimePaths } from './runtimePaths'
+import { webControlManager } from './webControlManager'
 
 /*
  * 按设置里的地区指定 Chromium 区域。
@@ -254,6 +255,14 @@ app.whenReady().then(async () => {
       isQuitting = true
     }
   )
+  // Web 控制面板默认关闭；此前启用时，在管理员密码存在的前提下恢复监听。
+  if (webControlManager.getConfig().enabled) {
+    try {
+      await webControlManager.start(resolveRuntimePaths(app.getAppPath()).web)
+    } catch (error) {
+      log('warn', `[WebControl] 启动失败：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
   // 不再启动旧网关；只还原属于本应用的遗留端点。与权限清理串行，避免覆盖同一设置文件。
   try {
     await retireLegacyKeyGateway({
@@ -314,7 +323,7 @@ app.on('before-quit', (event) => {
   isQuitting = true
   if (!browserShutdownComplete) {
     event.preventDefault()
-    void browserManager.shutdown().finally(() => { browserShutdownComplete = true; app.quit() })
+    void Promise.all([browserManager.shutdown(), webControlManager.stopForShutdown()]).finally(() => { browserShutdownComplete = true; app.quit() })
   }
 })
 

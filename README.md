@@ -25,6 +25,8 @@
 
 ## ✨ 功能特性
 
+> Web 控制面板与对外 API 的启用、HTTPS 反向代理和调用说明见 [docs/web-control.md](docs/web-control.md)。
+
 ### 🔐 多账号管理
 
 **添加与列表**

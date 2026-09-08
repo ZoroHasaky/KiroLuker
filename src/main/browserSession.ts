@@ -176,7 +176,7 @@ export async function createBrowserSession(
         await abortable(ses.setProxy({ mode: 'fixed_servers', proxyRules: ready.proxyRules, proxyBypassRules: '<-loopback>' }), lifetime.signal)
       } catch {
         if (lifetime.signal.aborted) throw interrupted()
-        throw new Error('[代理连接] SOCKS5 转接启动失败；未回退直连')
+        throw new Error('[代理连接] 代理转接启动失败；未回退直连')
       }
     } else {
       await abortable(ses.setProxy({ mode: 'system' }), lifetime.signal)

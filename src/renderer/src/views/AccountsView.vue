@@ -32,6 +32,7 @@ import AccountTestModal from '@/components/accounts/AccountTestModal.vue'
 import UsageHistoryModal from '@/components/accounts/UsageHistoryModal.vue'
 import TagManagerModal from '@/components/accounts/TagManagerModal.vue'
 import AccountTagPickerModal from '@/components/accounts/AccountTagPickerModal.vue'
+import BatchAccountTagPickerModal from '@/components/accounts/BatchAccountTagPickerModal.vue'
 import PaymentLinkModal from '@/components/accounts/PaymentLinkModal.vue'
 import { useAccountsStore } from '@/stores/accounts'
 import { useSettingsStore } from '@/stores/settings'
@@ -55,6 +56,7 @@ const addOpen = ref(false)
 const githubOpen = ref(false)
 const tagManagerOpen = ref(false)
 const tagTarget = ref<Account | null>(null)
+const batchTagTargetIds = ref<string[]>([])
 const paymentTarget = ref<Account | null>(null)
 /** 工具栏与「添加账号」快捷入口共用同一个导入弹窗，并可指定默认方式。 */
 const importOpen = ref(false)
@@ -314,6 +316,33 @@ function saveAccountTags(accountId: string, tagIds: string[]): void {
     return void message.error('账号不存在，标签保存失败')
   }
   message.success('账号标签已保存')
+}
+
+const batchTagTargets = computed(() => {
+  const targetIds = new Set(batchTagTargetIds.value)
+  return accountsStore.accounts.filter((account) => targetIds.has(account.id))
+})
+
+/** 批量弹窗只预选所有目标账号共有的标签，避免打开后误清空不同账号的现有标签。 */
+const batchTagInitialIds = computed(() => {
+  const [first, ...rest] = batchTagTargets.value
+  if (!first) return []
+  const available = new Set(accountsStore.tags.map((tag) => tag.id))
+  return first.tagIds.filter(
+    (id) => available.has(id) && rest.every((account) => account.tagIds.includes(id))
+  )
+})
+
+function openBatchTagPicker(): void {
+  const ids = [...new Set(accountsStore.selectedIds.filter(Boolean))]
+  if (!ids.length) return void message.info('请先选择账号')
+  batchTagTargetIds.value = ids
+}
+
+function saveBatchAccountTags(tagIds: string[]): void {
+  const updated = accountsStore.setAccountsTags(batchTagTargetIds.value, tagIds)
+  if (!updated) return void message.info('所选账号的标签未变化，或账号已不存在')
+  message.success(`已更新 ${updated} 个账号的标签`)
 }
 
 function savePaymentLink(accountId: string, paymentLink: string): void {
@@ -592,6 +621,14 @@ function logoutIde(account: Account): void {
           </template>
           {{ privacyMode ? '隐私打码中' : '隐私打码' }}
         </a-button>
+        <a-button
+          v-if="accountsStore.selectedIds.length"
+          size="small"
+          @click="openBatchTagPicker"
+        >
+          <template #icon><TagsOutlined /></template>
+          设置标签（{{ accountsStore.selectedIds.length }}个）
+        </a-button>
         <!-- 删除作用于全部勾选项（不受当前搜索影响） -->
         <a-button
           v-if="accountsStore.selectedIds.length"
@@ -737,6 +774,14 @@ function logoutIde(account: Account): void {
       :tags="accountsStore.tags"
       @save="saveAccountTags"
       @close="tagTarget = null"
+    />
+    <BatchAccountTagPickerModal
+      v-if="batchTagTargetIds.length"
+      :account-count="batchTagTargets.length"
+      :initial-tag-ids="batchTagInitialIds"
+      :tags="accountsStore.tags"
+      @save="saveBatchAccountTags"
+      @close="batchTagTargetIds = []"
     />
     <PaymentLinkModal
       v-if="paymentTarget"

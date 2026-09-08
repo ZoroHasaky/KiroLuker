@@ -231,7 +231,7 @@ export class BrowserManager {
 
   private async checkProxyNow(): Promise<BrowserProxyCheck> {
     const config = this.config()
-    if (!config.proxy.enabled) throw new Error('请先保存并启用 SOCKS5 代理')
+    if (!config.proxy.enabled) throw new Error('请先保存并启用自定义代理')
     if (this.stopping) throw new Error('应用正在退出')
     const resource = await this.createSession(config)
     try { return resource.check! } finally { await resource.close() }

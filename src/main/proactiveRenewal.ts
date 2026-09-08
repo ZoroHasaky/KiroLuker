@@ -10,7 +10,8 @@
 //  - 续期若未能写入 IDE（账号已非当前激活账号）或失败，则停止调度，交给 IDE 自身兜底
 import type { BrowserWindow } from 'electron'
 import { refreshAccountToken } from './accountService'
-import { getAccountData, getSettings, setAccountData } from './store'
+import { getAccountData, getSettings } from './store'
+import { accountApplicationService } from './accountApplicationSingleton'
 import { sendToRenderer } from './utils'
 
 /** token 剩余多久时触发续期，15 分钟 > Kiro IDE 的 ~10 分钟阈值，确保抢先 */
@@ -99,34 +100,21 @@ async function runProactiveRenewal(accountId: string): Promise<void> {
   const newExpiresAt = Date.now() + result.expiresIn * 1000
 
   /*
-   * 刷新一旦成功，服务端就已经轮换掉旧 refreshToken，所以无论有没有同步进 IDE，
-   * 新凭证都必须先落盘并下发给渲染进程。早先在「未同步 IDE」时直接 return，
-   * 新凭证被丢掉，内存与磁盘留着的旧值立刻作废，下一次刷新必然
-   * invalid_grant / Bad credentials。
-   *
-   * isActive 一并据实修正：同步失败就说明它已不是 IDE 当前激活账号，
-   * 交回给渲染进程的自动刷新覆盖，避免出现「主动续期已停、自动刷新又排除它」
-   * 两头都不管的空档。
+   * 刷新一旦成功，服务端已轮换旧 refreshToken。回写必须交给统一账户服务，
+   * 其会在串行提交时确认账号仍存在且 refreshToken 未被 Web/API 更新；否则不复活
+   * 已删账号，也不会让旧续期结果覆盖较新的凭证。
    */
-  data.accounts[index] = {
-    ...account,
-    credentials: {
-      ...account.credentials,
-      accessToken: result.accessToken,
-      refreshToken: result.refreshToken,
-      expiresAt: newExpiresAt
-    },
-    isActive: result.syncedToIde ? account.isActive : false,
-    status: 'active',
-    lastError: undefined
-  }
-  try {
-    await setAccountData(data)
-  } catch (e) {
-    console.warn('[ProactiveRenewal] Failed to persist renewed credentials:', e)
+  const applied = await accountApplicationService.applyProactiveRefresh(
+    accountId,
+    account.credentials.refreshToken,
+    result
+  )
+  if (!applied) {
+    console.log('[ProactiveRenewal] Account changed or removed during renewal, discard stale result')
+    return
   }
 
-  // 通知渲染进程同步内存 store，UI 立即刷新
+  // 保留旧事件以兼容当前渲染层；账户全量变更事件也会同步最新权威快照。
   sendToRenderer(getWindow(), 'proactive-renewal:done', {
     accountId,
     accessToken: result.accessToken,

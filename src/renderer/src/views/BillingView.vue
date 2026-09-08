@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   CopyOutlined,
+  DeleteOutlined,
   EnvironmentOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
@@ -10,14 +11,14 @@ import {
 } from '@ant-design/icons-vue'
 import type {
   BillingPublicConfig,
-  BillingRendererApi,
-  BillingResult
+  BillingRendererApi
 } from '@shared/billing'
+import { useBillingStore } from '@/stores/billing'
 import { copyText } from '@/utils/ui'
 
 const api = window.api as typeof window.api & BillingRendererApi
 const config = ref<BillingPublicConfig | null>(null)
-const result = ref<BillingResult | null>(null)
+const billingStore = useBillingStore()
 const loading = ref(false)
 const loadError = ref('')
 const generationError = ref('')
@@ -52,7 +53,7 @@ async function generate(): Promise<void> {
       generationError.value = response.error || '生成账单信息失败'
       return
     }
-    result.value = response.data
+    billingStore.setResult(response.data)
     message.success('账单信息已生成')
   } finally {
     loading.value = false
@@ -64,7 +65,7 @@ function copyField(value: string, label: string): void {
 }
 
 function copyAll(): void {
-  const current = result.value
+  const current = billingStore.result
   if (!current) return
   copyText(
     [
@@ -75,6 +76,12 @@ function copyAll(): void {
     ].join('\n'),
     '全部账单信息已复制'
   )
+}
+
+function discardResult(): void {
+  billingStore.discardResult()
+  generationError.value = ''
+  message.success('账单信息已丢弃')
 }
 
 function formatTime(timestamp: number): string {
@@ -93,7 +100,7 @@ onMounted(loadConfig)
       </div>
       <a-button type="primary" :loading="loading" @click="generate">
         <template #icon><ReloadOutlined /></template>
-        {{ result ? '重新生成' : '生成' }}
+        {{ billingStore.result ? '重新生成' : '生成' }}
       </a-button>
     </div>
 
@@ -123,15 +130,21 @@ onMounted(loadConfig)
       @close="generationError = ''"
     />
 
-    <a-card v-if="result" size="small" class="result-card">
+    <a-card v-if="billingStore.result" size="small" class="result-card">
       <template #title>
         <span class="result-title">生成结果</span>
       </template>
       <template #extra>
-        <a-button type="primary" ghost size="small" @click="copyAll">
-          <template #icon><CopyOutlined /></template>
-          一键复制全部
-        </a-button>
+        <a-space :size="8">
+          <a-button type="primary" ghost size="small" @click="copyAll">
+            <template #icon><CopyOutlined /></template>
+            一键复制全部
+          </a-button>
+          <a-button danger size="small" @click="discardResult">
+            <template #icon><DeleteOutlined /></template>
+            丢弃
+          </a-button>
+        </a-space>
       </template>
 
       <div class="result-grid">
@@ -139,9 +152,9 @@ onMounted(loadConfig)
           <div class="item-icon"><UserOutlined /></div>
           <div class="item-content">
             <span class="item-label">中文姓名</span>
-            <strong>{{ result.chineseName }}</strong>
+            <strong>{{ billingStore.result.chineseName }}</strong>
           </div>
-          <a-button type="text" size="small" aria-label="复制中文姓名" @click="copyField(result.chineseName, '中文姓名')">
+          <a-button type="text" size="small" aria-label="复制中文姓名" @click="copyField(billingStore.result.chineseName, '中文姓名')">
             <CopyOutlined />
           </a-button>
         </div>
@@ -150,9 +163,9 @@ onMounted(loadConfig)
           <div class="item-icon"><UserOutlined /></div>
           <div class="item-content">
             <span class="item-label">大写拼音</span>
-            <strong>{{ result.pinyinName }}</strong>
+            <strong>{{ billingStore.result.pinyinName }}</strong>
           </div>
-          <a-button type="text" size="small" aria-label="复制大写拼音" @click="copyField(result.pinyinName, '大写拼音')">
+          <a-button type="text" size="small" aria-label="复制大写拼音" @click="copyField(billingStore.result.pinyinName, '大写拼音')">
             <CopyOutlined />
           </a-button>
         </div>
@@ -161,9 +174,9 @@ onMounted(loadConfig)
           <div class="item-icon"><EnvironmentOutlined /></div>
           <div class="item-content">
             <span class="item-label">详细地址</span>
-            <strong>{{ result.address }}</strong>
+            <strong>{{ billingStore.result.address }}</strong>
           </div>
-          <a-button type="text" size="small" aria-label="复制详细地址" @click="copyField(result.address, '详细地址')">
+          <a-button type="text" size="small" aria-label="复制详细地址" @click="copyField(billingStore.result.address, '详细地址')">
             <CopyOutlined />
           </a-button>
         </div>
@@ -172,16 +185,16 @@ onMounted(loadConfig)
           <div class="item-icon"><SafetyCertificateOutlined /></div>
           <div class="item-content">
             <span class="item-label">邮政编码 <a-tag color="orange">AI 推断</a-tag></span>
-            <strong>{{ result.postalCode }}</strong>
+            <strong>{{ billingStore.result.postalCode }}</strong>
           </div>
-          <a-button type="text" size="small" aria-label="复制邮政编码" @click="copyField(result.postalCode, '邮政编码')">
+          <a-button type="text" size="small" aria-label="复制邮政编码" @click="copyField(billingStore.result.postalCode, '邮政编码')">
             <CopyOutlined />
           </a-button>
         </div>
       </div>
 
       <div class="result-meta muted">
-        地图来源：{{ result.mapSource }} · 生成时间：{{ formatTime(result.generatedAt) }}
+        地图来源：{{ billingStore.result.mapSource }} · 生成时间：{{ formatTime(billingStore.result.generatedAt) }}
       </div>
     </a-card>
 

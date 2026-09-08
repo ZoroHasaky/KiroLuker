@@ -51,7 +51,10 @@ import {
 } from './updater'
 import { clearLogs, exportLogs, getLogDir, queryLogs } from './logger'
 import { buildXlsx } from './xlsxWriter'
-import { BillingService } from './billingService'
+import { billingService } from './applicationServices'
+import { accountApplicationService } from './accountApplicationSingleton'
+import { webControlManager } from './webControlManager'
+import { resolveRuntimePaths } from './runtimePaths'
 import { errorMessage } from '../shared/errors'
 import { sendToRenderer } from './utils'
 import {
@@ -98,11 +101,6 @@ function fail(error: unknown): IpcResult<never> {
   return { success: false, error: errorMessage(error) }
 }
 
-const billingService = new BillingService({
-  load: getBillingConfig,
-  save: setBillingConfig
-})
-
 /**
  * 注册 IPC 通道：统一把未捕获异常收敛成 { success: false, error }，
  * 各 handler 只负责返回结果，不再逐个写 try/catch。
@@ -137,27 +135,31 @@ export function registerIpc(
     prepareToInstallUpdate
   )
   registerBrowserIpc(getWindow)
+  // 所有主进程/Web/API 写入完成后通知桌面缓存重新对齐，避免延迟保存旧快照。
+  if (typeof accountApplicationService?.onChanged === 'function') {
+    accountApplicationService.onChanged(({ data }) => sendToRenderer(getWindow(), 'accounts:changed', data))
+  }
   // ============ 数据持久化 ============
-  handle('accounts:load', () => ok(getAccountData()))
+  handle('accounts:load', () => ok(accountApplicationService.getData()))
 
-  handle('accounts:save', async (_e, data: AccountStoreData) => {
-    await setAccountData(data)
-    // 账号被删掉后它的积分日志就没人看了，顺手清掉
-    pruneUsageHistory((data.accounts ?? []).map((a) => a.id))
-    return ok()
+  // 桌面 Store 传入“上次服务端快照 + 当前本地快照”；主进程仅合并实际 diff，
+  // 绝不再让陈旧的整份 renderer snapshot 覆盖 Web/API 的新修改。
+  handle('accounts:save', async (_e, base: AccountStoreData, next?: AccountStoreData) => {
+    const merged = await accountApplicationService.reconcileDesktopSnapshot(
+      next ? base : accountApplicationService.getData(),
+      next ?? base
+    )
+    return ok(merged)
   })
 
   handle('accounts:delete', async (_e, ids: string[]) => {
-    const result = await deleteAccountData(Array.isArray(ids) ? ids : [])
+    const result = await accountApplicationService.deleteAccounts(Array.isArray(ids) ? ids : [])
     if (result.removed) {
-      pruneUsageHistory(result.accounts.accounts.map((account) => account.id))
       forgetSwitchedAccounts(ids)
-      // 删除的若是 IDE 激活账号，立即清掉旧续期 timer；否则按剩余激活账号重新对齐。
       scheduleForActiveAccount()
     }
-    return ok(result)
+    return ok({ accounts: result.data, removed: result.removed })
   })
-
   // ============ 积分变化日志 ============
   handle('usage:history', (_e, accountId: string) => ok(getUsageHistory(accountId)))
 
@@ -175,14 +177,11 @@ export function registerIpc(
   )
 
   handle('accounts:refresh-token', async (_e, account: Account) => {
-    const result = await refreshAccountToken(account)
+    const { applied: _applied, ...result } = await accountApplicationService.refreshToken(account.id)
     // 刷新的正是 IDE 当前激活账号时，基于新 expiresAt 重排主动续期
-    if (result.syncedToIde) {
-      scheduleProactiveRenewal(account.id, Date.now() + result.expiresIn * 1000)
-    }
+    if (result.syncedToIde) scheduleProactiveRenewal(account.id, Date.now() + result.expiresIn * 1000)
     return ok(result)
   })
-
   handle('accounts:create-api-key', async (_e, account: Account, label: string) => {
     const result = await createAccountApiKey(account, label)
     // 生成过程中若刷新过凭证，按新的到期时间重排主动续期
@@ -234,15 +233,9 @@ export function registerIpc(
   // 封禁需要额外回传 banned 标记，单独注册以保留该字段
   ipcMain.handle('accounts:check-status', async (_e, account: Account) => {
     try {
-      const snapshot = await checkAccountStatus(account)
-      /*
-       * accessToken 过期时 checkAccountStatus 会顺手刷新一次，refreshToken 随之轮换。
-       * 这种轮换必须同步给 IDE 并重排主动续期，否则 IDE 手里的 refreshToken 已作废，
-       * 主动续期也会因为磁盘值对不上而判定「不是激活账号」并停止调度。
-       */
+      const { snapshot } = await accountApplicationService.refreshUsage(account.id)
       const { accessToken, refreshToken } = snapshot
       if (accessToken && refreshToken && refreshToken !== account.credentials.refreshToken) {
-        // 接口没给 expiresIn 时按 1 小时兜底，与 accountService 的默认值一致
         const expiresIn = snapshot.expiresIn ?? 3600
         const { syncedToIde } = await syncCredentialsToIde(
           account,
@@ -257,7 +250,6 @@ export function registerIpc(
       return { ...fail(e), banned }
     }
   })
-
   // ============ Kiro IDE 交互 ============
   handle('kiro:read-local-credentials', async () => {
     const result = await readLocalKiroCredentials()
@@ -461,6 +453,22 @@ export function registerIpc(
   )
   handle('billing:clear-config', () => ok(billingService.clearConfig()))
   handle('billing:generate', async () => ok(await billingService.generate()))
+
+  // ============ Web 控制面板 ============
+  const webDir = () => resolveRuntimePaths(app.getAppPath()).web
+  handle('web-control:get-config', () => ok(webControlManager.getConfig()))
+  handle('web-control:save-settings', async (_e, patch) =>
+    ok(await webControlManager.saveSettings(patch, webDir()))
+  )
+  handle('web-control:set-password', async (_e, password: string) => {
+    if (typeof password !== 'string') throw new Error('管理员密码必须是字符串')
+    return ok(await webControlManager.setAdminPassword(password, webDir()))
+  })
+  handle('web-control:start', async () => ok(await webControlManager.start(webDir())))
+  handle('web-control:stop', async () => {
+    await webControlManager.stop()
+    return ok(webControlManager.getConfig())
+  })
 
   // ============ 应用 ============
   handle('app:info', () =>

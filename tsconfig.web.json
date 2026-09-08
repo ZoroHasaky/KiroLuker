@@ -23,6 +23,7 @@
     "src/shared/**/*",
     "src/renderer/src/**/*",
     "src/renderer/src/**/*.vue",
+    "src/renderer/web/**/*",
     "src/preload/index.d.ts"
   ]
 }

@@ -1,4 +1,5 @@
 import type { BrowserRendererApi } from '../shared/browser'
+import type { WebControlPublicConfig, WebControlSettings } from '../shared/webControl'
 import type {
   Account,
   AccountApiKeyList,
@@ -73,7 +74,8 @@ export interface Api extends BillingRendererApi, BrowserRendererApi {
   md5: (text: string) => string
 
   loadAccounts: () => Promise<IpcResult<AccountStoreData>>
-  saveAccounts: (data: AccountStoreData) => Promise<IpcResult>
+  saveAccounts: (base: AccountStoreData, data: AccountStoreData) => Promise<IpcResult<AccountStoreData>>
+  onAccountsChanged: (handler: (data: AccountStoreData) => void) => () => void
   deleteAccounts: (ids: string[]) => Promise<IpcResult<{
     accounts: AccountStoreData
     removed: number
@@ -170,6 +172,11 @@ export interface Api extends BillingRendererApi, BrowserRendererApi {
   getSettings: () => Promise<IpcResult<AppSettings>>
   saveSettings: (patch: Partial<AppSettings>) => Promise<IpcResult<AppSettings>>
   getAppInfo: () => Promise<IpcResult<AppInfo>>
+  getWebControlConfig: () => Promise<IpcResult<WebControlPublicConfig>>
+  saveWebControlSettings: (patch: Partial<WebControlSettings>) => Promise<IpcResult<WebControlPublicConfig>>
+  setWebControlPassword: (password: string) => Promise<IpcResult<WebControlPublicConfig>>
+  startWebControl: () => Promise<IpcResult<WebControlPublicConfig>>
+  stopWebControl: () => Promise<IpcResult<WebControlPublicConfig>>
   checkUpdate: () => Promise<IpcResult<UpdateCheckResult>>
   getUpdateState: () => Promise<IpcResult<AppUpdateState>>
   downloadUpdate: () => Promise<IpcResult<AppUpdateState>>

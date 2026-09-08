@@ -9,6 +9,7 @@ import tls from 'node:tls'
 import { randomBytes } from 'node:crypto'
 import { once } from 'node:events'
 import { setTimeout as delay } from 'node:timers/promises'
+import { Readable } from 'node:stream'
 import * as proxyChain from 'proxy-chain'
 import ts from 'typescript'
 import { startBrowserProxyFixture } from './helpers/browser-proxy-fixture.cjs'
@@ -23,7 +24,7 @@ const forbidden = () => { throw new Error('Real Electron/account access is forbi
 function loadModule(name, imports) {
   const exports = {}
   vm.runInNewContext(sources.get(name), {
-    exports, Buffer, Intl, process,
+    exports, Buffer, Intl, URL, AbortController, setTimeout, clearTimeout, process,
     require(id) {
       assert.ok(Object.hasOwn(imports, id), `Unexpected dependency: ${id}`)
       return imports[id]
@@ -35,7 +36,11 @@ const config = loadModule('browserConfig', {
   'electron-store': forbidden, electron: { safeStorage: {} }, 'node:net': net,
   './store': { getSettings: forbidden }
 })
-function loadBridge(Socket = net.Socket, configureForward = () => {}) {
+function loadBridge(
+  Socket = net.Socket,
+  configureForward = () => {},
+  undici = { ProxyAgent: class { constructor() { throw new Error('Unexpected dynamic proxy request') } }, request: forbidden }
+) {
   const relayServers = []
   const proxyServers = []
   const api = loadModule('browserProxy', {
@@ -47,7 +52,10 @@ function loadBridge(Socket = net.Socket, configureForward = () => {}) {
     } },
     'proxy-chain': { Server: class extends proxyChain.Server {
       constructor(options) { super(options); configureForward(this); proxyServers.push(this) }
-    } }
+    } },
+    // Static SOCKS tests must not touch the real network fetcher; dynamic mode injects
+    // a deterministic API client while the relay/forward chain still uses real sockets.
+    undici
   })
   return { ...api, relayServers, proxyServers }
 }
@@ -139,6 +147,78 @@ async function socksFixture(t, { ports, credentials = freshCredentials(), mode =
   t.after(async () => { await fixture.close(); assert.deepEqual(fixture.state.failures, []) })
   return fixture
 }
+async function localHttpConnectProxyFixture(t, expectedAuthority) {
+  const requests = []
+  const server = http.createServer((_request, response) => {
+    response.writeHead(405)
+    response.end()
+  })
+  server.on('connect', (request, client, head) => {
+    requests.push(request.url)
+    if (request.url !== expectedAuthority) {
+      client.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
+      return
+    }
+    const [host, portText] = expectedAuthority.split(':')
+    const upstream = net.createConnection({ host, port: Number(portText) })
+    const destroyPair = () => { client.destroy(); upstream.destroy() }
+    client.on('error', destroyPair)
+    client.on('close', destroyPair)
+    upstream.on('error', destroyPair)
+    upstream.on('close', destroyPair)
+    upstream.on('connect', () => {
+      client.write('HTTP/1.1 200 Connection established\r\n\r\n')
+      if (head.length) upstream.write(head)
+      client.pipe(upstream)
+      upstream.pipe(client)
+    })
+  })
+  return { ...await serve(t, server), requests }
+}
+
+async function dynamicHttpProxyFixture(t, targets) {
+  const requests = []
+  function targetFor(host, port) {
+    if (host !== 'remote-dns-only.invalid') return undefined
+    return targets.get(Number(port))
+  }
+  const server = http.createServer((request, response) => {
+    let url
+    try { url = new URL(request.url) } catch { response.writeHead(400); response.end(); return }
+    const target = targetFor(url.hostname, url.port || 80)
+    requests.push({ type: 'request', authority: url.host, path: url.pathname })
+    if (!target) { response.writeHead(403); response.end(); return }
+    const forward = http.request({
+      hostname: '127.0.0.1', port: target.port, method: request.method,
+      path: `${url.pathname}${url.search}`, headers: { ...request.headers, host: url.host }
+    }, (upstream) => {
+      response.writeHead(upstream.statusCode || 502, upstream.headers)
+      upstream.pipe(response)
+    })
+    forward.on('error', () => { if (!response.headersSent) response.writeHead(502); response.end() })
+    request.pipe(forward)
+  })
+  server.on('connect', (request, client, head) => {
+    const [host, portText] = request.url.split(':')
+    const target = targetFor(host, Number(portText))
+    requests.push({ type: 'connect', authority: request.url })
+    if (!target) { client.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return }
+    const upstream = net.createConnection({ host: '127.0.0.1', port: target.port })
+    const destroyPair = () => { client.destroy(); upstream.destroy() }
+    client.on('error', destroyPair)
+    client.on('close', destroyPair)
+    upstream.on('error', destroyPair)
+    upstream.on('close', destroyPair)
+    upstream.on('connect', () => {
+      client.write('HTTP/1.1 200 Connection established\r\n\r\n')
+      if (head.length) upstream.write(head)
+      client.pipe(upstream)
+      upstream.pipe(client)
+    })
+  })
+  return { ...await serve(t, server), requests }
+}
+
 async function targetFixture(t, secure = false) {
   const requests = []
   const handler = (request, response) => {
@@ -262,6 +342,50 @@ test('real authenticated SOCKS5h forwards HTTP and TLS-encrypted HTTPS with remo
   for (const auth of socks.state.authentications) assert.deepEqual(auth, socks.credentials)
   for (const request of [...plainTarget.requests, ...secureTarget.requests]) assert.equal(request.headers['proxy-authorization'], undefined)
   assertRedacted({ bridge: bridge.proxyRules, plain, secure }, socks.credentials)
+})
+
+test('dynamic HTTP API mode chains browser traffic through the configured local proxy without a direct fallback', { timeout: 10000 }, async (t) => {
+  const plainTarget = await targetFixture(t)
+  const secureTarget = await targetFixture(t, true)
+  const dynamic = await dynamicHttpProxyFixture(t, new Map([
+    [plainTarget.port, plainTarget], [secureTarget.port, secureTarget]
+  ]))
+  const local = await localHttpConnectProxyFixture(t, `127.0.0.1:${dynamic.port}`)
+  const apiCalls = []
+  const loader = loadBridge(net.Socket, () => {}, {
+    ProxyAgent: class {
+      constructor(url) { this.url = url }
+      close() { return Promise.resolve() }
+    },
+    request: async (url, options) => {
+      apiCalls.push({ url, proxy: options.dispatcher.url })
+      return { statusCode: 200, body: Readable.from([`127.0.0.1:${dynamic.port}\n`]) }
+    }
+  })
+  const bridge = await loader.createBrowserProxyBridge({
+    enabled: true, mode: 'dynamic-http', host: '', port: 1080, username: '', password: '',
+    apiUrl: 'https://white.example.invalid/api?region=US&num=1', apiProxyHost: '127.0.0.1', apiProxyPort: local.port
+  })
+  t.after(() => bridge.close())
+  const proxyUrl = new URL(bridge.proxyRules)
+  const forward = loader.proxyServers.find((server) => server.port === Number(proxyUrl.port))
+  const upstream = new URL((await forward.prepareRequestFunction({})).upstreamProxyUrl)
+  assert.equal(upstream.protocol, 'http:')
+  assert.equal(upstream.hostname, '127.0.0.1')
+  assert.equal(bridge.proxyRules.includes('DIRECT'), false)
+
+  const plain = await httpThrough(Number(proxyUrl.port), plainTarget)
+  assert.equal(plain.status, 200)
+  assert.equal(plain.body, 'plain-target:/plain')
+  const secure = await httpsThrough(Number(proxyUrl.port), secureTarget)
+  assert.match(secure, /secure-target:\/secure/)
+  assert.deepEqual(apiCalls, [{
+    url: 'https://white.example.invalid/api?region=US&num=1', proxy: `http://127.0.0.1:${local.port}`
+  }])
+  assert.equal(local.requests.length >= 1, true)
+  assert.equal(local.requests.every((authority) => authority === `127.0.0.1:${dynamic.port}`), true)
+  assert.equal(dynamic.requests.some((item) => item.type === 'request' && item.path === '/plain'), true)
+  assert.equal(dynamic.requests.some((item) => item.type === 'connect' && item.authority === `remote-dns-only.invalid:${secureTarget.port}`), true)
 })
 
 test('SOCKS auth supports the exact 255-byte UTF-8 limit over real sockets', { timeout: 10000 }, async (t) => {

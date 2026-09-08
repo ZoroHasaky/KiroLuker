@@ -57,7 +57,7 @@ function harness({ locale = 'en-US', available = true, backend = 'gnome_libsecre
   function load() {
     const exports = {}
     vm.runInNewContext(outputText, {
-      exports, Buffer, Intl, process: { platform: 'linux' },
+      exports, Buffer, Intl, URL, process: { platform: 'linux' },
       require(id) {
         assert.ok(Object.hasOwn(imports, id), `Unexpected dependency: ${id}`)
         return imports[id]
@@ -84,7 +84,10 @@ test('defaults are isolated, seeded once from valid portalLocale, and never expo
   assert.equal(instances.length, 0, 'store is lazy')
   const config = api.getBrowserConfig()
   assert.deepEqual(plain(config), {
-    proxy: { enabled: false, host: '', port: 1080, username: '', passwordSet: false },
+    proxy: {
+      enabled: false, mode: 'socks5', host: '', port: 1080, username: '', passwordSet: false,
+      apiUrl: '', apiProxyHost: '', apiProxyPort: 7897
+    },
     fingerprint: { userAgent: '', language: 'zh-Hant-HK', timezone: '', width: 1280, height: 900 }
   })
   state.locale = 'fr-FR'
@@ -133,6 +136,49 @@ test('pure proxy validation enforces types, port bounds, UTF-8 SOCKS lengths and
     }
     assert.equal(api.validateBrowserProxy({ ...proxy, [field]: ' leading and trailing ' })[field], ' leading and trailing ')
   }
+})
+
+test('dynamic HTTP API mode requires a safe HTTPS endpoint and clears unused SOCKS credentials', () => {
+  const { api, data } = harness()
+  const config = patch(api, {
+    mode: 'dynamic-http', host: '', username: 'stale-static-user', password: 'stale-static-password',
+    apiUrl: 'https://white.example.invalid/api?region=US&num=1', apiProxyHost: '127.0.0.1', apiProxyPort: 7897
+  })
+  const saved = api.saveBrowserConfig(config)
+  assert.deepEqual(plain(saved.proxy), {
+    enabled: true, mode: 'dynamic-http', host: '', port: 1080, username: '', passwordSet: false,
+    apiUrl: 'https://white.example.invalid/api?region=US&num=1', apiProxyHost: '127.0.0.1', apiProxyPort: 7897
+  })
+  assert.equal(data.get('config').proxy.encryptedCredentials, '')
+  assert.equal(JSON.stringify(data.get('config')).includes('stale-static-password'), false)
+
+  const proxy = config.proxy
+  for (const apiUrl of ['', 'http://white.example.invalid/api', 'https://user:password@white.example.invalid/api', 'https://white.example.invalid/api#fragment', 'not a URL']) {
+    assert.throws(() => api.validateBrowserProxy({ ...proxy, apiUrl }), /动态代理 API 地址/)
+  }
+  for (const apiProxyHost of ['', 'http://127.0.0.1:7897', '127.0.0.1/path']) {
+    assert.throws(() => api.validateBrowserProxy({ ...proxy, apiProxyHost }), /代理地址/)
+  }
+  for (const apiProxyPort of [0, 65536, 1.5, '7897']) {
+    assert.throws(() => api.validateBrowserProxy({ ...proxy, apiProxyPort }), /本机 HTTP 代理端口/)
+  }
+})
+
+test('v1 static SOCKS5 browser settings remain readable after the dynamic API upgrade', () => {
+  const { api, data } = harness()
+  const saved = api.saveBrowserConfig(patch(api, ephemeralCredentials()))
+  const stored = plain(data.get('config'))
+  data.set('config', {
+    version: 1,
+    proxy: {
+      enabled: stored.proxy.enabled,
+      host: stored.proxy.host,
+      port: stored.proxy.port,
+      encryptedCredentials: stored.proxy.encryptedCredentials
+    },
+    fingerprint: stored.fingerprint
+  })
+  assert.deepEqual(plain(api.getBrowserConfig()), plain(saved))
 })
 
 test('fingerprint validators enforce BCP47/IANA, integer viewport and trimmed safe UA', () => {
@@ -186,7 +232,9 @@ test('entire credential pair is encrypted at rest; getters/reload mask password 
   const disk = JSON.stringify(data.get('config'))
   assert.equal(disk.includes(credentials.username), false)
   assert.equal(disk.includes(credentials.password), false)
-  assert.deepEqual(Object.keys(data.get('config').proxy).sort(), ['enabled', 'encryptedCredentials', 'host', 'port'])
+  assert.deepEqual(Object.keys(data.get('config').proxy).sort(), [
+    'apiProxyHost', 'apiProxyPort', 'apiUrl', 'enabled', 'encryptedCredentials', 'host', 'mode', 'port'
+  ])
   const reloaded = load()
   assert.deepEqual(plain(reloaded.getBrowserConfig()), plain(saved))
   assert.equal(reloaded.getResolvedBrowserConfig().proxy.password, credentials.password)
@@ -264,7 +312,7 @@ test('corruption, encryption and disk failures never leak underlying messages or
     data.set('config', { ...original, proxy: { ...original.proxy, encryptedCredentials: ciphertext } })
     assert.throws(() => api.getResolvedBrowserConfig(), /无法解密代理凭据/)
   }
-  data.set('config', { ...original, version: 2 })
+  data.set('config', { ...original, version: 3 })
   assert.throws(() => api.getBrowserConfig(), /浏览器配置存储格式无效/)
   data.set('config', { ...original, proxy: { ...original.proxy, port: 0 } })
   assert.throws(() => api.getBrowserConfig(), /代理端口/)

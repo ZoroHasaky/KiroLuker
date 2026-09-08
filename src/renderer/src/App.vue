@@ -42,6 +42,7 @@ function confirmQuit(): void {
 
 // 主进程主动续期后回传的新凭证
 let offRenewal: (() => void) | undefined
+let offAccountsChanged: (() => void) | undefined
 
 onMounted(() => {
   offNavigate = window.api.onAppNavigate((target) => {
@@ -51,11 +52,14 @@ onMounted(() => {
   offRenewal = window.api.onProactiveRenewal((payload) =>
     accountsStore.applyRenewedCredentials(payload)
   )
+  offAccountsChanged = window.api.onAccountsChanged((data) => accountsStore.applyServerData(data))
+
 })
 onUnmounted(() => {
   offNavigate?.()
   offConfirmQuit?.()
   offRenewal?.()
+  offAccountsChanged?.()
 })
 
 onMounted(async () => {

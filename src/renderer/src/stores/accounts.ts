@@ -118,6 +118,14 @@ export const useAccountsStore = defineStore('accounts', () => {
   // ============ 持久化 ============
 
   let saveTimer: ReturnType<typeof setTimeout> | null = null
+  let syncing = false
+  let syncQueued = false
+  let serverSnapshot: AccountStoreData = {
+    version: ACCOUNT_STORE_VERSION,
+    accounts: [],
+    tags: [],
+    activeAccountId: null
+  }
 
   function snapshotForStore(): AccountStoreData {
     return {
@@ -128,12 +136,36 @@ export const useAccountsStore = defineStore('accounts', () => {
     }
   }
 
+  /** 任何主进程/Web 写入后的新权威快照都从这里进入 Store。 */
+  function applyServerData(raw: AccountStoreData): void {
+    const data = migrateAccountStoreData(raw).data
+    serverSnapshot = toPlain(data)
+    accounts.value = data.accounts
+    tags.value = data.tags
+    activeAccountId.value = data.activeAccountId ?? null
+    selectedIds.value = selectedIds.value.filter((id) => data.accounts.some((account) => account.id === id))
+  }
+
+  async function flushPersist(): Promise<void> {
+    if (syncing) { syncQueued = true; return }
+    syncing = true
+    try {
+      do {
+        syncQueued = false
+        const base = toPlain(serverSnapshot)
+        const next = toPlain(snapshotForStore())
+        const response = await window.api.saveAccounts(base, next)
+        if (response.success && response.data) applyServerData(response.data)
+        else console.warn('[Account] 保存账户数据失败：', response.error)
+      } while (syncQueued)
+    } finally {
+      syncing = false
+    }
+  }
+
   function persist(immediate = false): void {
     if (saveTimer) clearTimeout(saveTimer)
-    const write = (): void => {
-      saveTimer = null
-      void window.api.saveAccounts(toPlain(snapshotForStore()))
-    }
+    const write = (): void => { saveTimer = null; void flushPersist() }
     if (immediate) write()
     else saveTimer = setTimeout(write, 600)
   }
@@ -143,13 +175,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     try {
       // 订阅档位的历史值由主进程在读取时统一对齐，这里拿到的已是规范值
       const res = await window.api.loadAccounts()
-      if (res.success && res.data) {
-        // 主进程正常会返回 v2；这里再归一遍，兼容开发期热更新保留下来的旧窗口。
-        const data = migrateAccountStoreData(res.data).data
-        accounts.value = data.accounts
-        tags.value = data.tags
-        activeAccountId.value = data.activeAccountId ?? null
-      }
+      if (res.success && res.data) applyServerData(res.data)
       await syncActiveFromIde()
     } finally {
       loading.value = false
@@ -429,6 +455,33 @@ export const useAccountsStore = defineStore('accounts', () => {
     }
     updateAccount(accountId, { tagIds: nextIds })
     return true
+  }
+
+  /** 批量覆盖账号标签；一次替换列表并只触发一次持久化。 */
+  function setAccountsTags(accountIds: string[], tagIds: string[]): number {
+    const targetIds = new Set(accountIds.filter(Boolean))
+    if (!targetIds.size) return 0
+
+    const validIds = new Set(tags.value.map((tag) => tag.id))
+    const nextIds = [...new Set(tagIds.filter((id) => validIds.has(id)))]
+    let updated = 0
+    const nextAccounts = accounts.value.map((account) => {
+      if (!targetIds.has(account.id)) return account
+      if (
+        account.tagIds.length === nextIds.length &&
+        account.tagIds.every((id, index) => id === nextIds[index])
+      ) {
+        return account
+      }
+      updated++
+      return { ...account, tagIds: nextIds }
+    })
+
+    if (updated) {
+      accounts.value = nextAccounts
+      persist()
+    }
+    return updated
   }
 
   async function removeAccounts(
@@ -1075,6 +1128,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     applyFilter,
     // 增删改
     load,
+    applyServerData,
     addByCredentials,
     addByOnlineLogin,
     updateAccount,
@@ -1082,6 +1136,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     updateTag,
     removeTag,
     setAccountTags,
+    setAccountsTags,
     removeAccounts,
     importItems,
     importFullData,
