@@ -255,10 +255,10 @@ app.whenReady().then(async () => {
       isQuitting = true
     }
   )
-  // Web 控制面板默认关闭；此前启用时，在管理员密码存在的前提下恢复监听。
+  // 独立移动 API 服务默认关闭；此前启用时恢复监听。
   if (webControlManager.getConfig().enabled) {
     try {
-      await webControlManager.start(resolveRuntimePaths(app.getAppPath()).web)
+      await webControlManager.start()
     } catch (error) {
       log('warn', `[WebControl] 启动失败：${error instanceof Error ? error.message : String(error)}`)
     }

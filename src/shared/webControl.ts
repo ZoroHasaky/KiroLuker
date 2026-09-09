@@ -1,13 +1,22 @@
-export type WebApiScope = 'accounts:read' | 'accounts:write' | 'accounts:refresh' | 'billing:generate'
+export type WebApiScope =
+  | 'accounts:read'
+  | 'accounts:write'
+  | 'accounts:refresh'
+  | 'accounts:export'
+  | 'accounts:payment'
+  | 'billing:generate'
 
+/** 移动 App 登录 Key 固定授予的全部 API 权限。新增权限时服务会重新生成默认 Key。 */
 export const WEB_API_SCOPES: WebApiScope[] = [
   'accounts:read',
   'accounts:write',
   'accounts:refresh',
+  'accounts:export',
+  'accounts:payment',
   'billing:generate'
 ]
 
-/** 内置 Web 控制面板的非敏感运行配置。管理员密码与 API Key 单独保存。 */
+/** 独立移动 API 服务的非敏感运行配置。旧管理员密码记录仅为兼容旧安装而保留。 */
 export interface WebControlSettings {
   enabled: boolean
   host: string
@@ -40,22 +49,23 @@ export interface WebControlApiKeyRecord {
   createdAt: number
   lastUsedAt?: number
   revokedAt?: number
+  /** 仅主进程持有的 Electron safeStorage 密文；绝不经 IPC/HTTP 列表返回。 */
+  encryptedToken?: string
 }
 
 /** 仅主进程可读取，绝不通过 IPC/HTTP 返回 hash 或管理员密码材料。 */
 export interface WebControlAuthData {
-  version: 1
+  version: 1 | 2
   password?: WebControlPasswordRecord
   apiKeys: WebControlApiKeyRecord[]
 }
 
 export const DEFAULT_WEB_CONTROL_AUTH: WebControlAuthData = {
-  version: 1,
+  version: 2,
   apiKeys: []
 }
 
 export interface WebControlPublicConfig extends WebControlSettings {
-  passwordConfigured: boolean
   running: boolean
   url?: string
   error?: string

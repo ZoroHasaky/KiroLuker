@@ -66,7 +66,7 @@ export default defineConfig({
     build: {
       emptyOutDir: true, // 是否清空目录
       rollupOptions: {
-        input: { index: resolve(__dirname, 'src/renderer/index.html'), browserChrome: resolve(__dirname, 'src/renderer/src/browser-chrome/index.html'), web: resolve(__dirname, 'src/renderer/web/index.html') },
+        input: { index: resolve(__dirname, 'src/renderer/index.html'), browserChrome: resolve(__dirname, 'src/renderer/src/browser-chrome/index.html') },
         treeshake: true, // 开启 Tree Shaking，消除未使用的代码，减小最终的包大小
         onwarn(warning, warn) {
           // 自动过滤空 chunk 警告

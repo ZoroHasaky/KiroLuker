@@ -270,13 +270,13 @@ export function getWebControlAuth(): WebControlAuthData {
   return {
     ...DEFAULT_WEB_CONTROL_AUTH,
     ...(raw ?? {}),
-    version: 1,
+    version: raw?.version === 2 ? 2 : 1,
     apiKeys: Array.isArray(raw?.apiKeys) ? raw.apiKeys : []
   }
 }
 
 export function setWebControlAuth(auth: WebControlAuthData): void {
-  store.set('webControlAuth', { ...auth, version: 1, apiKeys: [...auth.apiKeys] })
+  store.set('webControlAuth', { ...auth, version: 2, apiKeys: [...auth.apiKeys] })
 }
 // ============ 旧版 Key 数据：仅供升级清理，保留历史凭证 ============
 

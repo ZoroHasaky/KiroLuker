@@ -2,8 +2,11 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   buildPostalCodeRequest,
+  buildCheckoutAddressRequest,
+  normalizeAmapCheckoutResponse,
   normalizeAmapResponse,
   normalizeBaiduResponse,
+  parseCheckoutAddressLine,
   parsePostalCode
 } from '../src/shared/billing.ts'
 
@@ -66,4 +69,28 @@ test('Chat Completions 请求只在选择时发送 reasoning_effort', () => {
 
   const reasoning = buildPostalCodeRequest('广东省深圳市南山区', 'example-model', 'high')
   assert.equal(reasoning.reasoning_effort, 'high')
+})
+
+
+test('Checkout 高德扩展 POI 只接受同一记录中的完整行政区、详细地址和六位邮编', () => {
+  assert.deepEqual(
+    normalizeAmapCheckoutResponse({
+      status: '1',
+      pois: [
+        { pname: '云南省', cityname: '昆明市', adname: '官渡区', address: '丽华路122号', postcode: '650200' },
+        { pname: '云南省', cityname: '昆明市', adname: '官渡区', address: '缺邮编路1号', postcode: '' },
+        { pname: '云南省', cityname: '昆明市', address: '缺区路1号', postcode: '650200' }
+      ]
+    }),
+    [{ province: '云南省', city: '昆明市', district: '官渡区', address: '丽华路122号', postalCode: '650200' }]
+  )
+})
+
+test('Checkout AI 地址提取只接受严格单字段 JSON，且请求不让模型改行政区或邮编', () => {
+  assert.equal(parseCheckoutAddressLine('{"addressLine1":"丽华路122号"}'), '丽华路122号')
+  assert.throws(() => parseCheckoutAddressLine('{"addressLine1":"丽华路"}'), /地址第 1 行/)
+  assert.throws(() => parseCheckoutAddressLine('{"addressLine1":"丽华路122号","postalCode":"650200"}'), /地址第 1 行/)
+  const request = buildCheckoutAddressRequest('云南省昆明市官渡区丽华路122号', 'example-model', 'low')
+  assert.equal(request.reasoning_effort, 'low')
+  assert.match(request.messages[0].content, /不得返回省、市、区、邮编/)
 })

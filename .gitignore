@@ -9,3 +9,22 @@ out
 
 # 逆向排查用的 Kiro 安装包内容，体积几十 MB，不入库
 Kiro */
+
+# Local SDK tooling (not committed)
+.tooling/
+
+# Flutter/Dart generated state
+app/.dart_tool/
+app/.packages
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/.pub-cache/
+app/build/
+app/android/.gradle/
+app/android/key.properties
+app/ios/Pods/
+app/ios/.symlinks/
+app/ios/Flutter/ephemeral/
+
+# Generated IDE files
+app/android/local.properties

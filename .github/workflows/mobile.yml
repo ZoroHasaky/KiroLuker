@@ -1,0 +1,123 @@
+name: Mobile App
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'app/**'
+      - 'src/main/**'
+      - 'src/shared/**'
+      - 'src/preload/**'
+      - 'tests/**'
+      - '.github/workflows/mobile.yml'
+      - 'VERSION'
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'src/main/**'
+      - 'src/shared/**'
+      - 'src/preload/**'
+      - 'tests/**'
+      - '.github/workflows/mobile.yml'
+      - 'VERSION'
+
+permissions:
+  contents: read
+
+jobs:
+  desktop-contracts:
+    name: Desktop API contracts
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  android:
+    name: Android APK
+    needs: desktop-contracts
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.2
+          channel: stable
+          cache: true
+      - name: Synchronize mobile version
+        working-directory: .
+        run: node scripts/sync-mobile-version.mjs ${{ github.run_number }}
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build apk --debug --build-number=${{ github.run_number }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kiroluker-android-debug-apk
+          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+      - name: Configure Android release signing
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/kiroluker-release.jks"
+          cat > android/key.properties <<EOF
+          storeFile=$RUNNER_TEMP/kiroluker-release.jks
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
+      - name: Build signed Android release APK
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
+        run: flutter build apk --release --build-number=${{ github.run_number }}
+      - uses: actions/upload-artifact@v4
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
+        with:
+          name: kiroluker-android-release-apk
+          path: app/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+  ios:
+    name: Unsigned iOS IPA
+    needs: desktop-contracts
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.2
+          channel: stable
+          cache: true
+      - name: Synchronize mobile version
+        working-directory: .
+        run: node scripts/sync-mobile-version.mjs ${{ github.run_number }}
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build ios --release --no-codesign --build-number=${{ github.run_number }}
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p build/ios/ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/ipa/Payload/KiroLuker.app
+          cd build/ios/ipa
+          zip -qry KiroLuker-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kiroluker-ios-unsigned-ipa
+          path: app/build/ios/ipa/KiroLuker-unsigned.ipa
+          if-no-files-found: error

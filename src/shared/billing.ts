@@ -37,6 +37,31 @@ export interface BillingResult {
   generatedAt: number
 }
 
+/** Stripe Checkout 中国账单表单的专用结果。行政区和邮编均来自同一条地图记录。 */
+export interface CheckoutBillingResult {
+  chineseName: string
+  pinyinName: string
+  countryCode: 'CN'
+  province: string
+  city: string
+  district: string
+  pinyinCity: string
+  pinyinDistrict: string
+  addressLine1: string
+  postalCode: string
+  mapSource: '高德地图'
+  generatedAt: number
+}
+
+/** 经过严格筛选的高德 POI；不向 API 客户端透传上游原始数据。 */
+export interface CheckoutMapPlace {
+  province: string
+  city: string
+  district: string
+  address: string
+  postalCode: string
+}
+
 /** safeStorage 密文或受 electron-store 既有 encryptionKey 保护的回退明文。 */
 export interface BillingStoredSecret {
   scheme: 'safe-storage' | 'store'
@@ -93,6 +118,65 @@ export function normalizeAmapResponse(payload: unknown): string[] {
 }
 
 /** 将百度地点搜索响应收敛成可展示的完整地址，不透传上游原始对象。 */
+
+/** Checkout 仅接受带完整省/市/区、详细地址和有效六位邮编的高德扩展 POI。 */
+export function normalizeAmapCheckoutResponse(payload: unknown): CheckoutMapPlace[] {
+  if (!payload || typeof payload !== 'object') return []
+  const data = payload as { status?: unknown; pois?: unknown }
+  if (String(data.status) !== '1' || !Array.isArray(data.pois)) return []
+  return data.pois.flatMap((item): CheckoutMapPlace[] => {
+    if (!item || typeof item !== 'object') return []
+    const poi = item as Record<string, unknown>
+    const province = cleanAddressPart(poi.pname)
+    const city = cleanAddressPart(poi.cityname)
+    const district = cleanAddressPart(poi.adname)
+    const address = cleanAddressPart(poi.address)
+    const postalCode = cleanAddressPart(poi.postcode)
+    if (!province || !city || !district || !address || !/^\d{6}$/.test(postalCode)) return []
+    return [{ province, city, district, address, postalCode }]
+  })
+}
+
+/** Checkout AI 只允许返回一项中文道路与门牌，避免模型扩展行政区或捏造邮编。 */
+export function parseCheckoutAddressLine(content: unknown): string {
+  if (typeof content !== 'string') throw new Error('AI 返回内容不是字符串')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(content.trim())
+  } catch {
+    throw new Error('AI 未返回严格 JSON')
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('AI 返回 JSON 结构不正确')
+  }
+  const record = parsed as Record<string, unknown>
+  const line = typeof record.addressLine1 === 'string' ? record.addressLine1.trim() : ''
+  if (Object.keys(record).length !== 1 || !line || line.length > 120 || !/[\u4e00-\u9fff]/.test(line) || !/\d/.test(line)) {
+    throw new Error('AI 返回的地址第 1 行不合格')
+  }
+  return line
+}
+
+export function buildCheckoutAddressRequest(
+  fullAddress: string,
+  model: string,
+  reasoningEffort: BillingReasoningEffort
+): Record<string, unknown> {
+  const request: Record<string, unknown> = {
+    model,
+    response_format: { type: 'json_object' },
+    messages: [
+      {
+        role: 'system',
+        content: '你是地址字段提取器。仅从输入中提取中文道路名称和门牌号，不得改写、补充或猜测。只能返回严格 JSON：{"addressLine1":"道路及门牌"}。不得返回省、市、区、邮编、小区、楼栋、单元、室号或其他字段。'
+      },
+      { role: 'user', content: fullAddress }
+    ]
+  }
+  if (reasoningEffort) request.reasoning_effort = reasoningEffort
+  return request
+}
+
 export function normalizeBaiduResponse(payload: unknown): string[] {
   if (!payload || typeof payload !== 'object') return []
   const data = payload as { status?: unknown; results?: unknown }

@@ -4,12 +4,17 @@ import {
   buildPostalCodeRequest,
   DEFAULT_BILLING_CONFIG,
   normalizeAmapResponse,
+  normalizeAmapCheckoutResponse,
   normalizeBaiduResponse,
   parsePostalCode,
+  parseCheckoutAddressLine,
+  buildCheckoutAddressRequest,
   type BillingConfigPatch,
   type BillingPublicConfig,
   type BillingReasoningEffort,
   type BillingResult,
+  type CheckoutBillingResult,
+  type CheckoutMapPlace,
   type BillingSecretName,
   type BillingSecretPatch,
   type BillingStoredConfig,
@@ -178,6 +183,33 @@ async function queryAmap(key: string, city: string, keyword: string): Promise<st
   return randomItem(addresses)
 }
 
+
+async function queryAmapCheckout(key: string, city: string, keyword: string): Promise<CheckoutMapPlace[]> {
+  const url = new URL('https://restapi.amap.com/v3/place/text')
+  url.searchParams.set('key', key)
+  url.searchParams.set('keywords', keyword)
+  url.searchParams.set('city', city)
+  url.searchParams.set('citylimit', 'true')
+  // Checkout 不能由 AI 猜邮编；仅接受高德扩展结果中同一条 POI 的 postcode。
+  url.searchParams.set('extensions', 'all')
+  url.searchParams.set('offset', '20')
+  url.searchParams.set('page', '1')
+  let response
+  try {
+    response = await httpRequest(url.toString(), { timeoutMs: 15_000 })
+  } catch {
+    throw new Error('连接失败')
+  }
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  let payload: unknown
+  try {
+    payload = await response.json<unknown>()
+  } catch {
+    throw new Error('响应不是有效 JSON')
+  }
+  return normalizeAmapCheckoutResponse(payload)
+}
+
 async function queryBaidu(key: string, city: string, keyword: string): Promise<string> {
   const url = new URL('https://api.map.baidu.com/place/v2/search')
   url.searchParams.set('ak', key)
@@ -204,6 +236,102 @@ async function queryBaidu(key: string, city: string, keyword: string): Promise<s
   const addresses = normalizeBaiduResponse(payload)
   if (!addresses.length) throw new Error('没有返回可用地点')
   return randomItem(addresses)
+}
+
+
+interface CheckoutMapAddress extends CheckoutMapPlace {
+  source: '高德地图'
+}
+
+/**
+ * Checkout 必须用一条带完整行政区和邮编的高德 POI。每次查询至多三轮，
+ * 任何缺失项都直接丢弃，绝不由 AI 补写行政区或邮编。
+ */
+async function resolveCheckoutMapAddress(config: RuntimeConfig): Promise<CheckoutMapAddress> {
+  if (!config.amapKey) throw new Error('Stripe Checkout 账单生成需要配置高德地图 API Key')
+  const failures: string[] = []
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const city = randomItem(BILLING_CITIES)
+    const keyword = randomItem(BILLING_POI_KEYWORDS)
+    try {
+      const places = await queryAmapCheckout(config.amapKey, city, keyword)
+      if (places.length) return { ...randomItem(places), source: '高德地图' }
+      failures.push(`${city}：没有包含完整行政区和六位邮编的地点`)
+    } catch (error) {
+      failures.push(`${city}：${error instanceof Error ? error.message : '请求失败'}`)
+    }
+  }
+  throw new Error(`Checkout 地址获取失败（${failures.join('；')}）`)
+}
+
+function titleCase(value: string): string {
+  return value ? `${value.slice(0, 1).toUpperCase()}${value.slice(1).toLowerCase()}` : ''
+}
+
+function romanize(value: string): string {
+  return pinyin(value, { toneType: 'none', type: 'array' })
+    .join('')
+    .replace(/[^a-zA-Z]/g, '')
+}
+
+/** 省、市、区、道路后缀独立成词，主体连写；数字和门牌保留并以空格分隔。 */
+export function checkoutPinyin(value: string): string {
+  const clean = value.trim().replace(/[，,；;、]/g, ' ')
+  if (!clean) return ''
+  const pieces = clean.match(/[\u4e00-\u9fff]+|\d+|[A-Za-z]+/g) ?? []
+  const suffixes = ['特别行政区', '自治区', '省', '市', '区', '县', '路', '街', '道', '巷', '号']
+  const words: string[] = []
+  for (const piece of pieces) {
+    if (/^\d+$/.test(piece)) {
+      words.push(piece)
+      continue
+    }
+    if (/^[A-Za-z]+$/.test(piece)) {
+      words.push(titleCase(piece))
+      continue
+    }
+    let remaining = piece
+    const trailing: string[] = []
+    while (remaining) {
+      const suffix = suffixes.find((candidate) => remaining.endsWith(candidate))
+      if (!suffix) break
+      remaining = remaining.slice(0, -suffix.length)
+      trailing.unshift(suffix)
+    }
+    if (remaining) words.push(titleCase(romanize(remaining)))
+    for (const suffix of trailing) words.push(titleCase(romanize(suffix)))
+  }
+  return words.filter(Boolean).join(' ')
+}
+
+async function checkoutAddressLine(config: RuntimeConfig, fullAddress: string): Promise<string> {
+  if (!config.aiKey || !config.aiModel || !config.aiUrl) {
+    throw new Error('Stripe Checkout 账单生成需要配置 AI 服务、模型和 API Key')
+  }
+  const endpoint = validateEndpoint(config.aiUrl)
+  let lastError = 'AI 服务未返回可用道路与门牌'
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await httpRequest(endpoint, {
+        method: 'POST',
+        timeoutMs: 30_000,
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${config.aiKey}` },
+        body: JSON.stringify(buildCheckoutAddressRequest(fullAddress, config.aiModel, config.reasoningEffort))
+      })
+      if (!response.ok) throw new Error(`AI 服务请求失败（HTTP ${response.status}）`)
+      const payload = await response.json<unknown>()
+      const message = payload && typeof payload === 'object' && Array.isArray((payload as { choices?: unknown }).choices)
+        ? ((payload as { choices: Array<{ message?: { content?: unknown } }> }).choices[0]?.message?.content)
+        : undefined
+      const chineseLine = parseCheckoutAddressLine(message)
+      const line = checkoutPinyin(chineseLine)
+      if (!line || !/\d/.test(line)) throw new Error('道路与门牌转写失败')
+      return line
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : 'AI 服务请求失败'
+    }
+  }
+  throw new Error(`Checkout 地址提取失败：${lastError}`)
 }
 
 async function resolveMapAddress(config: RuntimeConfig): Promise<MapAddress> {
@@ -369,6 +497,35 @@ export class BillingService {
     const next = { ...DEFAULT_BILLING_CONFIG }
     this.repository.save(next)
     return this.publicConfig(next)
+  }
+
+  async generateCheckout(): Promise<CheckoutBillingResult> {
+    const stored = this.load()
+    const runtime: RuntimeConfig = {
+      aiUrl: stored.aiUrl,
+      aiModel: stored.aiModel,
+      reasoningEffort: stored.reasoningEffort,
+      amapKey: revealBillingSecret(stored.amapKey),
+      baiduKey: revealBillingSecret(stored.baiduKey),
+      aiKey: revealBillingSecret(stored.aiKey)
+    }
+    const place = await resolveCheckoutMapAddress(runtime)
+    const name = createChineseName()
+    const fullAddress = `${place.province}${place.city}${place.district}${place.address}`
+    const addressLine1 = await checkoutAddressLine(runtime, fullAddress)
+    return {
+      ...name,
+      countryCode: 'CN',
+      province: place.province,
+      city: place.city,
+      district: place.district,
+      pinyinCity: checkoutPinyin(place.city),
+      pinyinDistrict: checkoutPinyin(place.district),
+      addressLine1,
+      postalCode: place.postalCode,
+      mapSource: place.source,
+      generatedAt: Date.now()
+    }
   }
 
   async generate(): Promise<BillingResult> {

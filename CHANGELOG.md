@@ -4,6 +4,21 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.12] - 2026-09-09
+
+### 新增
+
+- 新增独立 Flutter 移动端：账户浏览、用量展示、标签编辑、OIDC 导出、支付入口、网络 IP 检测及 Android SIM1/SIM2 分别记录。
+- 移动 App API 服务首次启动自动创建唯一的全权限登录 API Key；Key 使用系统安全存储加密，可随时复制并可重新创建替换旧 Key。
+
+### 修复与优化
+
+- Android System WebView 不支持独立支付 Profile 时改为兼容会话，不再阻断 Stripe Checkout；会话前后清理本应用 WebView 数据并明确提示隔离限制。
+- 移动端账号筛选补齐 Free、Pro、Pro+、Max、Power，新增导入日期和待支付筛选，移除来源与状态筛选。
+
+### 测试
+
+- 桌面端测试 425/425 通过；Flutter 分析通过、测试 9/9 通过；Android Debug APK 构建通过。
 ## [1.2.8] - 2026-09-05
 
 ### 界面优化

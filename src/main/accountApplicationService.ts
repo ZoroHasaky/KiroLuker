@@ -10,7 +10,7 @@ import type {
   RefreshTokenResult,
   VerifyCredentialsInput
 } from '../shared/types'
-import { ACCOUNT_STORE_VERSION } from '../shared/accountData'
+import { ACCOUNT_STORE_VERSION, buildOidcImportItem } from '../shared/accountData'
 
 export interface PublicAccount {
   id: string
@@ -29,6 +29,8 @@ export interface PublicAccount {
   lastUsedAt: number
   lastCheckedAt?: number
   tokenExpiresAt: number
+  /** 支付链接只通过专用授权接口按需返回，不会出现在账号列表或详情。 */
+  hasPaymentLink: boolean
 }
 
 export interface AccountChange {
@@ -68,7 +70,8 @@ function publicAccount(account: Account): PublicAccount {
     createdAt: account.createdAt,
     lastUsedAt: account.lastUsedAt,
     lastCheckedAt: account.lastCheckedAt,
-    tokenExpiresAt: account.credentials.expiresAt
+    tokenExpiresAt: account.credentials.expiresAt,
+    hasPaymentLink: Boolean(account.paymentLink?.trim())
   }
 }
 
@@ -121,6 +124,22 @@ export class AccountApplicationService {
 
   listPublicAccounts(): PublicAccount[] {
     return this.repository.load().accounts.map(publicAccount)
+  }
+
+  /** 与桌面端“复制 OIDC 精简 JSON”共用同一序列化逻辑，且仅在用户按需请求时读取凭证。 */
+  getOidcExportContent(id: string): string | null {
+    const account = this.repository.load().accounts.find((item) => item.id === id)
+    if (!account) return null
+    if (!account.credentials.refreshToken) throw new Error('该账号没有可复制的凭证')
+    return JSON.stringify([buildOidcImportItem(account)], null, 2)
+  }
+
+  /** 支付链接不参与 PublicAccount 序列化；调用方需显式取得且自行避免缓存。 */
+  getPaymentLink(id: string): string | null {
+    const account = this.repository.load().accounts.find((item) => item.id === id)
+    if (!account) return null
+    const link = account.paymentLink?.trim() ?? ''
+    return link || null
   }
 
   private async write<T>(mutator: (data: AccountStoreData) => { data: AccountStoreData; result: T; removedIds?: string[] }): Promise<T> {

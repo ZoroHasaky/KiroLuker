@@ -54,7 +54,6 @@ import { buildXlsx } from './xlsxWriter'
 import { billingService } from './applicationServices'
 import { accountApplicationService } from './accountApplicationSingleton'
 import { webControlManager } from './webControlManager'
-import { resolveRuntimePaths } from './runtimePaths'
 import { errorMessage } from '../shared/errors'
 import { sendToRenderer } from './utils'
 import {
@@ -454,21 +453,18 @@ export function registerIpc(
   handle('billing:clear-config', () => ok(billingService.clearConfig()))
   handle('billing:generate', async () => ok(await billingService.generate()))
 
-  // ============ Web 控制面板 ============
-  const webDir = () => resolveRuntimePaths(app.getAppPath()).web
+  // ============ 独立移动 API 服务 ============
   handle('web-control:get-config', () => ok(webControlManager.getConfig()))
-  handle('web-control:save-settings', async (_e, patch) =>
-    ok(await webControlManager.saveSettings(patch, webDir()))
-  )
-  handle('web-control:set-password', async (_e, password: string) => {
-    if (typeof password !== 'string') throw new Error('管理员密码必须是字符串')
-    return ok(await webControlManager.setAdminPassword(password, webDir()))
-  })
-  handle('web-control:start', async () => ok(await webControlManager.start(webDir())))
+  handle('web-control:save-settings', async (_e, patch) => ok(await webControlManager.saveSettings(patch)))
+  handle('web-control:start', async () => ok(await webControlManager.start()))
   handle('web-control:stop', async () => {
     await webControlManager.stop()
     return ok(webControlManager.getConfig())
   })
+  handle('web-control:get-mobile-api-key', () => ok(webControlManager.getMobileApiKey()))
+  handle('web-control:regenerate-mobile-api-key', () => ok(webControlManager.regenerateMobileApiKey()))
+  // 明文仅在用户主动点击“复制”时返回给桌面 Renderer；不会出现在配置或 HTTP API 列表中。
+  handle('web-control:copy-mobile-api-key', () => ok({ apiKey: webControlManager.copyMobileApiKey() }))
 
   // ============ 应用 ============
   handle('app:info', () =>

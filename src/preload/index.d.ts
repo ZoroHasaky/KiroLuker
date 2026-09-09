@@ -1,5 +1,5 @@
 import type { BrowserRendererApi } from '../shared/browser'
-import type { WebControlPublicConfig, WebControlSettings } from '../shared/webControl'
+import type { WebControlApiKeyPublic, WebControlPublicConfig, WebControlSettings } from '../shared/webControl'
 import type {
   Account,
   AccountApiKeyList,
@@ -174,9 +174,11 @@ export interface Api extends BillingRendererApi, BrowserRendererApi {
   getAppInfo: () => Promise<IpcResult<AppInfo>>
   getWebControlConfig: () => Promise<IpcResult<WebControlPublicConfig>>
   saveWebControlSettings: (patch: Partial<WebControlSettings>) => Promise<IpcResult<WebControlPublicConfig>>
-  setWebControlPassword: (password: string) => Promise<IpcResult<WebControlPublicConfig>>
   startWebControl: () => Promise<IpcResult<WebControlPublicConfig>>
   stopWebControl: () => Promise<IpcResult<WebControlPublicConfig>>
+  getWebControlMobileApiKey: () => Promise<IpcResult<WebControlApiKeyPublic | null>>
+  regenerateWebControlMobileApiKey: () => Promise<IpcResult<WebControlApiKeyPublic>>
+  copyWebControlMobileApiKey: () => Promise<IpcResult<{ apiKey: string }>>
   checkUpdate: () => Promise<IpcResult<UpdateCheckResult>>
   getUpdateState: () => Promise<IpcResult<AppUpdateState>>
   downloadUpdate: () => Promise<IpcResult<AppUpdateState>>

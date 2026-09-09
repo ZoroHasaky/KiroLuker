@@ -1,3 +1,4 @@
+import { safeStorage } from 'electron'
 import { isIP } from 'node:net'
 import type { FastifyInstance } from 'fastify'
 import {
@@ -8,13 +9,27 @@ import {
 } from './store'
 import {
   DEFAULT_WEB_CONTROL_SETTINGS,
+  type WebControlApiKeyPublic,
   type WebControlPublicConfig,
   type WebControlSettings
 } from '../shared/webControl'
 import { accountApplicationService } from './accountApplicationSingleton'
 import { billingService } from './applicationServices'
-import { createPasswordRecord, createWebControlHttpApp } from './webControlHttp'
+import { createWebControlHttpApp } from './webControlHttp'
+import { ensureDefaultMobileApiKey, getCurrentMobileApiKey, publicApiKey, readMobileApiKey, regenerateMobileApiKey } from './webControlApiKey'
 
+function apiKeyProtector() {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) throw new Error()
+    if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') throw new Error()
+  } catch {
+    throw new Error('系统安全存储不可用，无法安全保存可复制的移动 App API Key')
+  }
+  return {
+    encrypt: (value: string) => safeStorage.encryptString(value).toString('base64'),
+    decrypt: (value: string) => safeStorage.decryptString(Buffer.from(value, 'base64'))
+  }
+}
 function validateSettings(input: WebControlSettings): WebControlSettings {
   const host = input.host.trim()
   if (!(host === 'localhost' || isIP(host) !== 0)) throw new Error('监听地址必须是 localhost、IPv4 或 IPv6 地址')
@@ -36,70 +51,69 @@ function validateSettings(input: WebControlSettings): WebControlSettings {
 /** Electron 生命周期层：负责端口监听、关闭与设置变更，HTTP 路由本身保持可注入测试。 */
 export class WebControlManager {
   private server: FastifyInstance | null = null
-  private webDir = ''
   private lastError = ''
 
   getConfig(): WebControlPublicConfig {
     const settings = getWebControlSettings()
-    const auth = getWebControlAuth()
     const running = this.server !== null
     return {
       ...settings,
-      passwordConfigured: Boolean(auth.password),
       running,
-      ...(running ? { url: `${settings.publicUrl || `http://${settings.host}:${settings.port}`}/panel/` } : {}),
+      ...(running ? { url: settings.publicUrl || `http://${settings.host}:${settings.port}` } : {}),
       ...(this.lastError ? { error: this.lastError } : {})
     }
   }
 
-  async saveSettings(patch: Partial<WebControlSettings>, webDir?: string): Promise<WebControlPublicConfig> {
+  async saveSettings(patch: Partial<WebControlSettings>): Promise<WebControlPublicConfig> {
     const next = validateSettings({ ...getWebControlSettings(), ...patch })
     setWebControlSettings(next)
-    if (webDir) this.webDir = webDir
     if (this.server) await this.stop()
-    if (next.enabled) await this.start(this.webDir)
+    if (next.enabled) await this.start()
     return this.getConfig()
   }
 
-  async setAdminPassword(password: string, webDir?: string): Promise<WebControlPublicConfig> {
-    const auth = getWebControlAuth()
-    const passwordRecord = await createPasswordRecord(password)
-    setWebControlAuth({ ...auth, password: passwordRecord })
-    if (webDir) this.webDir = webDir
-    // 重启会话内存，旧 cookie 立即失效。
-    if (this.server) {
-      await this.stop()
-      if (getWebControlSettings().enabled) await this.start(this.webDir)
-    }
-    return this.getConfig()
-  }
-
-  async start(webDir?: string): Promise<WebControlPublicConfig> {
-    if (webDir) this.webDir = webDir
+  async start(): Promise<WebControlPublicConfig> {
     if (this.server) return this.getConfig()
     const settings = validateSettings(getWebControlSettings())
-    if (!settings.enabled) throw new Error('请先启用 Web 控制面板')
-    if (!getWebControlAuth().password) throw new Error('请先设置管理员密码')
-    if (!this.webDir) throw new Error('Web 面板资源路径不可用')
+    if (!settings.enabled) throw new Error('请先启用 API 服务')
     this.lastError = ''
+    this.ensureDefaultMobileApiKey()
     const server = await createWebControlHttpApp({
       accountService: accountApplicationService,
       billingService,
       authRepository: { load: getWebControlAuth, save: setWebControlAuth },
       getSettings: getWebControlSettings,
-      webDir: this.webDir
     })
     try {
       await server.listen({ host: settings.host, port: settings.port })
       this.server = server
     } catch (error) {
       await server.close().catch(() => undefined)
-      this.lastError = error instanceof Error ? error.message : '无法启动 Web 服务'
-      throw new Error(`Web 服务启动失败：${this.lastError}`)
+      this.lastError = error instanceof Error ? error.message : '无法启动 API 服务'
+      throw new Error(`API 服务启动失败：${this.lastError}`)
     }
     return this.getConfig()
   }
 
+  private ensureDefaultMobileApiKey(): WebControlApiKeyPublic {
+    const next = ensureDefaultMobileApiKey(getWebControlAuth(), apiKeyProtector())
+    if (next.changed) setWebControlAuth(next.auth)
+    return publicApiKey(next.item)
+  }
+
+  getMobileApiKey(): WebControlApiKeyPublic | null {
+    return getCurrentMobileApiKey(getWebControlAuth(), apiKeyProtector())
+  }
+
+  regenerateMobileApiKey(): WebControlApiKeyPublic {
+    const next = regenerateMobileApiKey(getWebControlAuth(), apiKeyProtector())
+    setWebControlAuth(next.auth)
+    return publicApiKey(next.item)
+  }
+
+  copyMobileApiKey(): string {
+    return readMobileApiKey(getWebControlAuth(), apiKeyProtector())
+  }
   async stop(): Promise<void> {
     const server = this.server
     this.server = null
