@@ -44,8 +44,15 @@ private final class PaymentSessionRegistry {
   }
 
   func canGoBack(_ sessionId: String) -> Bool { sessions[sessionId]?.webView?.canGoBack ?? false }
-  func goBack(_ sessionId: String) throws { try webView(sessionId).goBack() }
-  func reload(_ sessionId: String) throws { webView(sessionId).reload() }
+  func goBack(_ sessionId: String) throws {
+    let target = try webView(sessionId)
+    target.goBack()
+  }
+
+  func reload(_ sessionId: String) throws {
+    let target = try webView(sessionId)
+    target.reload()
+  }
 
   func fill(_ sessionId: String, billing: CheckoutBillingPayload) async throws -> PaymentFillResult {
     let target = try webView(sessionId)
