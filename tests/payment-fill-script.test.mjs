@@ -148,7 +148,7 @@ function iosScript() {
   const source = readFileSync(resolve(root, 'app/ios/Runner/AppDelegate.swift'), 'utf8')
   const match = source.match(/private func checkoutFillScript[\s\S]*?return """\s*([\s\S]*?)\s*"""/)
   assert.ok(match, 'iOS 填充脚本必须存在')
-  return match[1].replace('const data = \\(json);', `const data = ${JSON.stringify(billing)};`)
+  return match[1].replace('const data = \\(json);', `const data = ${JSON.stringify(billing)};`).replaceAll('\\\\', '\\')
 }
 
 for (const [platform, script] of [
