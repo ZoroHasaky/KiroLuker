@@ -35,6 +35,7 @@ import { runPool } from '@/utils/format'
 import { toPlain } from '@/utils/ipc'
 import { isSocialIdp, normalizeIdp } from '@/utils/transfer'
 import { useSettingsStore } from './settings'
+import { acknowledgePendingTagIds, overlayPendingTagIds } from './pendingTagOverlay'
 
 export interface AccountFilter {
   search: string
@@ -126,6 +127,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     tags: [],
     activeAccountId: null
   }
+  const pendingAccountTagIds = new Map<string, string[]>()
 
   function snapshotForStore(): AccountStoreData {
     return {
@@ -136,14 +138,22 @@ export const useAccountsStore = defineStore('accounts', () => {
     }
   }
 
-  /** 任何主进程/Web 写入后的新权威快照都从这里进入 Store。 */
-  function applyServerData(raw: AccountStoreData): void {
+  /**
+   * Live snapshots remain the server baseline, but a local tag edit stays rendered until
+   * the renderer receives a successful save response. Without this overlay, a background
+   * refresh arriving during the 600ms debounce would make the selected tag disappear.
+   */
+  function commitServerData(raw: AccountStoreData): void {
     const data = migrateAccountStoreData(raw).data
     serverSnapshot = toPlain(data)
-    accounts.value = data.accounts
+    accounts.value = overlayPendingTagIds(data.accounts, pendingAccountTagIds)
     tags.value = data.tags
     activeAccountId.value = data.activeAccountId ?? null
     selectedIds.value = selectedIds.value.filter((id) => data.accounts.some((account) => account.id === id))
+  }
+
+  function applyServerData(raw: AccountStoreData): void {
+    commitServerData(raw)
   }
 
   async function flushPersist(): Promise<void> {
@@ -154,9 +164,12 @@ export const useAccountsStore = defineStore('accounts', () => {
         syncQueued = false
         const base = toPlain(serverSnapshot)
         const next = toPlain(snapshotForStore())
+        const submittedTagIds = new Map(pendingAccountTagIds)
         const response = await window.api.saveAccounts(base, next)
-        if (response.success && response.data) applyServerData(response.data)
-        else console.warn('[Account] 保存账户数据失败：', response.error)
+        if (response.success && response.data) {
+          acknowledgePendingTagIds(pendingAccountTagIds, submittedTagIds)
+          commitServerData(response.data)
+        } else console.warn('[Account] 保存账户数据失败：', response.error)
       } while (syncQueued)
     } finally {
       syncing = false
@@ -434,7 +447,9 @@ export const useAccountsStore = defineStore('accounts', () => {
     accounts.value = accounts.value.map((account) => {
       if (!account.tagIds.includes(id)) return account
       affected++
-      return { ...account, tagIds: account.tagIds.filter((tagId) => tagId !== id) }
+      const tagIds = account.tagIds.filter((tagId) => tagId !== id)
+      pendingAccountTagIds.set(account.id, tagIds)
+      return { ...account, tagIds }
     })
     filter.value.tagIds = filter.value.tagIds.filter((tagId) => tagId !== id)
     persist()
@@ -453,6 +468,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     ) {
       return true
     }
+    pendingAccountTagIds.set(accountId, [...nextIds])
     updateAccount(accountId, { tagIds: nextIds })
     return true
   }
@@ -474,6 +490,7 @@ export const useAccountsStore = defineStore('accounts', () => {
         return account
       }
       updated++
+      pendingAccountTagIds.set(account.id, [...nextIds])
       return { ...account, tagIds: nextIds }
     })
 

@@ -3,7 +3,7 @@
 | Area | Command / method | Result | Notes |
 |---|---|---|---|
 | Desktop typecheck | `npm run typecheck` | Passed | TypeScript and Vue typechecks completed after the API-only removal. |
-| Desktop test suite | `npm test` | Passed: 425/425 | Includes the encrypted default mobile API Key lifecycle, API Key regeneration/revocation, API-only route removal, credential/payment-link leak protections, Checkout billing validation, and import-date / pending-payment account filters. |
+| Desktop test suite | `npm test` | Passed: 427/427 | Includes the encrypted default mobile API Key lifecycle, API Key regeneration/revocation, API-only route removal, credential/payment-link leak protections, Checkout billing validation, and import-date / pending-payment account filters. |
 | Flutter analysis | `E:\projs\KiroLucker\.tooling\flutter\bin\flutter.bat analyze` | Passed | No issues found after account filters, payment compatibility fallback, and SIM-aware network-IP changes. |
 | Flutter widget/unit tests | `E:\projs\KiroLucker\.tooling\flutter\bin\flutter.bat test` | Passed: 9/9 | Covers connection parsing, account filters/usage presentation, Checkout contract parsing, payment UI behavior, and SIM IP result mapping/history fallback. |
 | Android LAN HTTP configuration | Merged manifest + `aapt dump xmltree` on the built APK | Passed | User-approved global cleartext support is present in the packaged artifact. The app still requires an in-app confirmation before credentials are sent over HTTP; public endpoints should always use HTTPS. |
