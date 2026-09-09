@@ -120,6 +120,12 @@ jobs:
         working-directory: .
         run: node scripts/sync-mobile-version.mjs ${{ github.run_number }}
       - run: flutter pub get
+      - name: Rebuild CocoaPods sandbox
+        run: |
+          rm -rf ios/Pods ios/.symlinks
+          rm -f ios/Podfile.lock
+          cd ios
+          pod install
       - run: flutter analyze
       - run: flutter test
       - run: flutter build ios --release --no-codesign --build-number=${{ github.run_number }}
