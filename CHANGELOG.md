@@ -4,6 +4,19 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.14] - 2026-09-09
+
+### 修复
+
+- 支付页 Android System WebView 兼容模式提示支持手动关闭，不再持续遮挡 Checkout 表单。
+- Android 支付 WebView 改用原生视图层级组合并优先接收手势，修复部分设备国家、省份下拉框仅获得焦点而无法展开的问题。
+- Stripe Checkout 自动填充改用原生输入值 setter 和事件通知，补齐受控字段识别；支持中国省份中文、英文及常见 ISO 别名，使姓名、国家、省份、城市、地区、地址和邮编能够共同填充。
+- Android 与 iOS 支付填充逻辑保持一致，并新增两端脚本回归测试。
+
+### 测试
+
+- 桌面端测试 429/429 通过；Android/iOS 填充脚本回归测试 2/2 通过。
+- Flutter 修改文件静态分析通过；Android 原生 Kotlin 编译通过。
 ## [1.2.13] - 2026-09-09
 
 ### 修复

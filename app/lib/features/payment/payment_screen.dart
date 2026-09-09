@@ -19,6 +19,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
   CheckoutBillingResult? _billing;
   String? _error;
   bool _filling = false;
+  bool _showSessionNotice = true;
 
   @override
   void initState() {
@@ -49,6 +50,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       setState(() {
         _url = url;
         _session = session;
+        _showSessionNotice = session.message != null;
       });
     } on ApiFailure catch (error) {
       if (mounted) setState(() => _error = error.message);
@@ -130,7 +132,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
             const Center(child: CircularProgressIndicator())
           else
             NativePaymentBrowser(session: _session!),
-          if (_session?.message != null && _error == null)
+          if (_showSessionNotice && _session?.message != null && _error == null)
             Positioned(
               left: 12,
               right: 12,
@@ -138,16 +140,22 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
               child: Card(
                 color: Theme.of(context).colorScheme.secondaryContainer,
                 child: Padding(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Padding(
-                        padding: EdgeInsets.only(top: 2),
+                        padding: EdgeInsets.only(top: 8),
                         child: Icon(Icons.privacy_tip_outlined),
                       ),
                       const SizedBox(width: 8),
                       Expanded(child: Text(_session!.message!)),
+                      IconButton(
+                        onPressed: () =>
+                            setState(() => _showSessionNotice = false),
+                        icon: const Icon(Icons.close),
+                        tooltip: '关闭提示',
+                      ),
                     ],
                   ),
                 ),
