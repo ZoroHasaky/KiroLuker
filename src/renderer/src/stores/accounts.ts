@@ -128,6 +128,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     activeAccountId: null
   }
   const pendingAccountTagIds = new Map<string, string[]>()
+  const pendingNewAccounts = new Map<string, Account>()
 
   function snapshotForStore(): AccountStoreData {
     return {
@@ -139,17 +140,26 @@ export const useAccountsStore = defineStore('accounts', () => {
   }
 
   /**
-   * Live snapshots remain the server baseline, but a local tag edit stays rendered until
-   * the renderer receives a successful save response. Without this overlay, a background
-   * refresh arriving during the 600ms debounce would make the selected tag disappear.
+   * Live snapshots remain the server baseline, but local edits (such as tags and newly added accounts)
+   * stay rendered until the renderer receives a successful save response. Without this overlay,
+   * a background refresh arriving during the 600ms debounce would wipe out newly added accounts or tag selections.
    */
   function commitServerData(raw: AccountStoreData): void {
     const data = migrateAccountStoreData(raw).data
     serverSnapshot = toPlain(data)
-    accounts.value = overlayPendingTagIds(data.accounts, pendingAccountTagIds)
+    let overlaidAccounts = overlayPendingTagIds(data.accounts, pendingAccountTagIds)
+    if (pendingNewAccounts.size > 0) {
+      const serverIds = new Set(overlaidAccounts.map((a) => a.id))
+      for (const [id, newAcc] of pendingNewAccounts) {
+        if (!serverIds.has(id)) {
+          overlaidAccounts = [...overlaidAccounts, newAcc]
+        }
+      }
+    }
+    accounts.value = overlaidAccounts
     tags.value = data.tags
     activeAccountId.value = data.activeAccountId ?? null
-    selectedIds.value = selectedIds.value.filter((id) => data.accounts.some((account) => account.id === id))
+    selectedIds.value = selectedIds.value.filter((id) => accounts.value.some((account) => account.id === id))
   }
 
   function applyServerData(raw: AccountStoreData): void {
@@ -165,9 +175,15 @@ export const useAccountsStore = defineStore('accounts', () => {
         const base = toPlain(serverSnapshot)
         const next = toPlain(snapshotForStore())
         const submittedTagIds = new Map(pendingAccountTagIds)
+        const submittedNewAccounts = new Map(pendingNewAccounts)
         const response = await window.api.saveAccounts(base, next)
         if (response.success && response.data) {
           acknowledgePendingTagIds(pendingAccountTagIds, submittedTagIds)
+          for (const [id] of submittedNewAccounts) {
+            if (response.data.accounts.some((a) => a.id === id)) {
+              pendingNewAccounts.delete(id)
+            }
+          }
           commitServerData(response.data)
         } else console.warn('[Account] 保存账户数据失败：', response.error)
       } while (syncQueued)
@@ -367,10 +383,11 @@ export const useAccountsStore = defineStore('accounts', () => {
     }
 
     const account = buildAccount(res.data, input)
+    pendingNewAccounts.set(account.id, account)
     accounts.value = [...accounts.value, account]
     // 入库时记一条基线，之后的变化才有对比对象
     void window.api.recordUsagePoint(account.id, toPlain(account.usage))
-    persist()
+    persist(true)
     return { ok: true, account }
   }
 
@@ -598,10 +615,11 @@ export const useAccountsStore = defineStore('accounts', () => {
       })
     } finally {
       if (created.length) {
-        accounts.value = [...accounts.value, ...created]
         for (const account of created) {
+          pendingNewAccounts.set(account.id, account)
           void window.api.recordUsagePoint(account.id, toPlain(account.usage))
         }
+        accounts.value = [...accounts.value, ...created]
         persist(true)
       }
       // 同上：running 一定要复位，否则会把后续的自动刷新全部挡掉
@@ -663,6 +681,9 @@ export const useAccountsStore = defineStore('accounts', () => {
 
     if (mergedTags.added) tags.value = mergedTags.tags
     if (created.length || mergedTags.added) {
+      for (const account of created) {
+        pendingNewAccounts.set(account.id, account)
+      }
       accounts.value = [...accounts.value, ...created]
       persist(true)
     }

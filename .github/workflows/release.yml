@@ -48,10 +48,10 @@ jobs:
           else
             echo "should_release=true" >> "$GITHUB_OUTPUT"
             echo "### 准备发布 $tag" >> "$GITHUB_STEP_SUMMARY"
-            echo "检测到新版本，将构建 macOS arm64 和 Windows x64 安装包。" >> "$GITHUB_STEP_SUMMARY"
+            echo "检测到新版本，将构建 macOS arm64、Windows x64 以及 Android arm64 安装包。" >> "$GITHUB_STEP_SUMMARY"
           fi
 
-  build:
+  build-desktop:
     name: 构建 ${{ matrix.label }}
     needs: prepare
     if: needs.prepare.outputs.should_release == 'true'
@@ -109,11 +109,43 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build-android:
+    name: 构建 Android arm64 APK
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.2
+          channel: stable
+          cache: true
+      - name: 同步移动端版本
+        working-directory: .
+        run: node scripts/sync-mobile-version.mjs ${{ github.run_number }}
+      - run: flutter pub get
+      - name: 构建 Android arm64 APK
+        run: |
+          flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}
+          mkdir -p ../dist-apk
+          cp build/app/outputs/flutter-apk/app-release.apk "../dist-apk/kiroluker-${{ needs.prepare.outputs.version }}-arm64-v8a.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-android-apk
+          path: dist-apk/*.apk
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: 发布 ${{ needs.prepare.outputs.tag }}
     needs:
       - prepare
-      - build
+      - build-desktop
+      - build-android
     if: needs.prepare.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -149,6 +181,7 @@ jobs:
           | --- | --- |
           | macOS (Apple Silicon) | `*-mac-arm64.dmg` |
           | Windows | `*-win-x64-setup.exe` |
+          | Android (arm64-v8a) | `kiroluker-*-arm64-v8a.apk` |
 
           macOS 安装包未做签名与公证，首次打开请右键选择「打开」，或在
           「系统设置 - 隐私与安全性」中允许运行。

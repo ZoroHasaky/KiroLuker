@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -17,6 +19,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
   PaymentBrowserSession? _session;
   String? _url;
   CheckoutBillingResult? _billing;
+  Timer? _billingDismissTimer;
   String? _error;
   bool _filling = false;
   bool _showSessionNotice = true;
@@ -29,6 +32,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
 
   @override
   void dispose() {
+    _billingDismissTimer?.cancel();
     _session?.close();
     super.dispose();
   }
@@ -79,6 +83,10 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       final result = await session.fill(billing);
       if (!mounted) return;
       setState(() => _billing = billing);
+      _billingDismissTimer?.cancel();
+      _billingDismissTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _billing = null);
+      });
       final message = result.success
           ? '已填充：${result.completedFields.join('、')}'
           : '部分字段需手动填写：${result.failedFields.join('、')}';
@@ -178,15 +186,15 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
           Positioned(
             right: 18,
             bottom: 20,
-            child: FloatingActionButton.extended(
+            child: FloatingActionButton(
               onPressed: _session == null || _filling ? null : _fill,
-              icon: _filling
+              tooltip: '生成并填充',
+              child: _filling
                   ? const SizedBox.square(
                       dimension: 18,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : const Icon(Icons.auto_fix_high),
-              label: Text(_filling ? '生成中…' : '生成并填充'),
             ),
           ),
         ],
