@@ -3,13 +3,16 @@ import { join } from 'node:path'
 import { app, BrowserWindow, WebContentsView, screen, type WebContents, type WebPreferences, type IpcMainInvokeEvent } from 'electron'
 import type { Account } from '../shared/types'
 import { BROWSER_CHROME_HEIGHT, type BrowserChromeCommand, type BrowserChromeState, type BrowserFingerprint,
-  type BrowserOpenRequest, type BrowserProxyCheck, type BrowserResolvedConfig, type BrowserWindowSummary } from '../shared/browser'
+  type BrowserOpenRequest, type BrowserProxyCheck, type BrowserResolvedConfig, type BrowserSessionAccountSummary, type BrowserWindowSummary } from '../shared/browser'
 import { acceptLanguageFor } from '../shared/portalLocale'
 import { CHROME_UA, initializePortalSession, KIRO_PORTAL_ORIGIN } from './kiroPortalSession'
 import { createBrowserSession, type BrowserSessionResource } from './browserSession'
-import { browserNavigationUrl, browserOrigin, isBrowserNavigationAllowed } from './browserPolicy'
+import { browserNavigationUrl, browserOrigin, isBrowserNavigationAllowed, isOAuthCallbackUrl } from './browserPolicy'
 import { getResolvedBrowserConfig } from './browserConfig'
 import { getAccountData, getSettings } from './store'
+import { accountApplicationService } from './accountApplicationSingleton'
+import { verifyCredentials } from './accountService'
+import { handleProtocolUrl } from './onlineLogin'
 
 interface Tab {
   id: string
@@ -30,6 +33,7 @@ interface WindowRecord {
   tabs: Map<string, Tab>
   closing: boolean
   cleanup?: Promise<void>
+  sessionAccount?: BrowserSessionAccountSummary
 }
 
 export interface BrowserManagerOptions {
@@ -105,6 +109,7 @@ export class BrowserManager {
       windowId: record.id, label: record.label, proxyEnabled: record.proxyEnabled,
       exitIp: record.resource.check?.ip, country: record.resource.check?.country,
       activeTabId: record.activeTabId,
+      sessionAccount: record.sessionAccount,
       tabs: [...record.tabs.values()].filter((t) => !t.view.webContents.isDestroyed()).map((tab) => {
         const contents = tab.view.webContents
         return { id: tab.id, title: contents.getTitle() || '新标签页', url: contents.getURL() || 'about:blank',
@@ -185,6 +190,11 @@ export class BrowserManager {
       window.on('closed', () => { void this.dispose(current) })
       resource.session.webRequest.onBeforeRequest((details, callback) => {
         if (current.closing) { callback({ cancel: true }); return }
+        if (isOAuthCallbackUrl(details.url)) {
+          this.handleNavigationCallback(current, details.url)
+          callback({ cancel: true })
+          return
+        }
         if (details.resourceType === 'mainFrame' && !isBrowserNavigationAllowed(details.url)) {
           callback({ cancel: true }); return
         }
@@ -284,7 +294,10 @@ export class BrowserManager {
     const update = (): void => { if (!record.closing) this.publish(record) }
     contents.on('page-title-updated', update)
     contents.on('did-start-loading', update)
-    contents.on('did-stop-loading', update)
+    contents.on('did-stop-loading', () => {
+      update()
+      void this.checkSessionAccount(record.id)
+    })
     contents.on('did-navigate', update)
     contents.on('did-navigate-in-page', update)
     contents.on('did-start-navigation', (_event, _url, _inPlace, mainFrame) => { if (mainFrame) tab.error = undefined })
@@ -295,12 +308,26 @@ export class BrowserManager {
       }
     })
     contents.on('render-process-gone', () => { tab.error = '页面进程已退出，请重新加载'; update() })
-    contents.on('will-navigate', (event, url) => { if (!isBrowserNavigationAllowed(url)) event.preventDefault() })
-    contents.on('will-redirect', (event, url) => { if (!isBrowserNavigationAllowed(url)) event.preventDefault() })
+    contents.on('will-navigate', (event, url) => {
+      if (this.handleNavigationCallback(record, url)) {
+        event.preventDefault()
+        return
+      }
+      if (!isBrowserNavigationAllowed(url)) event.preventDefault()
+    })
+    contents.on('will-redirect', (event, url) => {
+      if (this.handleNavigationCallback(record, url)) {
+        event.preventDefault()
+        return
+      }
+      if (!isBrowserNavigationAllowed(url)) event.preventDefault()
+    })
     contents.on('will-attach-webview', (event) => event.preventDefault())
     contents.setWindowOpenHandler((details) => {
       const { url } = details
-      if (record.closing || !isBrowserNavigationAllowed(url)) return { action: 'deny' }
+      if (record.closing) return { action: 'deny' }
+      if (this.handleNavigationCallback(record, url)) return { action: 'deny' }
+      if (!isBrowserNavigationAllowed(url)) return { action: 'deny' }
       return {
         action: 'allow', outlivesOpener: true,
         overrideBrowserWindowOptions: { webPreferences: this.preferences(record) },
@@ -392,12 +419,111 @@ export class BrowserManager {
     })
   }
 
+  private handleNavigationCallback(record: WindowRecord, url: string): boolean {
+    if (!isOAuthCallbackUrl(url)) return false
+    console.log(`[BrowserManager] intercepted OAuth callback URL in window ${record.id}:`, url)
+    // 异步通知主窗口处理该社交登录 / OAuth 协议
+    try {
+      const mainWindow = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && w !== record.window) || null
+      handleProtocolUrl(url, mainWindow)
+    } catch (e) {
+      console.warn('[BrowserManager] failed to route OAuth callback to main window:', e)
+    }
+    // 延迟检测会话并发布最新状态
+    setTimeout(() => { void this.checkSessionAccount(record.id) }, 1500)
+    return true
+  }
+
+  /** 从当前临时浏览器窗口的会话 Cookie 中提取 Kiro 凭证 */
+  async getSessionCredentials(id: string): Promise<{
+    accessToken?: string
+    refreshToken?: string
+    idp?: string
+    profileArn?: string
+  }> {
+    const record = this.requireWindow(id)
+    const cookies = await record.resource.session.cookies.get({ domain: 'app.kiro.dev' })
+    const getVal = (name: string): string => cookies.find((c) => c.name === name)?.value || ''
+    return {
+      accessToken: getVal('AccessToken') || undefined,
+      refreshToken: getVal('RefreshToken') || undefined,
+      idp: getVal('Idp') || undefined,
+      profileArn: getVal('ProfileArn') || undefined
+    }
+  }
+
+  /** 检测当前窗口中是否已经登录了 Kiro 账号 */
+  async checkSessionAccount(id: string): Promise<BrowserSessionAccountSummary> {
+    const record = this.requireWindow(id)
+    try {
+      const cred = await this.getSessionCredentials(id)
+      if (!cred.refreshToken && !cred.accessToken) {
+        record.sessionAccount = { detected: false }
+        this.publish(record)
+        return record.sessionAccount
+      }
+      // 验证凭证并获取账号身份信息
+      const snapshot = await verifyCredentials({
+        refreshToken: cred.refreshToken || cred.accessToken || '',
+        provider: cred.idp as any,
+        profileArn: cred.profileArn
+      })
+      const accounts = getAccountData().accounts
+      const alreadyAdded = accounts.some((a) =>
+        (snapshot.userId && a.userId === snapshot.userId) ||
+        (snapshot.email && a.email.toLowerCase() === snapshot.email.toLowerCase())
+      )
+      record.sessionAccount = {
+        detected: true,
+        email: snapshot.email,
+        idp: snapshot.idp,
+        userId: snapshot.userId,
+        alreadyAdded
+      }
+    } catch (error) {
+      record.sessionAccount = {
+        detected: false,
+        error: error instanceof Error ? error.message : '识别账号失败'
+      }
+    }
+    this.publish(record)
+    return record.sessionAccount
+  }
+
+  /** 一键将当前窗口中的 Kiro 登录身份导入为系统账号 */
+  async importSessionAccount(id: string): Promise<{ success: boolean; email?: string; error?: string }> {
+    const record = this.requireWindow(id)
+    const cred = await this.getSessionCredentials(id)
+    if (!cred.refreshToken && !cred.accessToken) {
+      throw new Error('未检测到有效的 Kiro 登录凭证，请先在网页中完成登录')
+    }
+    const res = await accountApplicationService.importCredentials([{
+      refreshToken: cred.refreshToken || cred.accessToken || '',
+      provider: cred.idp as any,
+      profileArn: cred.profileArn
+    }])
+    if (res.failed > 0) {
+      throw new Error(res.messages[0] || '账号添加失败')
+    }
+    // 重新检测状态以标记 alreadyAdded
+    await this.checkSessionAccount(id)
+    return { success: true, email: record.sessionAccount?.email }
+  }
+
   async command(id: string, command: BrowserChromeCommand): Promise<void> {
     const record = this.requireWindow(id)
     if (!command || typeof command !== 'object') throw new Error('无效的浏览器操作')
     if (command.type === 'new-tab') { await this.newTab(record); return }
     if (command.type === 'activate-tab') { this.activate(record, command.tabId); return }
     if (command.type === 'close-tab') { this.removeTab(record, command.tabId); return }
+    if (command.type === 'check-account') { await this.checkSessionAccount(id); return }
+    if (command.type === 'import-account') { await this.importSessionAccount(id); return }
+    if (command.type === 'start-login') {
+      const provider = command.provider || 'Google'
+      const loginUrl = `https://auth.kiro.dev/login?idp=${provider}&redirect_uri=kiro://kiro.kiroAgent/authenticate-success`
+      await this.command(id, { type: 'navigate', url: loginUrl })
+      return
+    }
     const tab = record.tabs.get(record.activeTabId)
     if (!tab || tab.view.webContents.isDestroyed()) throw new Error('标签页已关闭')
     const contents = tab.view.webContents

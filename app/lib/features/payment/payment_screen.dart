@@ -170,7 +170,7 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
                 child: Padding(
                   padding: const EdgeInsets.all(10),
                   child: Text(
-                    '本次结果：${_billing!.pinyinName}\n${_billing!.addressLine1} · ${_billing!.postalCode}',
+                    '本次结果：${_billing!.pinyinName}\n${_billing!.province} · ${_billing!.city} · ${_billing!.district}\n${_billing!.addressLine1} · ${_billing!.postalCode}',
                   ),
                 ),
               ),

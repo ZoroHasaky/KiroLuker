@@ -12,6 +12,7 @@ Kiro */
 
 # Local SDK tooling (not committed)
 .tooling/
+.zcode/
 
 # Flutter/Dart generated state
 app/.dart_tool/

@@ -19,6 +19,8 @@ const backButton = document.querySelector<HTMLButtonElement>('#back')!
 const forwardButton = document.querySelector<HTMLButtonElement>('#forward')!
 const reloadButton = document.querySelector<HTMLButtonElement>('#reload')!
 const goButton = document.querySelector<HTMLButtonElement>('#go')!
+const btnLoginKiro = document.querySelector<HTMLButtonElement>('#btn-login-kiro')!
+const btnAddAccount = document.querySelector<HTMLButtonElement>('#btn-add-account')!
 const proxyStatus = document.querySelector<HTMLSpanElement>('#proxy-status')!
 const statusElement = document.querySelector<HTMLSpanElement>('#status')!
 document.documentElement.style.setProperty('--chrome-height', `${BROWSER_CHROME_HEIGHT}px`)
@@ -137,6 +139,29 @@ function render(next: BrowserChromeState): void {
   reloadButton.setAttribute('aria-label', reloadButton.title)
   proxyStatus.textContent = `${next.proxyEnabled ? 'SOCKS5 出口' : '系统网络出口'}：${next.exitIp || '未验证'}${next.country ? ` · ${next.country}` : ''}（启动样本）`
   document.title = next.label || '临时浏览器'
+
+  // 渲染账号检测与添加操作按钮
+  const acc = next.sessionAccount
+  if (acc?.detected && acc.email) {
+    btnLoginKiro.style.display = 'none'
+    btnAddAccount.style.display = 'inline-block'
+    if (acc.alreadyAdded) {
+      btnAddAccount.textContent = `已添加 (${acc.email})`
+      btnAddAccount.className = 'btn-action added'
+      btnAddAccount.disabled = true
+      btnAddAccount.title = `该账号已在 KiroLuker 账号列表中：${acc.email}`
+    } else {
+      btnAddAccount.textContent = `添加此账号 (${acc.email})`
+      btnAddAccount.className = 'btn-action primary'
+      btnAddAccount.disabled = false
+      btnAddAccount.title = `一键将当前登录账号 (${acc.email}) 添加到 KiroLuker`
+    }
+  } else {
+    btnAddAccount.style.display = 'none'
+    btnLoginKiro.style.display = 'inline-block'
+    btnLoginKiro.disabled = !tab
+  }
+
   syncAddress()
   renderStatus()
   if (previousActiveId !== next.activeTabId) {
@@ -148,6 +173,18 @@ newTabButton.addEventListener('click', () => { void send({ type: 'new-tab' }) })
 backButton.addEventListener('click', () => { void send({ type: 'back' }) })
 forwardButton.addEventListener('click', () => { void send({ type: 'forward' }) })
 reloadButton.addEventListener('click', () => { void send({ type: activeTab()?.loading ? 'stop' : 'reload' }) })
+
+btnLoginKiro.addEventListener('click', () => {
+  void send({ type: 'start-login' })
+})
+
+btnAddAccount.addEventListener('click', async () => {
+  if (btnAddAccount.disabled) return
+  btnAddAccount.disabled = true
+  btnAddAccount.textContent = '正在添加…'
+  await send({ type: 'import-account' })
+})
+
 address.addEventListener('blur', () => { address.value = activeTab()?.url || '' })
 address.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {

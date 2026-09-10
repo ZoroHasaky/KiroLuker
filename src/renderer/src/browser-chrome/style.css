@@ -48,6 +48,20 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 #address { flex: 1; min-width: 0; height: 32px; padding: 0 11px; border: 1px solid var(--border); border-radius: 7px; background: var(--background); font-size: 13px; }
 #address:focus { border-color: var(--accent); }
 #go { height: 30px; padding: 0 9px; }
+.account-actions { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.btn-action {
+  height: 30px; padding: 0 10px; font-size: 12px; font-weight: 500;
+  border-radius: 6px; border: 1px solid var(--border); background: var(--background);
+  color: var(--text); cursor: pointer; transition: all .15s;
+}
+.btn-action:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--hover); }
+.btn-action.primary {
+  background: var(--accent); color: #fff; border-color: var(--accent);
+}
+.btn-action.primary:hover:not(:disabled) { opacity: 0.9; }
+.btn-action.added {
+  background: #10b981; color: #fff; border-color: #10b981; cursor: default;
+}
 .status-bar { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 0 10px; color: var(--muted); font-size: 11px; }
 .session-badge { flex: 0 0 auto; padding: 2px 6px; border-radius: 4px; background: var(--hover); color: var(--accent); }
 #proxy-status { flex: 0 1 auto; max-width: 55%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

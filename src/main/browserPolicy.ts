@@ -26,6 +26,13 @@ export function isBrowserNavigationAllowed(url: string): boolean {
   try { browserNavigationUrl(url); return true } catch { return false }
 }
 
+/** 识别 Kiro 官方社交登录及本地 OAuth 回调地址 */
+export function isOAuthCallbackUrl(url: string): boolean {
+  if (typeof url !== 'string') return false
+  const lower = url.trim().toLowerCase()
+  return lower.startsWith('kiro://') || /^https?:\/\/127\.0\.0\.1:\d+\/oauth\/callback/i.test(lower)
+}
+
 export function browserOrigin(url: string): string {
   try { return url === 'about:blank' ? '空白页' : new URL(browserNavigationUrl(url)).origin } catch { return '' }
 }

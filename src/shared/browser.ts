@@ -81,6 +81,15 @@ export interface BrowserTabState {
   error?: string
 }
 
+export interface BrowserSessionAccountSummary {
+  detected: boolean
+  email?: string
+  idp?: string
+  userId?: string
+  alreadyAdded?: boolean
+  error?: string
+}
+
 export interface BrowserChromeState {
   windowId: string
   label: string
@@ -89,6 +98,7 @@ export interface BrowserChromeState {
   country?: string
   activeTabId: string
   tabs: BrowserTabState[]
+  sessionAccount?: BrowserSessionAccountSummary
 }
 
 export type BrowserChromeCommand =
@@ -97,6 +107,9 @@ export type BrowserChromeCommand =
   | { type: 'close-tab'; tabId: string }
   | { type: 'navigate'; url: string }
   | { type: 'back' | 'forward' | 'reload' | 'stop' }
+  | { type: 'check-account' }
+  | { type: 'import-account' }
+  | { type: 'start-login'; provider?: 'Google' | 'Github' }
 
 export const BROWSER_CHROME_HEIGHT = 112
 
