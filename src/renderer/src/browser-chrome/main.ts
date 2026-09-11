@@ -21,6 +21,8 @@ const reloadButton = document.querySelector<HTMLButtonElement>('#reload')!
 const goButton = document.querySelector<HTMLButtonElement>('#go')!
 const btnLoginKiro = document.querySelector<HTMLButtonElement>('#btn-login-kiro')!
 const btnAddAccount = document.querySelector<HTMLButtonElement>('#btn-add-account')!
+const quickGithubButton = document.querySelector<HTMLButtonElement>('#quick-github')!
+const quickKiroButton = document.querySelector<HTMLButtonElement>('#quick-kiro')!
 const proxyStatus = document.querySelector<HTMLSpanElement>('#proxy-status')!
 const statusElement = document.querySelector<HTMLSpanElement>('#status')!
 document.documentElement.style.setProperty('--chrome-height', `${BROWSER_CHROME_HEIGHT}px`)
@@ -137,6 +139,8 @@ function render(next: BrowserChromeState): void {
   reloadButton.textContent = tab?.loading ? '■' : '↻'
   reloadButton.title = tab?.loading ? '停止加载' : '重新加载'
   reloadButton.setAttribute('aria-label', reloadButton.title)
+  quickGithubButton.disabled = !tab
+  quickKiroButton.disabled = !tab
   proxyStatus.textContent = `${next.proxyEnabled ? 'SOCKS5 出口' : '系统网络出口'}：${next.exitIp || '未验证'}${next.country ? ` · ${next.country}` : ''}（启动样本）`
   document.title = next.label || '临时浏览器'
 
@@ -176,6 +180,14 @@ reloadButton.addEventListener('click', () => { void send({ type: activeTab()?.lo
 
 btnLoginKiro.addEventListener('click', () => {
   void send({ type: 'start-login' })
+})
+
+quickGithubButton.addEventListener('click', () => {
+  void send({ type: 'navigate', url: 'https://github.com' })
+})
+
+quickKiroButton.addEventListener('click', () => {
+  void send({ type: 'navigate', url: 'https://app.kiro.dev' })
 })
 
 btnAddAccount.addEventListener('click', async () => {
