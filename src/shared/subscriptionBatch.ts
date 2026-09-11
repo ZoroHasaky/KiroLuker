@@ -44,7 +44,7 @@ export function classifySubscriptionEligibility(account: Account): SubscriptionE
   const title = (account.subscription.title || '').toUpperCase()
   const isFree = type === 'FREE' || title.includes('FREE')
   const isPaid =
-    type !== 'FREE' ||
+    (type !== '' && type !== 'FREE') ||
     ['PRO', 'POWER', 'TEAMS', 'ENTERPRISE'].some((name) => title.includes(name))
 
   if (isPaid) {
@@ -176,4 +176,28 @@ export function isSubscriptionAuthError(error?: string): boolean {
     return /官网(?:会话|凭证)已过期/.test(error)
   }
   return !!error && /\b401\b|invalid\s+(?:bearer\s+)?token|token\s+(?:is\s+)?expired/i.test(error)
+}
+
+/** 解析批量导入的订阅链接文本；每行支持纯 URL 或「邮箱 + URL」混排。 */
+export function parseImportedSubscriptionLinks(
+  input: string
+): Array<{ email: string; url: string }> {
+  const result: Array<{ email: string; url: string }> = []
+  for (const rawLine of input.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line) continue
+    const match = line.match(/https?:\/\/[^\s,|]+/i)
+    if (!match || match.index === undefined) continue
+    const url = match[0].replace(/[)\]}>.,;'"`]+$/, '')
+    if (!isHttpSubscriptionUrl(url)) continue
+    const prefix = line.slice(0, match.index).trim()
+    const email = prefix.match(/[^\s,|<>"']+@[^\s,|<>"']+\.[^\s,|<>"']+/)?.[0] || ''
+    result.push({ email, url })
+  }
+  return result
+}
+
+/** 订阅链接只在生成后短时间内可靠；超过窗口需要重新生成或复核。 */
+export function isSubscriptionLinkStale(generatedAt: number | undefined, now = Date.now()): boolean {
+  return !Number.isFinite(generatedAt) || now - (generatedAt as number) > 15 * 60 * 1000
 }

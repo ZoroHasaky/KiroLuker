@@ -72,6 +72,8 @@ const api = {
   switchSubscriptionToFree: (account: unknown) => invoke('accounts:subscription-free', account),
   createSubscriptionLink: (account: unknown, subscriptionType: string) =>
     invoke('accounts:subscription-link', account, subscriptionType),
+  setSubscriptionOverage: (account: unknown, overageStatus: 'ENABLED' | 'DISABLED') =>
+    invoke('accounts:subscription-overage', account, overageStatus),
 
   // 积分变化日志
   getUsageHistory: (accountId: string) => invoke('usage:history', accountId),

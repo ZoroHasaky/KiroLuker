@@ -1,7 +1,7 @@
 name: kiro_lucker
 description: KiroLuker 移动客户端
 publish_to: 'none'
-version: 1.2.21+9
+version: 1.2.22+10
 
 environment:
   sdk: '>=3.13.0 <4.0.0'

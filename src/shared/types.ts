@@ -98,6 +98,8 @@ export interface AccountSubscription {
   upgradeCapability?: string
   /** 上游订阅管理目标；MANAGE 通常表示已有 Stripe 订阅记录。 */
   managementTarget?: string
+  /** 上游是否支持超额付费，例如 OVERAGE_CAPABLE。 */
+  overageCapability?: string
   /** 下次重置时间戳（ms） */
   expiresAt?: number
   daysRemaining?: number

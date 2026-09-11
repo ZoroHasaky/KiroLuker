@@ -11,7 +11,7 @@ import {
 import { createAccountApiKey, deleteAccountApiKey, listAccountApiKeys } from './kiroApiKey'
 import { openAccountPortal } from './kiroPortal'
 import { registerBrowserIpc, requireBrowserManagerSender } from './browserIpc'
-import { createSubscriptionLink, getSubscriptionPlans } from './subscriptionService'
+import { createSubscriptionLink, getSubscriptionPlans, setSubscriptionOverage } from './subscriptionService'
 import { checkSubscriptionRenewal, switchSubscriptionToFree } from './stripePortalService'
 import { clearKiroSsoCache, readKiroAuthToken, readLocalKiroCredentials } from './kiroAuth'
 import { isKiroRunning, restartKiroIde } from './kiroProcess'
@@ -211,6 +211,11 @@ export function registerIpc(
     'accounts:subscription-link',
     async (_e, account: Account, subscriptionType: string) =>
       ok(await createSubscriptionLink(account, subscriptionType))
+  )
+  handle(
+    'accounts:subscription-overage',
+    async (_e, account: Account, overageStatus: 'ENABLED' | 'DISABLED') =>
+      ok(await setSubscriptionOverage(account, overageStatus))
   )
 
   handle('accounts:list-api-keys', async (_e, account: Account) => {

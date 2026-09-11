@@ -103,3 +103,26 @@ export async function createSubscriptionLink(
   if (!result) throw new Error(upstreamMessage(raw) || 'Kiro 未返回有效的订阅链接')
   return result
 }
+
+/** 开启或关闭已订阅账号的超额付费偏好。 */
+export async function setSubscriptionOverage(
+  account: Account,
+  overageStatus: 'ENABLED' | 'DISABLED'
+): Promise<{ success: boolean }> {
+  const profileArn = subscriptionProfileArn(account)
+  const response = await httpRequest(`${qEndpoint(account.credentials.region)}/setUserPreference`, {
+    method: 'POST',
+    headers: requestHeaders(account),
+    body: JSON.stringify({
+      overageConfiguration: { overageStatus },
+      ...(profileArn ? { profileArn } : {})
+    })
+  })
+  const data = await response.json<unknown>().catch(() => null)
+  console.debug(`[Subscription] setUserPreference(${overageStatus}) → ${response.status}`)
+  if (!response.ok) {
+    const detail = upstreamMessage(data)
+    throw new Error(`HTTP ${response.status}${detail ? `: ${detail}` : ''}`)
+  }
+  return { success: true }
+}

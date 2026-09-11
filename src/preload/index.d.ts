@@ -97,6 +97,11 @@ export interface Api extends BillingRendererApi, BrowserRendererApi {
     account: Account,
     subscriptionType: string
   ) => Promise<IpcResult<SubscriptionLinkResult>>
+  /** 开启或关闭账号超额付费。 */
+  setSubscriptionOverage: (
+    account: Account,
+    overageStatus: 'ENABLED' | 'DISABLED'
+  ) => Promise<IpcResult<{ success: boolean }>>
   /** 用账号凭证生成一个新的 Kiro API Key，label 为密钥名称 */
   createAccountApiKey: (
     account: Account,

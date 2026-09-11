@@ -6,7 +6,9 @@ import {
   isSubscriptionAuthError,
   normalizeSubscriptionLink,
   normalizeSubscriptionPlans,
-  preferredSubscriptionPlan
+  preferredSubscriptionPlan,
+  parseImportedSubscriptionLinks,
+  isSubscriptionLinkStale
 } from '../src/shared/subscriptionBatch.ts'
 
 function account(overrides = {}) {
@@ -64,6 +66,13 @@ test('批量订阅预检区分可升级、已订阅和不适合的 Free 账号',
   )
 })
 
+test('未知订阅档位不会被误判为已付费', () => {
+  assert.equal(
+    classifySubscriptionEligibility(account({ subscription: { type: '', title: '' } })).reason,
+    'unknown-tier'
+  )
+})
+
 test('订阅计划响应被归一化，并默认优先选择标准 Pro', () => {
   const plans = normalizeSubscriptionPlans({
     subscriptionPlans: [
@@ -106,4 +115,26 @@ test('只有明确的 401 或 token 过期错误才触发自动刷新重试', ()
   assert.equal(isSubscriptionAuthError('Token is expired'), true)
   assert.equal(isSubscriptionAuthError('HTTP 403: not authorized'), false)
   assert.equal(isSubscriptionAuthError('HTTP 500'), false)
+})
+
+test('批量导入链接支持邮箱前缀、去除标点并拒绝非 HTTP 地址', () => {
+  assert.deepEqual(
+    parseImportedSubscriptionLinks([
+      'user@example.com | https://buy.stripe.com/example).',
+      'https://buy.stripe.com/second',
+      'javascript:alert(1)',
+      'not a link'
+    ].join('\n')),
+    [
+      { email: 'user@example.com', url: 'https://buy.stripe.com/example' },
+      { email: '', url: 'https://buy.stripe.com/second' }
+    ]
+  )
+})
+
+test('订阅链接超过 15 分钟需要重新生成', () => {
+  const now = 1_000_000
+  assert.equal(isSubscriptionLinkStale(now - 15 * 60 * 1000, now), false)
+  assert.equal(isSubscriptionLinkStale(now - 15 * 60 * 1000 - 1, now), true)
+  assert.equal(isSubscriptionLinkStale(undefined, now), true)
 })
