@@ -35,6 +35,20 @@ function account(overrides = {}) {
   }
 }
 
+test('导入的社交账号缺少刷新元数据时，迁移会补齐 social 链路', () => {
+  const social = account({
+    idp: 'Google',
+    credentials: {
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      expiresAt: 123
+    }
+  })
+  const migrated = migrateAccountStoreData({ version: 2, accounts: [social], tags: [], activeAccountId: null })
+  assert.equal(migrated.data.accounts[0].credentials.authMethod, 'social')
+  assert.equal(migrated.data.accounts[0].credentials.provider, 'Google')
+})
+
 test('v1 账号数据幂等迁移到 v2，并保留原时间和凭证', () => {
   const legacyAccount = account()
   delete legacyAccount.tagIds

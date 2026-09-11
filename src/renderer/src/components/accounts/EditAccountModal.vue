@@ -45,8 +45,10 @@ function submit(): void {
     credentials: {
       ...account.credentials,
       refreshToken: form.refreshToken.trim(),
-      clientId: form.clientId.trim() || undefined,
-      clientSecret: form.clientSecret.trim() || undefined,
+      // 空字符串代表用户明确清空；undefined 留给未触碰的旧字段，避免完整快照保存时
+      // 把主进程当前仍有效的 OIDC client 凭证误删。
+      clientId: form.clientId.trim(),
+      clientSecret: form.clientSecret.trim(),
       region: form.region.trim() || DEFAULT_REGION
     }
   })

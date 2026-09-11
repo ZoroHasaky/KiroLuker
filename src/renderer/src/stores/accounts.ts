@@ -23,6 +23,7 @@ import {
   DEFAULT_ACCOUNT_TAG_COLOR,
   matchesAccountTagDateFilter,
   mergeAccountTags,
+  inferAuthMethod,
   migrateAccountStoreData,
   normalizeTagColor,
   normalizeTagName,
@@ -666,10 +667,16 @@ export const useAccountsStore = defineStore('accounts', () => {
         while (usedAccountIds.has(accountId))
       }
       usedAccountIds.add(accountId)
+      const provider = raw.credentials.provider || idp
       created.push({
         ...raw,
         id: accountId,
         idp,
+        credentials: {
+          ...raw.credentials,
+          authMethod: inferAuthMethod(provider, idp, raw.credentials.authMethod),
+          provider
+        },
         isActive: false,
         tagIds,
         paymentLink: typeof raw.paymentLink === 'string' ? raw.paymentLink : '',

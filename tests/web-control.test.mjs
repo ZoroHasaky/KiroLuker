@@ -159,6 +159,46 @@ test('desktop diff reconciliation preserves a remote API tag edit rather than ov
   } finally { await closeFixture(fixture) }
 })
 
+test('service import normalizes social refresh metadata', async () => {
+  const fixture = createService(data([]))
+  const result = await fixture.service.importCredentials([{ refreshToken: 'social-refresh', provider: 'Google' }])
+  assert.equal(result.success, 1)
+  const imported = fixture.stored().accounts[0]
+  assert.equal(imported.idp, 'Google')
+  assert.equal(imported.credentials.provider, 'Google')
+  assert.equal(imported.credentials.authMethod, 'social')
+})
+
+test('desktop stale snapshots cannot erase OIDC client credentials, but explicit empty values can', async () => {
+  const initial = data([account({
+    credentials: {
+      accessToken: 'access-secret',
+      refreshToken: 'refresh-secret',
+      clientId: 'client-id',
+      clientSecret: 'client-secret',
+      expiresAt: 9_999_999_999_999
+    }
+  })])
+  const fixture = createService(initial)
+  const base = fixture.service.getData()
+  const stale = clone(base)
+  delete stale.accounts[0].credentials.clientId
+  delete stale.accounts[0].credentials.clientSecret
+  stale.accounts[0].nickname = 'desktop-edit'
+
+  const merged = await fixture.service.reconcileDesktopSnapshot(base, stale)
+  assert.equal(merged.accounts[0].nickname, 'desktop-edit')
+  assert.equal(merged.accounts[0].credentials.clientId, 'client-id')
+  assert.equal(merged.accounts[0].credentials.clientSecret, 'client-secret')
+
+  const cleared = clone(merged)
+  cleared.accounts[0].credentials.clientId = ''
+  cleared.accounts[0].credentials.clientSecret = ''
+  const explicitlyCleared = await fixture.service.reconcileDesktopSnapshot(merged, cleared)
+  assert.equal(explicitlyCleared.accounts[0].credentials.clientId, '')
+  assert.equal(explicitlyCleared.accounts[0].credentials.clientSecret, '')
+})
+
 test('mobile capability, OIDC export, payment link and checkout billing endpoints are scoped and never cache sensitive data', async () => {
   const fixture = await createFixture()
   try {

@@ -11,6 +11,7 @@ import {
   type UsageResponse
 } from './kiroApi'
 import { errorMessage, isCredentialRejected } from '../shared/errors'
+import { inferAuthMethod as inferStoredAuthMethod } from '../shared/accountData'
 import {
   profileArnCandidates,
   readKiroAuthToken,
@@ -64,8 +65,7 @@ function resolveIdp(provider?: string, authMethod?: string, fallback?: string): 
 }
 
 function inferAuthMethod(provider?: IdpType, explicit?: AuthMethod): AuthMethod {
-  if (explicit) return explicit
-  return provider === 'Github' || provider === 'Google' ? 'social' : 'IdC'
+  return inferStoredAuthMethod(provider, undefined, explicit)
 }
 
 /**
@@ -291,8 +291,9 @@ export async function verifyCredentials(input: VerifyCredentialsInput): Promise<
  * accessToken 过期（401）时会用 refreshToken 自动续一次并重试。
  */
 export async function checkAccountStatus(account: Account): Promise<AccountSnapshot> {
-  const { accessToken, refreshToken, clientId, clientSecret, region, authMethod, provider } =
+  const { accessToken, refreshToken, clientId, clientSecret, region, authMethod: storedAuthMethod, provider } =
     account.credentials
+  const authMethod = inferStoredAuthMethod(provider || account.idp, account.idp, storedAuthMethod)
   const idp = resolveIdp(provider, authMethod, account.idp)
 
   if (!accessToken && !refreshToken) throw new Error('账号缺少凭证')
@@ -376,7 +377,8 @@ export async function syncCredentialsToIde(
   next: { accessToken: string; refreshToken: string; expiresIn: number },
   previousRefreshToken: string
 ): Promise<{ syncedToIde: boolean; syncSkipReason?: string }> {
-  const { clientId, clientSecret, region, authMethod, provider, startUrl } = account.credentials
+  const { clientId, clientSecret, region, authMethod: storedAuthMethod, provider, startUrl } = account.credentials
+  const authMethod = inferStoredAuthMethod(provider || account.idp, account.idp, storedAuthMethod)
   try {
     const disk = await readKiroAuthToken()
     // 磁盘上可能已经是轮换后的新值（本次刷新已写过盘），两者都算同一个账号
@@ -439,16 +441,22 @@ async function diskRefreshTokenFor(account: Account, usedToken: string): Promise
   if (!diskToken || diskToken === usedToken) return null
 
   // 登录方式与 provider 对不上时，磁盘上那份属于另一个账号。
-  // social 的判定口径与 readLocalKiroCredentials 保持一致：只有显式 social 才算社交登录
-  if ((disk?.authMethod === 'social') !== (account.credentials.authMethod === 'social')) return null
+  // 旧导入数据可能没有 authMethod，这里必须和实际刷新链路使用同一套推断规则。
   const accountProvider = account.credentials.provider || account.idp
+  const accountAuthMethod = inferStoredAuthMethod(
+    accountProvider,
+    account.idp,
+    account.credentials.authMethod
+  )
+  if ((disk?.authMethod === 'social') !== (accountAuthMethod === 'social')) return null
   if (disk?.provider && accountProvider && disk.provider !== accountProvider) return null
 
   return diskToken
 }
 
 async function performRefreshAccountToken(account: Account): Promise<RefreshTokenResult> {
-  const { refreshToken, clientId, clientSecret, region, authMethod } = account.credentials
+  const { refreshToken, clientId, clientSecret, region, authMethod: storedAuthMethod } = account.credentials
+  const authMethod = inferStoredAuthMethod(account.credentials.provider || account.idp, account.idp, storedAuthMethod)
 
   const cred = { refreshToken, clientId, clientSecret, region, authMethod }
   assertRefreshCredentials(cred, '缺少 OIDC 刷新凭证（clientId / clientSecret）')

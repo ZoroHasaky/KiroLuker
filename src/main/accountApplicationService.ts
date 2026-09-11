@@ -10,7 +10,7 @@ import type {
   RefreshTokenResult,
   VerifyCredentialsInput
 } from '../shared/types'
-import { ACCOUNT_STORE_VERSION, buildOidcImportItem } from '../shared/accountData'
+import { ACCOUNT_STORE_VERSION, buildOidcImportItem, inferAuthMethod } from '../shared/accountData'
 
 export interface PublicAccount {
   id: string
@@ -90,6 +90,28 @@ function mergePatch<T extends Record<string, unknown>>(target: T, patch: Record<
     else next[key] = clone(value)
   }
   return next as T
+}
+
+/**
+ * 桌面端保存的是完整快照，但旧 Renderer 或导入过程可能省略可选凭证字段。
+ * 这类陈旧快照不能把主进程当前仍有效的 OIDC client 凭证删除；显式传入空字符串
+ * 仍保留清空能力（编辑账号时会把空输入编码为空字符串）。
+ */
+function mergeCredentialPatch(
+  live: Account['credentials'],
+  before: Account['credentials'],
+  after: Account['credentials']
+): Account['credentials'] {
+  const patch = changedPatch(
+    before as unknown as Record<string, unknown>,
+    after as unknown as Record<string, unknown>
+  )
+  for (const field of ['clientId', 'clientSecret'] as const) {
+    if (after[field] === undefined && live[field] !== undefined) {
+      delete patch[field]
+    }
+  }
+  return mergePatch(live as unknown as Record<string, unknown>, patch) as unknown as Account['credentials']
 }
 
 /**
@@ -233,11 +255,13 @@ export class AccountApplicationService {
           )
           if (existing) return { data, result: false }
           const now = Date.now()
+          const idp = ((snapshot.idp as Account['idp']) || item.provider || 'BuilderId') as Account['idp']
+          const provider = item.provider || idp
           const account: Account = {
             id: randomUUID(),
             email: snapshot.email,
             nickname: item.nickname?.trim() || undefined,
-            idp: (snapshot.idp as Account['idp']) || item.provider || 'BuilderId',
+            idp,
             userId: snapshot.userId,
             profileArn: snapshot.profileArn || item.profileArn,
             credentials: {
@@ -247,8 +271,8 @@ export class AccountApplicationService {
               clientSecret: item.clientSecret,
               region: item.region,
               profileArn: snapshot.profileArn || item.profileArn,
-              authMethod: item.authMethod,
-              provider: item.provider,
+              authMethod: inferAuthMethod(provider, idp, item.authMethod),
+              provider,
               expiresAt: now + (snapshot.expiresIn ?? 3600) * 1000
             },
             subscription: clone(snapshot.subscription),
@@ -355,7 +379,7 @@ export class AccountApplicationService {
         delete outer.usage
         let merged = mergePatch(live as unknown as Record<string, unknown>, outer) as unknown as Account
         if (!isDeepStrictEqual(before.credentials, after.credentials) && isDeepStrictEqual(live.credentials, before.credentials)) {
-          merged = { ...merged, credentials: mergePatch(live.credentials as unknown as Record<string, unknown>, changedPatch(before.credentials as unknown as Record<string, unknown>, after.credentials as unknown as Record<string, unknown>)) as unknown as Account['credentials'] }
+          merged = { ...merged, credentials: mergeCredentialPatch(live.credentials, before.credentials, after.credentials) }
         }
         if (!isDeepStrictEqual(before.subscription, after.subscription)) {
           merged = { ...merged, subscription: mergePatch(live.subscription as unknown as Record<string, unknown>, changedPatch(before.subscription as unknown as Record<string, unknown>, after.subscription as unknown as Record<string, unknown>)) as unknown as Account['subscription'] }

@@ -2,13 +2,37 @@ import type {
   Account,
   AccountImportItem,
   AccountStoreData,
-  AccountTag
+  AccountTag,
+  AuthMethod
 } from './types'
 
 export const ACCOUNT_STORE_VERSION = 2
 export const DEFAULT_ACCOUNT_TAG_COLOR = '#7c3aed'
 
 type UnknownRecord = Record<string, unknown>
+
+const SOCIAL_IDPS = new Set(['Github', 'Google'])
+
+/**
+ * 推断账号实际使用的刷新链路。
+ *
+ * 旧版完整备份以及部分外部导入数据可能没有 credentials.authMethod，
+ * 但账号的 idp/provider 已经足够判断 Google/GitHub 不需要 OIDC client secret。
+ * provider 优先于显式值，避免历史数据把社交账号误标成 IdC 后在 token 过期时
+ * 错误提示“缺少 OIDC 刷新凭证”。
+ */
+export function inferAuthMethod(
+  provider?: string,
+  fallbackIdp?: string,
+  explicit?: string
+): AuthMethod {
+  if (SOCIAL_IDPS.has(provider || '') || SOCIAL_IDPS.has(fallbackIdp || '')) return 'social'
+  return explicit === 'social' ? 'social' : 'IdC'
+}
+
+function isKnownIdp(value: unknown): value is Account['idp'] {
+  return value === 'BuilderId' || value === 'Github' || value === 'Google' || value === 'Enterprise'
+}
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -67,13 +91,41 @@ export function migrateAccountStoreData(value: unknown): {
     const tagIds = stringIds(raw.tagIds)
     const paymentLink = typeof raw.paymentLink === 'string' ? raw.paymentLink : ''
     const originalTagIds = Array.isArray(raw.tagIds) ? raw.tagIds : []
-    const accountChanged =
+    let accountChanged =
       !Array.isArray(raw.tagIds) ||
       originalTagIds.length !== tagIds.length ||
       originalTagIds.some((id, index) => id !== tagIds[index]) ||
       typeof raw.paymentLink !== 'string'
     changed ||= accountChanged
-    accounts.push((accountChanged ? { ...raw, tagIds, paymentLink } : raw) as unknown as Account)
+
+    // 完整备份是原样恢复的，早期版本和外部导入可能没有 authMethod/provider。
+    // 把它补齐后，账号过期自动刷新时不会把社交账号误走 OIDC 刷新链路。
+    const storedCredentials = isRecord(raw.credentials) ? raw.credentials : null
+    let normalized = raw
+    if (storedCredentials) {
+      const provider = typeof storedCredentials.provider === 'string'
+        ? storedCredentials.provider
+        : isKnownIdp(raw.idp)
+          ? raw.idp
+          : undefined
+      const authMethod = inferAuthMethod(
+        provider,
+        isKnownIdp(raw.idp) ? raw.idp : undefined,
+        typeof storedCredentials.authMethod === 'string' ? storedCredentials.authMethod : undefined
+      )
+      const nextCredentials = {
+        ...storedCredentials,
+        ...(storedCredentials.authMethod === authMethod ? {} : { authMethod }),
+        ...(!storedCredentials.provider && provider ? { provider } : {})
+      }
+      if (storedCredentials.authMethod !== nextCredentials.authMethod || storedCredentials.provider !== nextCredentials.provider) {
+        normalized = { ...normalized, credentials: nextCredentials }
+        accountChanged = true
+        changed = true
+      }
+    }
+
+    accounts.push((accountChanged ? { ...normalized, tagIds, paymentLink } : normalized) as unknown as Account)
   }
 
   const tags: AccountTag[] = []
