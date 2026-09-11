@@ -101,14 +101,15 @@ test('independent API requires a scoped API Key and never exposes stored credent
 })
 
 
-test('accounts endpoint filters import date ranges and defines pending payment as Free with a payment link', async () => {
+test('accounts endpoint filters import date ranges and defines pending payment as Free with a payment link and 0 usage', async () => {
   const start = 1_725_840_000_000
   const end = start + 86_400_000
   const fixture = await createFixture(data([
-    account({ id: 'pending-today', createdAt: start + 1, subscription: { type: 'Free' }, paymentLink: 'https://pending.example' }),
-    account({ id: 'pro-today', createdAt: start + 2, subscription: { type: 'Pro' }, paymentLink: 'https://paid.example' }),
-    account({ id: 'free-no-link-today', createdAt: start + 3, subscription: { type: 'Free' }, paymentLink: '' }),
-    account({ id: 'pending-yesterday', createdAt: start - 1, subscription: { type: 'Free' }, paymentLink: 'https://old-pending.example' })
+    account({ id: 'pending-today', createdAt: start + 1, subscription: { type: 'Free' }, usage: { current: 0, limit: 100, percentUsed: 0 }, paymentLink: 'https://pending.example' }),
+    account({ id: 'pro-today', createdAt: start + 2, subscription: { type: 'Pro' }, usage: { current: 0, limit: 100, percentUsed: 0 }, paymentLink: 'https://paid.example' }),
+    account({ id: 'free-used-today', createdAt: start + 3, subscription: { type: 'Free' }, usage: { current: 5, limit: 100, percentUsed: 5 }, paymentLink: 'https://pending.example' }),
+    account({ id: 'free-no-link-today', createdAt: start + 4, subscription: { type: 'Free' }, usage: { current: 0, limit: 100, percentUsed: 0 }, paymentLink: '' }),
+    account({ id: 'pending-yesterday', createdAt: start - 1, subscription: { type: 'Free' }, usage: { current: 0, limit: 100, percentUsed: 0 }, paymentLink: 'https://old-pending.example' })
   ]))
   try {
     const key = fixture.issue('reader', ['accounts:read'])
@@ -120,7 +121,7 @@ test('accounts endpoint filters import date ranges and defines pending payment a
 
     const notPending = await fixture.app.inject({ method: 'GET', url: `/api/v1/accounts?createdAfter=${start}&createdBefore=${end}&paymentStatus=not_pending`, headers })
     assert.equal(notPending.statusCode, 200)
-    assert.deepEqual(notPending.json().data.items.map((item) => item.id), ['pro-today', 'free-no-link-today'])
+    assert.deepEqual(notPending.json().data.items.map((item) => item.id), ['pro-today', 'free-used-today', 'free-no-link-today'])
 
     const invalidRange = await fixture.app.inject({ method: 'GET', url: `/api/v1/accounts?createdAfter=${end}&createdBefore=${start}`, headers })
     assert.equal(invalidRange.statusCode, 400)

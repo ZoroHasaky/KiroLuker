@@ -271,7 +271,7 @@ export async function createWebControlHttpApp(deps: WebControlHttpDependencies):
     const paymentStatus = typeof query.paymentStatus === 'string' ? query.paymentStatus : ''
     if (paymentStatus) {
       accounts = accounts.filter((account) => {
-        const pending = account.hasPaymentLink && account.subscription.type === 'Free'
+        const pending = account.hasPaymentLink && account.subscription.type === 'Free' && (account.usage?.current ?? 0) === 0
         return paymentStatus === 'pending' ? pending : !pending
       })
     }

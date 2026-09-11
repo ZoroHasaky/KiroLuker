@@ -120,7 +120,8 @@ class PublicAccount {
   final int? lastUsedAt;
 
   /// `pending` is deliberately the same predicate used by the desktop API.
-  bool get isPaymentPending => hasPaymentLink && subscription.type == 'Free';
+  bool get isPaymentPending =>
+      hasPaymentLink && subscription.type == 'Free' && usage.current == 0;
 
   factory PublicAccount.fromJson(Map<String, dynamic> json) => PublicAccount(
     id: json['id'] as String,

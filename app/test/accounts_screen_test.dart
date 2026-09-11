@@ -10,6 +10,7 @@ void main() {
   PublicAccount account({
     String subscription = 'Free',
     bool hasPaymentLink = false,
+    num current = 125,
     num percentUsed = 0.125,
   }) => PublicAccount(
     id: 'account-1',
@@ -17,7 +18,7 @@ void main() {
     idp: 'Google',
     subscription: SubscriptionInfo(type: subscription),
     usage: UsageInfo(
-      current: 125,
+      current: current,
       limit: 1000,
       percentUsed: percentUsed,
       lastUpdated: 1,
@@ -39,14 +40,18 @@ void main() {
     expect(account(subscription: 'Pro_Plus').subscription.displayType, 'Pro+');
     expect(account(subscription: 'Pro_Max').subscription.displayType, 'Max');
     expect(
-      account(subscription: 'Free', hasPaymentLink: true).isPaymentPending,
+      account(subscription: 'Free', hasPaymentLink: true, current: 0).isPaymentPending,
       isTrue,
     );
     expect(
-      account(subscription: 'Pro', hasPaymentLink: true).isPaymentPending,
+      account(subscription: 'Free', hasPaymentLink: true, current: 10).isPaymentPending,
       isFalse,
     );
-    expect(formatUsage(account().usage), '125 / 1000（12.5%）');
+    expect(
+      account(subscription: 'Pro', hasPaymentLink: true, current: 0).isPaymentPending,
+      isFalse,
+    );
+    expect(formatUsage(account(current: 125).usage), '125 / 1000（12.5%）');
   });
 
   test('导入日期转换为本地整日的 API 半开区间，且复制筛选可清除日期和支付状态', () {
@@ -91,7 +96,7 @@ void main() {
 
   testWidgets('账户页移除来源和状态筛选，提供今天快捷筛选并展示列表用量', (tester) async {
     final page = AccountPage(
-      items: [account(hasPaymentLink: true)],
+      items: [account(hasPaymentLink: true, current: 0)],
       page: 1,
       pageSize: 30,
       total: 1,
@@ -115,7 +120,7 @@ void main() {
     expect(find.text('状态'), findsNothing);
     expect(find.text('来源'), findsNothing);
     expect(find.text('支付状态'), findsOneWidget);
-    expect(find.text('用量：125 / 1000（12.5%）'), findsOneWidget);
+    expect(find.text('用量：0 / 1000（12.5%）'), findsOneWidget);
     expect(find.textContaining('待支付'), findsOneWidget);
 
     await tester.tap(find.text('仅看今天'));
