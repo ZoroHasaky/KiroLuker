@@ -639,6 +639,10 @@ export interface AppSettings {
   usageRefreshInterval: number
   /** 批量并发 */
   concurrency: number
+  /** 用量达标时跳过刷新 */
+  skipHighUsageRefresh: boolean
+  /** 跳过用量刷新的比例阈值（1-100 整数，默认 100） */
+  skipHighUsageThreshold: number
   /** 用量接口类型 */
   usageApiType: 'rest' | 'cbor'
   /**
@@ -693,6 +697,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   keyRefreshInterval: 5,
   usageRefreshInterval: 5,
   concurrency: 5,
+  skipHighUsageRefresh: false,
+  skipHighUsageThreshold: 100,
   usageApiType: 'rest',
   importConcurrency: 50,
   proxyEnabled: false,

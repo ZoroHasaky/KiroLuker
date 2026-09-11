@@ -45,7 +45,10 @@ import {
   copyText,
   notifyResult
 } from '@/utils/ui'
-import { shouldSkipAccountUsageRefresh } from '@shared/refreshPolicy'
+import {
+  shouldSkipAccountUsageRefresh,
+  shouldSkipAccountUsageByPercent
+} from '@shared/refreshPolicy'
 import { buildOidcExportContent } from '@/utils/transfer'
 import type { Account, AppSettings } from '@shared/types'
 
@@ -407,15 +410,23 @@ async function batch(kind: 'refresh' | 'check'): Promise<void> {
   // 没有勾选时才算「刷了全部」，这种情况刷完把自动刷新整轮往后顺延
   const isFullRun = selected.size === 0
 
-  // 全量刷新时跳过确定性失败的账号（封禁、凭证失效），省下必然白跑的请求。
+  // 全量刷新时跳过确定性失败的账号（封禁、凭证失效）以及达到阈值的高用量账号，省下必然白跑的请求。
   // 勾选场景不跳过：用户已经明确指定了目标，替他做决定反而困惑；
   // 卡片上的单个刷新按钮同样不受影响，异常账号始终留有手动重试的入口。
-  const runnable = isFullRun ? scope.filter((a) => !shouldSkipAccountUsageRefresh(a)) : scope
+  const skipHighUsage = kind === 'check' && settingsStore.settings.skipHighUsageRefresh
+  const threshold = settingsStore.settings.skipHighUsageThreshold
+  const runnable = isFullRun
+    ? scope.filter((a) => {
+        if (shouldSkipAccountUsageRefresh(a)) return false
+        if (shouldSkipAccountUsageByPercent(a, skipHighUsage, threshold)) return false
+        return true
+      })
+    : scope
   const skipped = scope.length - runnable.length
   const ids = runnable.map((a) => a.id)
   if (ids.length === 0) {
     return void message.info(
-      skipped ? `${skipped} 个账号处于封禁或凭证失效状态，已全部跳过` : '没有可操作的账号'
+      skipped ? `${skipped} 个账号处于封禁、凭证失效或用量已达标状态，已全部跳过` : '没有可操作的账号'
     )
   }
 

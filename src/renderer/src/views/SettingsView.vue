@@ -320,12 +320,32 @@ function clearAll(): void {
           />
           <span class="muted">并发过高容易被限流</span>
         </a-form-item>
+        <a-form-item label="高用量跳过刷新" class="field-inline">
+          <SettingSwitch field="skipHighUsageRefresh" />
+          <span class="muted">
+            用量达到指定比例后在自动刷新与全量刷新时跳过，大幅减少刷新耗时
+          </span>
+        </a-form-item>
+        <a-form-item label="跳过用量阈值" class="field-inline">
+          <a-input-number
+            :value="settings.skipHighUsageThreshold"
+            :min="1"
+            :max="100"
+            :step="5"
+            addon-after="%"
+            style="width: 180px"
+            :disabled="!settings.skipHighUsageRefresh"
+            @change="(v: unknown) => update({ skipHighUsageThreshold: Number(v) || DEFAULT_SETTINGS.skipHighUsageThreshold })"
+          />
+          <span class="muted">达到或超过此百分比时跳过（卡片单刷或勾选批量仍可手动刷新）</span>
+        </a-form-item>
         <a-form-item label="删除前确认">
           <SettingSwitch field="confirmBeforeDelete" />
         </a-form-item>
       </a-form>
       <ul class="tips">
-        <li>自动刷新密钥只处理 30 分钟内即将过期的账号；自动刷新用量会覆盖全部非封禁账号。</li>
+        <li>自动刷新密钥只处理 30 分钟内即将过期的账号；自动刷新用量会覆盖非封禁且未被高用量策略跳过的账号。</li>
+        <li>开启「高用量跳过刷新」可针对已用完（如 100%）或高比例账号避免频繁无效刷新，提升批量效率。</li>
         <li>两个间隔各自独立计时，撞在一起时按「密钥 → 用量」先后串行执行，不会丢轮。</li>
         <li>账号很多时建议把用量刷新间隔调大一些，全量拉取用量的请求量随账号数线性增长。</li>
         <li>手动批量操作进行中时定时任务会等待，操作结束后立即补跑到期的那一轮。</li>

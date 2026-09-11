@@ -18,3 +18,24 @@ export function shouldSkipAccountUsageRefresh(
   if (account.status === 'banned' || account.status === 'expired') return true
   return account.status === 'error' && isPermanentFailure(account.lastError || '')
 }
+
+/**
+ * 该账号是否达到指定用量百分比阈值并跳过刷新。
+ *
+ * @param account 待检测的账号
+ * @param enabled 是否开启跳过功能
+ * @param thresholdPercent 阈值百分比（1-100）
+ */
+export function shouldSkipAccountUsageByPercent(
+  account: { usage?: { limit?: number; percentUsed?: number } | null },
+  enabled: boolean,
+  thresholdPercent: number
+): boolean {
+  if (!enabled || !account.usage) return false
+  const limit = account.usage.limit ?? 0
+  // limit 未设置或为 0 说明用量数据尚未拉取或无额度定义，不根据百分比跳过
+  if (limit <= 0) return false
+  const percent = (account.usage.percentUsed ?? 0) * 100
+  return percent >= thresholdPercent
+}
+

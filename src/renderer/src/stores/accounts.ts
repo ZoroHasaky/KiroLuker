@@ -29,7 +29,10 @@ import {
   tagNameKey
 } from '@shared/accountData'
 import { errorMessage, isCredentialRejected } from '@shared/errors'
-import { shouldSkipAccountUsageRefresh } from '@shared/refreshPolicy'
+import {
+  shouldSkipAccountUsageRefresh,
+  shouldSkipAccountUsageByPercent
+} from '@shared/refreshPolicy'
 import { DEFAULT_REGION } from '@shared/regions'
 import { runPool } from '@/utils/format'
 import { toPlain } from '@/utils/ipc'
@@ -994,14 +997,32 @@ export const useAccountsStore = defineStore('accounts', () => {
    * 临时故障（网络、限流、5xx）不在跳过范围内，下一轮照常重试。
    */
   async function refreshAllUsage(): Promise<void> {
-    const runnable = accounts.value.filter((a) => !shouldSkipAccountUsageRefresh(a))
+    const skipHighUsage = settingsStore.settings.skipHighUsageRefresh
+    const threshold = settingsStore.settings.skipHighUsageThreshold
+    let skippedHighUsageCount = 0
+    let skippedPermanentCount = 0
+
+    const runnable = accounts.value.filter((a) => {
+      if (shouldSkipAccountUsageRefresh(a)) {
+        skippedPermanentCount++
+        return false
+      }
+      if (shouldSkipAccountUsageByPercent(a, skipHighUsage, threshold)) {
+        skippedHighUsageCount++
+        return false
+      }
+      return true
+    })
     const ids = runnable.map((a) => a.id)
     const skipped = accounts.value.length - ids.length
     if (!ids.length) return
     const startedAt = Date.now()
+    const skipReasons: string[] = []
+    if (skippedPermanentCount) skipReasons.push(`${skippedPermanentCount} 个封禁或凭证失效账号`)
+    if (skippedHighUsageCount) skipReasons.push(`${skippedHighUsageCount} 个用量已达 ${threshold}% 账号`)
     console.info(
       `[AutoRefresh] 开始刷新用量：${ids.length} 个账号` +
-        (skipped ? `（跳过 ${skipped} 个封禁或凭证失效账号）` : '')
+        (skipReasons.length ? `（跳过 ${skipReasons.join('，')}）` : '')
     )
     const res = await runBatch(ids, 'check')
     // 打印耗时便于对照间隔：耗时接近或超过间隔时下一轮会紧接着开始
