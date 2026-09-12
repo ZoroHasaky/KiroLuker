@@ -165,9 +165,8 @@ const api = {
   onProactiveRenewal: (handler: (payload: unknown) => void) =>
     subscribe('proactive-renewal:done', handler),
 
-  // 托盘「退出程序」触发的退出确认
-  quitApp: () => invoke('app:quit'),
-  onConfirmQuit: (handler: () => void) => subscribe('app:confirm-quit', () => handler())
+  // 托盘菜单直接退出
+  quitApp: () => invoke('app:quit')
 }
 
 if (process.contextIsolated) {

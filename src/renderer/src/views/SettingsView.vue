@@ -24,7 +24,6 @@ import { now } from '@/utils/now'
 import { bodyPopupContainer, confirmDanger } from '@/utils/ui'
 import ExportAccountsModal from '@/components/accounts/ExportAccountsModal.vue'
 import ImportAccountsModal from '@/components/accounts/ImportAccountsModal.vue'
-import BillingSettingsCard from '@/components/settings/BillingSettingsCard.vue'
 import WebControlSettingsCard from '@/components/settings/WebControlSettingsCard.vue'
 
 const settingsStore = useSettingsStore()
@@ -333,6 +332,29 @@ function clearAll(): void {
           />
           <span class="muted">达到或超过此百分比时跳过（卡片单刷或勾选批量仍可手动刷新）</span>
         </a-form-item>
+        <a-form-item label="已废弃额度阈值" class="field-inline">
+          <a-input-number
+            :value="settings.deprecatedUsageCurrentThreshold"
+            :min="0"
+            :max="999999999999"
+            :step="100"
+            style="width: 180px"
+            @change="(v: unknown) => update({ deprecatedUsageCurrentThreshold: Math.max(0, Number(v) || 0) })"
+          />
+          <span class="muted">已用额度达到此值后归入“已废弃”，0 表示不启用</span>
+        </a-form-item>
+        <a-form-item label="已废弃比例阈值" class="field-inline">
+          <a-input-number
+            :value="settings.deprecatedUsagePercentThreshold"
+            :min="1"
+            :max="100"
+            :step="5"
+            addon-after="%"
+            style="width: 180px"
+            @change="(v: unknown) => update({ deprecatedUsagePercentThreshold: Math.min(100, Math.max(1, Number(v) || DEFAULT_SETTINGS.deprecatedUsagePercentThreshold)) })"
+          />
+          <span class="muted">已用比例达到此值后归入“已废弃”，与额度阈值满足其一即可</span>
+        </a-form-item>
         <a-form-item label="删除前确认">
           <SettingSwitch field="confirmBeforeDelete" />
         </a-form-item>
@@ -340,6 +362,7 @@ function clearAll(): void {
       <ul class="tips">
         <li>自动刷新密钥只处理 30 分钟内即将过期的账号；自动刷新用量会覆盖非封禁且未被高用量策略跳过的账号。</li>
         <li>开启「高用量跳过刷新」可针对已用完（如 100%）或高比例账号避免频繁无效刷新，提升批量效率。</li>
+        <li>账号达到“已废弃额度阈值”或“已废弃比例阈值”，或已确认降级为 Free 后，会进入“已废弃”分组并跳过所有自动刷新。</li>
         <li>两个间隔各自独立计时，撞在一起时按「密钥 → 用量」先后串行执行，不会丢轮。</li>
         <li>账号很多时建议把用量刷新间隔调大一些，全量拉取用量的请求量随账号数线性增长。</li>
         <li>手动批量操作进行中时定时任务会等待，操作结束后立即补跑到期的那一轮。</li>
@@ -411,8 +434,6 @@ function clearAll(): void {
         <li>不改变本应用自身的界面语言，也不影响账号所属的 AWS 区域。</li>
       </ul>
     </a-card>
-
-    <BillingSettingsCard />
 
     <WebControlSettingsCard />
 

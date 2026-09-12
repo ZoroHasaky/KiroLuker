@@ -1,11 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import {
-  CalendarOutlined,
-  ClockCircleOutlined,
-  CopyOutlined,
-  TagsOutlined
-} from '@ant-design/icons-vue'
+import { CopyOutlined, TagsOutlined } from '@ant-design/icons-vue'
 import AccountActions from '@/components/accounts/AccountActions.vue'
 import { useSettingsStore } from '@/stores/settings'
 import {
@@ -13,10 +8,8 @@ import {
   subscriptionMeta,
   formatCheckedAt,
   formatCreditsPair,
-  formatDate,
   formatDateTime,
   subscriptionLabel,
-  tokenLife,
   usageColor
 } from '@/utils/format'
 import { displayEmail, displayName } from '@/utils/display'
@@ -92,25 +85,18 @@ const subscription = computed(() => subscriptionMeta(props.account.subscription.
 /** 订阅展示名：优先接口给的标题 */
 const subscriptionText = computed(() => subscriptionLabel(props.account.subscription))
 
-const daysRemaining = computed(() => props.account.subscription.daysRemaining)
 
-/** 订阅到期时间：优先订阅字段，回退到用量重置日期 */
-const expiryDate = computed(() =>
-  formatDate(props.account.subscription.expiresAt ?? props.account.usage.nextResetDate)
-)
-
-/** 额度明细行：基础 / 试用 / 奖励，各自带到期时间 */
+/** 额度明细行：基础 / 试用 / 奖励 */
 const quotaRows = computed(() => {
   const usage = props.account.usage
   const p = precision.value
-  const rows: { key: string; color: string; label: string; value: string; expiry?: string }[] = []
+  const rows: { key: string; color: string; label: string; value: string }[] = []
   if (usage.baseLimit) {
     rows.push({
       key: 'base',
       color: '#1677ff',
       label: '基础',
-      value: formatCreditsPair(usage.baseCurrent, usage.baseLimit, p),
-      expiry: usage.nextResetDate ? formatDate(usage.nextResetDate) : undefined
+      value: formatCreditsPair(usage.baseCurrent, usage.baseLimit, p)
     })
   }
   if (usage.freeTrialLimit) {
@@ -118,8 +104,7 @@ const quotaRows = computed(() => {
       key: 'trial',
       color: '#722ed1',
       label: '试用',
-      value: formatCreditsPair(usage.freeTrialCurrent, usage.freeTrialLimit, p),
-      expiry: usage.freeTrialExpiry ? formatDate(usage.freeTrialExpiry) : undefined
+      value: formatCreditsPair(usage.freeTrialCurrent, usage.freeTrialLimit, p)
     })
   }
   for (const bonus of usage.bonuses ?? []) {
@@ -127,26 +112,10 @@ const quotaRows = computed(() => {
       key: `bonus-${bonus.code}`,
       color: '#13c2c2',
       label: bonus.name,
-      value: formatCreditsPair(bonus.current, bonus.limit, p),
-      expiry: bonus.expiresAt ? formatDate(bonus.expiresAt) : undefined
+      value: formatCreditsPair(bonus.current, bonus.limit, p)
     })
   }
   return rows
-})
-
-/** Access Token 剩余有效期，不足 10 分钟时标黄提醒 */
-const tokenState = computed(() => {
-  const life = tokenLife(props.account.credentials.expiresAt, 'round')
-  switch (life.state) {
-    case 'unknown':
-      return { text: '未知', warn: true }
-    case 'expired':
-      return { text: '已过期', warn: true }
-    case 'minutes':
-      return { text: `${life.minutes} 分钟`, warn: life.minutes < 10 }
-    default:
-      return { text: `${life.hours} 小时`, warn: false }
-  }
 })
 
 /** 快速复制始终使用真实邮箱；隐私模式只影响页面显示，不改变用户主动复制的内容。 */
@@ -231,27 +200,14 @@ function copyEmail(): void {
         <span class="usage-number">
           {{ formatCreditsPair(props.account.usage.current, props.account.usage.limit, precision) }}
         </span>
-        <span class="muted">
-          <CalendarOutlined />
-          {{ formatDate(props.account.usage.nextResetDate) }} 重置
-        </span>
       </div>
     </div>
 
-    <div class="quota-block">
+    <div v-if="quotaRows.length" class="quota-block">
       <div v-for="row in quotaRows" :key="row.key" class="quota-row">
         <span class="dot" :style="{ background: row.color }" />
         <span class="quota-label muted">{{ row.label }}</span>
         <span class="quota-value">{{ row.value }}</span>
-        <span v-if="row.expiry" class="quota-expiry muted">至 {{ row.expiry }}</span>
-      </div>
-      <div class="quota-row">
-        <span class="dot" style="background: #fa8c16" />
-        <span class="quota-label muted">订阅</span>
-        <span class="quota-value">
-          {{ daysRemaining !== undefined ? `剩 ${daysRemaining} 天` : '周期未知' }}
-        </span>
-        <span class="quota-expiry muted">到期 {{ expiryDate }}</span>
       </div>
     </div>
 
@@ -263,12 +219,6 @@ function copyEmail(): void {
     </a-tooltip>
 
     <div class="card-foot">
-      <div class="meta">
-        <span :class="tokenState.warn ? 'warn' : 'muted'">
-          <ClockCircleOutlined />
-          Token {{ tokenState.text }}
-        </span>
-      </div>
       <AccountActions
         :active="props.account.isActive"
         :busy-action="props.busyAction"
@@ -544,10 +494,6 @@ function copyEmail(): void {
   white-space: nowrap;
 }
 
-.quota-expiry {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
 
 .dot {
   flex: 0 0 auto;
@@ -596,10 +542,6 @@ function copyEmail(): void {
 
 .meta > span {
   white-space: nowrap;
-}
-
-.warn {
-  color: #fa8c16;
 }
 
 </style>

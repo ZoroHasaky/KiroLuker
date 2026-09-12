@@ -1,22 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import {
-  CalendarOutlined,
-  ClockCircleOutlined,
-  CopyOutlined,
-  TagsOutlined,
-  WarningOutlined
-} from '@ant-design/icons-vue'
+import { CopyOutlined, TagsOutlined, WarningOutlined } from '@ant-design/icons-vue'
 import AccountActions from '@/components/accounts/AccountActions.vue'
 import { useSettingsStore } from '@/stores/settings'
 import { displayEmail } from '@/utils/display'
 import {
   STATUS_META,
   formatCreditsPair,
-  formatDate,
   subscriptionLabel,
   subscriptionMeta,
-  tokenLife,
   usageColor
 } from '@/utils/format'
 import { copyText } from '@/utils/ui'
@@ -73,24 +65,6 @@ const barColor = computed(() => usageColor(props.account.usage.percentUsed || 0)
 const usageText = computed(() =>
   formatCreditsPair(props.account.usage.current, props.account.usage.limit, precision.value)
 )
-
-const expiryDate = computed(() =>
-  formatDate(props.account.subscription.expiresAt ?? props.account.usage.nextResetDate)
-)
-
-const tokenState = computed(() => {
-  const life = tokenLife(props.account.credentials.expiresAt, 'round')
-  switch (life.state) {
-    case 'unknown':
-      return { text: '未知', warn: true }
-    case 'expired':
-      return { text: '已过期', warn: true }
-    case 'minutes':
-      return { text: `${life.minutes} 分钟`, warn: life.minutes < 10 }
-    default:
-      return { text: `${life.hours} 小时`, warn: false }
-  }
-})
 
 function copyEmail(): void {
   copyText(props.account.email, '账号邮箱已复制')
@@ -187,32 +161,17 @@ function copyEmail(): void {
       </div>
     </div>
 
-    <div class="time-cell">
-      <span class="time-line" title="用量重置时间">
-        <CalendarOutlined /> 重置 {{ formatDate(props.account.usage.nextResetDate) }}
-      </span>
-      <span class="time-line muted" title="订阅到期时间">
-        到期 {{ expiryDate }}
-        <template v-if="props.account.subscription.daysRemaining !== undefined">
-          · {{ props.account.subscription.daysRemaining }} 天
-        </template>
-      </span>
-      <span class="time-line" :class="tokenState.warn ? 'warn' : 'muted'">
-        <ClockCircleOutlined /> Token {{ tokenState.text }}
-      </span>
-    </div>
-
   </div>
 </template>
 
 <style scoped>
 .account-list-row {
   display: grid;
-  grid-template-columns: 28px 280px 64px 210px 170px minmax(0, 1fr);
+  grid-template-columns: 28px 280px 64px 210px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
   width: 100%;
-  min-width: 792px;
+  min-width: 622px;
   height: 100%;
   padding: 7px 10px;
   box-sizing: border-box;
@@ -248,8 +207,7 @@ function copyEmail(): void {
 .account-state-cell,
 .identity-cell,
 .labels-cell,
-.usage-cell,
-.time-cell {
+.usage-cell {
   min-width: 0;
 }
 
@@ -440,21 +398,4 @@ function copyEmail(): void {
   border-radius: inherit;
 }
 
-.time-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.time-line {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.warn {
-  color: #fa8c16;
-}
 </style>

@@ -172,30 +172,6 @@ function focusWindow(): void {
   mainWindow.focus()
 }
 
-/**
- * 托盘退出不能依赖渲染进程：页面加载失败时，渲染层无法显示确认框，
- * 会导致用户点了「退出程序」却没有任何反应。
- */
-function confirmTrayQuit(): void {
-  focusWindow()
-  const options = {
-    type: 'question' as const,
-    buttons: ['退出程序', '取消'],
-    defaultId: 0,
-    cancelId: 1,
-    title: '退出 KiroLuker',
-    message: '确定要退出 KiroLuker 吗？',
-    detail: '退出后自动刷新与 IDE 主动续期都会停止，托盘图标也会一起关闭。'
-  }
-  const choice =
-    mainWindow && !mainWindow.isDestroyed()
-      ? dialog.showMessageBoxSync(mainWindow, options)
-      : dialog.showMessageBoxSync(options)
-  if (choice !== 0) return
-  isQuitting = true
-  app.quit()
-}
-
 // 社交登录的 kiro:// 回调在 Windows/Linux 上以命令行参数唤起第二个实例
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
@@ -289,8 +265,11 @@ app.whenReady().then(async () => {
   // 先登记回调，再按设置决定是否真正创建托盘图标
   registerTrayCallbacks({
     onShowWindow: focusWindow,
-    // 使用主进程原生确认框，渲染页面异常时也必须能可靠退出。
-    onQuit: confirmTrayQuit,
+    // 托盘菜单退出直接结束应用，不再弹出二次确认。
+    onQuit: () => {
+      isQuitting = true
+      app.quit()
+    },
     onAction: (action) => {
       focusWindow()
       mainWindow?.webContents.send('tray:action', action)

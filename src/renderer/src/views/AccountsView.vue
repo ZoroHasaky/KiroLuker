@@ -52,6 +52,7 @@ import { buildOidcExportContent } from '@/utils/transfer'
 import type { Account, AppSettings } from '@shared/types'
 import type { SwitchSubscriptionToFreeResult } from '@shared/subscriptionFree'
 import { loadSubscriptionRecords, saveSubscriptionRecords, type SubscriptionRecords } from '@/utils/subscriptionRecords'
+import { ACCOUNT_GROUP_META, getAccountGroup, type AccountGroup } from '@/utils/accountGrouping'
 
 const accountsStore = useAccountsStore()
 const settingsStore = useSettingsStore()
@@ -99,7 +100,17 @@ const usageRefreshing = computed(
 )
 const refreshing = computed(() => keyRefreshing.value || usageRefreshing.value)
 
-const stats = computed(() => accountsStore.stats)
+const currentGroupStats = computed(() => {
+  const byStatus = { active: 0, error: 0, banned: 0 }
+  let expiringSoon = 0
+  for (const account of groupedAccounts.value[activeGroup.value]) {
+    if (account.status === 'active') byStatus.active++
+    if (account.status === 'error') byStatus.error++
+    if (account.status === 'banned') byStatus.banned++
+    if ((account.subscription.daysRemaining ?? 99) <= 7) expiringSoon++
+  }
+  return { byStatus, expiringSoon }
+})
 
 const filterOpen = ref(false)
 
@@ -163,20 +174,64 @@ function setViewMode(mode: AccountViewMode): void {
   void settingsStore.update({ accountViewMode: mode })
 }
 
+const activeGroup = ref<AccountGroup>('unused')
+const groupOrder: AccountGroup[] = ['unused', 'pending-payment', 'subscribed', 'deprecated']
+
+const accountGroupingThresholds = computed(() => ({
+  usageCurrentThreshold: settingsStore.settings.deprecatedUsageCurrentThreshold,
+  usagePercentThreshold: settingsStore.settings.deprecatedUsagePercentThreshold
+}))
+
+function groupAccounts(accounts: Account[]): Record<AccountGroup, Account[]> {
+  const groups: Record<AccountGroup, Account[]> = {
+    unused: [],
+    'pending-payment': [],
+    subscribed: [],
+    deprecated: []
+  }
+  for (const account of accounts) {
+    groups[getAccountGroup(account, accountGroupingThresholds.value)].push(account)
+  }
+  return groups
+}
+
+const allGroupedAccounts = computed(() => groupAccounts(accountsStore.accounts))
+const groupedAccounts = computed(() => groupAccounts(accountsStore.filtered))
+
+const groupTabs = computed(() => groupOrder.map((key) => ({
+  key,
+  label: ACCOUNT_GROUP_META[key].label,
+  count: groupedAccounts.value[key].length
+})))
+
 const sorted = computed(() => {
-  const list = [...accountsStore.filtered]
+  const list = [...groupedAccounts.value[activeGroup.value]]
   // 排序下拉已移除：固定让 IDE 当前账号置顶，其余按添加时间倒序。
   return list.sort(
     (a, b) => Number(b.isActive) - Number(a.isActive) || (b.createdAt || 0) - (a.createdAt || 0)
   )
 })
 
-/** 网格数据：账号卡片 + 末尾一张「添加账号」卡 */
+/** 当前 Tab 只保留当前分组的选择，避免账号自动换组后继续被批量操作。 */
+watch(activeGroup, () => {
+  accountsStore.selectedIds = []
+})
+
+/** 刷新或编辑导致账号离开当前分组时，及时撤销其选择；搜索/筛选不会清除当前组的选择。 */
+const currentGroupIds = computed(() => new Set(
+  allGroupedAccounts.value[activeGroup.value].map((account) => account.id)
+))
+watch(currentGroupIds, (visibleIds) => {
+  const next = accountsStore.selectedIds.filter((id) => visibleIds.has(id))
+  if (next.length !== accountsStore.selectedIds.length) accountsStore.selectedIds = next
+})
+
+/** 网格数据：账号卡片 + 仅在「未使用」分组末尾提供添加账号卡 */
 type GridItem = { kind: 'account'; account: Account } | { kind: 'add' }
 
 const gridItems = computed<GridItem[]>(() => [
   ...sorted.value.map((account) => ({ kind: 'account' as const, account })),
-  { kind: 'add' as const }
+  ...(activeGroup.value === 'unused' ? [{ kind: 'add' as const }] : [])
 ])
 
 function gridItemKey(item: GridItem): string {
@@ -195,7 +250,7 @@ const contentRef = ref<{ scrollToTop: () => void } | null>(null)
  */
 const scrollResetKey = computed(() => JSON.stringify(accountsStore.filter))
 
-watch([scrollResetKey, viewMode], () => {
+watch([scrollResetKey, viewMode, activeGroup], () => {
   void nextTick(() => contentRef.value?.scrollToTop())
 })
 
@@ -621,6 +676,10 @@ function logoutIde(account: Account): void {
       </div>
 
       <!-- 第二行：选择 / 视图 / 统计 + 筛选 / 批量 -->
+      <a-tabs v-model:activeKey="activeGroup" class="account-groups" size="small">
+        <a-tab-pane v-for="tab in groupTabs" :key="tab.key" :tab="`${tab.label}（${tab.count}）`" />
+      </a-tabs>
+
       <div class="meta-bar">
         <a-checkbox
           :checked="allVisibleSelected"
@@ -657,14 +716,14 @@ function logoutIde(account: Account): void {
 
         <a-divider type="vertical" style="margin: 0 2px" />
 
-        <a-tag v-if="stats.byStatus.active" color="green" :bordered="false">
-          正常 {{ stats.byStatus.active }}
+        <a-tag v-if="currentGroupStats.byStatus.active" color="green" :bordered="false">
+          正常 {{ currentGroupStats.byStatus.active }}
         </a-tag>
-        <a-tag v-if="stats.byStatus.error + stats.byStatus.banned" color="red" :bordered="false">
-          异常 {{ stats.byStatus.error + stats.byStatus.banned }}
+        <a-tag v-if="currentGroupStats.byStatus.error + currentGroupStats.byStatus.banned" color="red" :bordered="false">
+          异常 {{ currentGroupStats.byStatus.error + currentGroupStats.byStatus.banned }}
         </a-tag>
-        <a-tag v-if="stats.expiringSoon" color="orange" :bordered="false">
-          7 天内重置 {{ stats.expiringSoon }}
+        <a-tag v-if="currentGroupStats.expiringSoon" color="orange" :bordered="false">
+          7 天内重置 {{ currentGroupStats.expiringSoon }}
         </a-tag>
         <a-tag v-if="activeFilterCount" color="purple" closable @close="clearFilter">
           筛选中 {{ activeFilterCount }} 项
@@ -731,7 +790,7 @@ function logoutIde(account: Account): void {
             <EyeInvisibleOutlined v-if="privacyMode" />
             <EyeOutlined v-else />
           </template>
-          {{ privacyMode ? '隐私打码中' : '隐私打码' }}
+          隐私模式
         </a-button>
         <a-button
           v-if="accountsStore.selectedIds.length"
@@ -765,9 +824,15 @@ function logoutIde(account: Account): void {
       </a-empty>
     </div>
 
-    <div v-else-if="!sorted.length" class="grid-placeholder">
-      <a-empty description="没有匹配筛选条件的账号">
+    <div v-else-if="!accountsStore.filtered.length" class="grid-placeholder">
+      <a-empty description="没有匹配搜索或筛选条件的账号">
         <a-button @click="accountsStore.applyFilter({})">清除搜索和筛选</a-button>
+      </a-empty>
+    </div>
+
+    <div v-else-if="!sorted.length" class="grid-placeholder">
+      <a-empty :description="`${ACCOUNT_GROUP_META[activeGroup].label}分组暂无账号`">
+        <a-button v-if="activeGroup === 'unused'" type="primary" @click="addOpen = true">添加账号</a-button>
       </a-empty>
     </div>
 

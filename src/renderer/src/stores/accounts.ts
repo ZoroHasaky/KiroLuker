@@ -36,6 +36,7 @@ import {
 } from '@shared/refreshPolicy'
 import { DEFAULT_REGION } from '@shared/regions'
 import { runPool } from '@/utils/format'
+import { isAccountDeprecated } from '@/utils/accountGrouping'
 import { toPlain } from '@/utils/ipc'
 import { isSocialIdp, normalizeIdp } from '@/utils/transfer'
 import { useSettingsStore } from './settings'
@@ -1014,15 +1015,21 @@ export const useAccountsStore = defineStore('accounts', () => {
 
   /** 只处理即将过期的账号（剩余有效期 < AUTO_REFRESH_WINDOW_MS）。 */
   async function refreshExpiringKeys(): Promise<void> {
+    let skippedDeprecatedCount = 0
     const soon = accounts.value
-      .filter(
-        (a) =>
-          a.status !== 'banned' &&
-          a.credentials.expiresAt - Date.now() < AUTO_REFRESH_WINDOW_MS
-      )
+      .filter((a) => {
+        if (isAccountDeprecated(a, {
+          usageCurrentThreshold: settingsStore.settings.deprecatedUsageCurrentThreshold,
+          usagePercentThreshold: settingsStore.settings.deprecatedUsagePercentThreshold
+        })) {
+          skippedDeprecatedCount++
+          return false
+        }
+        return a.status !== 'banned' && a.credentials.expiresAt - Date.now() < AUTO_REFRESH_WINDOW_MS
+      })
       .map((a) => a.id)
     if (!soon.length) {
-      console.info('[AutoRefresh] 本轮没有即将过期的账号，跳过密钥刷新')
+      console.info(`[AutoRefresh] 本轮没有即将过期的账号，跳过密钥刷新${skippedDeprecatedCount ? `（跳过 ${skippedDeprecatedCount} 个已废弃账号）` : ''}`)
       return
     }
     const res = await runBatch(soon, 'refresh')
@@ -1041,8 +1048,16 @@ export const useAccountsStore = defineStore('accounts', () => {
     const threshold = settingsStore.settings.skipHighUsageThreshold
     let skippedHighUsageCount = 0
     let skippedPermanentCount = 0
+    let skippedDeprecatedCount = 0
 
     const runnable = accounts.value.filter((a) => {
+      if (isAccountDeprecated(a, {
+        usageCurrentThreshold: settingsStore.settings.deprecatedUsageCurrentThreshold,
+        usagePercentThreshold: settingsStore.settings.deprecatedUsagePercentThreshold
+      })) {
+        skippedDeprecatedCount++
+        return false
+      }
       if (shouldSkipAccountUsageRefresh(a)) {
         skippedPermanentCount++
         return false
@@ -1054,12 +1069,15 @@ export const useAccountsStore = defineStore('accounts', () => {
       return true
     })
     const ids = runnable.map((a) => a.id)
-    const skipped = accounts.value.length - ids.length
-    if (!ids.length) return
-    const startedAt = Date.now()
     const skipReasons: string[] = []
+    if (skippedDeprecatedCount) skipReasons.push(`${skippedDeprecatedCount} 个已废弃账号`)
     if (skippedPermanentCount) skipReasons.push(`${skippedPermanentCount} 个封禁或凭证失效账号`)
     if (skippedHighUsageCount) skipReasons.push(`${skippedHighUsageCount} 个用量已达 ${threshold}% 账号`)
+    if (!ids.length) {
+      console.info(`[AutoRefresh] 本轮没有可刷新的账号${skipReasons.length ? `（${skipReasons.join('，')}）` : ''}`)
+      return
+    }
+    const startedAt = Date.now()
     console.info(
       `[AutoRefresh] 开始刷新用量：${ids.length} 个账号` +
         (skipReasons.length ? `（跳过 ${skipReasons.join('，')}）` : '')

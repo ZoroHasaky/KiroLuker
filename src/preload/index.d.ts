@@ -205,7 +205,6 @@ export interface Api extends BillingRendererApi, BrowserRendererApi {
   onProactiveRenewal: (handler: (payload: ProactiveRenewalPayload) => void) => () => void
 
   quitApp: () => Promise<IpcResult>
-  onConfirmQuit: (handler: () => void) => () => void
 }
 
 declare global {

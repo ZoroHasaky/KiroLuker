@@ -33,11 +33,11 @@ export interface BillingResult {
   pinyinName: string
   address: string
   postalCode: string
-  mapSource: '高德地图' | '百度地图'
+  mapSource: '高德地图' | '百度地图' | '本地生成'
   generatedAt: number
 }
 
-/** Stripe Checkout 中国账单表单的专用结果。行政区和邮编均来自同一条地图记录。 */
+/** Stripe Checkout 中国账单表单的专用结果。行政区来自同一条本地数据记录。 */
 export interface CheckoutBillingResult {
   chineseName: string
   pinyinName: string
@@ -49,7 +49,7 @@ export interface CheckoutBillingResult {
   pinyinDistrict: string
   addressLine1: string
   postalCode: string
-  mapSource: '高德地图'
+  mapSource: '高德地图' | '本地生成'
   generatedAt: number
 }
 

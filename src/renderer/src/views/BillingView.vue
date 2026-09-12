@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   CopyOutlined,
@@ -9,40 +9,14 @@ import {
   SafetyCertificateOutlined,
   UserOutlined
 } from '@ant-design/icons-vue'
-import type {
-  BillingPublicConfig,
-  BillingRendererApi
-} from '@shared/billing'
+import type { BillingRendererApi } from '@shared/billing'
 import { useBillingStore } from '@/stores/billing'
 import { copyText } from '@/utils/ui'
 
 const api = window.api as typeof window.api & BillingRendererApi
-const config = ref<BillingPublicConfig | null>(null)
 const billingStore = useBillingStore()
 const loading = ref(false)
-const loadError = ref('')
 const generationError = ref('')
-
-const configurationReady = computed(() => {
-  const current = config.value
-  return Boolean(
-    current &&
-      (current.hasAmapKey || current.hasBaiduKey) &&
-      current.hasAiKey &&
-      current.aiUrl &&
-      current.aiModel
-  )
-})
-
-async function loadConfig(): Promise<void> {
-  loadError.value = ''
-  const response = await api.getBillingConfig()
-  if (!response.success || !response.data) {
-    loadError.value = response.error || '读取账单服务配置失败'
-    return
-  }
-  config.value = response.data
-}
 
 async function generate(): Promise<void> {
   loading.value = true
@@ -88,7 +62,6 @@ function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleString('zh-CN', { hour12: false })
 }
 
-onMounted(loadConfig)
 </script>
 
 <template>
@@ -96,7 +69,7 @@ onMounted(loadConfig)
     <div class="page-header">
       <div>
         <h2>账单信息</h2>
-        <p class="muted">从地图公开地点生成真实地址，并通过 AI 推断对应邮政编码。</p>
+        <p class="muted">本地随机生成符合格式要求的账单信息。</p>
       </div>
       <a-button type="primary" :loading="loading" @click="generate">
         <template #icon><ReloadOutlined /></template>
@@ -104,21 +77,6 @@ onMounted(loadConfig)
       </a-button>
     </div>
 
-    <a-alert
-      v-if="loadError"
-      type="error"
-      show-icon
-      :message="loadError"
-      style="margin-bottom: 16px"
-    />
-    <a-alert
-      v-else-if="!configurationReady"
-      type="warning"
-      show-icon
-      message="账单服务尚未配置完整"
-      description="请在设置中配置至少一个地图 API Key，以及 AI 服务 URL、API Key 和模型名称。"
-      style="margin-bottom: 16px"
-    />
     <a-alert
       v-if="generationError"
       type="error"
@@ -184,7 +142,7 @@ onMounted(loadConfig)
         <div class="result-item">
           <div class="item-icon"><SafetyCertificateOutlined /></div>
           <div class="item-content">
-            <span class="item-label">邮政编码 <a-tag color="orange">AI 推断</a-tag></span>
+            <span class="item-label">邮政编码</span>
             <strong>{{ billingStore.result.postalCode }}</strong>
           </div>
           <a-button type="text" size="small" aria-label="复制邮政编码" @click="copyField(billingStore.result.postalCode, '邮政编码')">
@@ -194,7 +152,7 @@ onMounted(loadConfig)
       </div>
 
       <div class="result-meta muted">
-        地图来源：{{ billingStore.result.mapSource }} · 生成时间：{{ formatTime(billingStore.result.generatedAt) }}
+        地址来源：{{ billingStore.result.mapSource }} · 生成时间：{{ formatTime(billingStore.result.generatedAt) }}
       </div>
     </a-card>
 

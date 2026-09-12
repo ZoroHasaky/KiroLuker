@@ -20,25 +20,6 @@ useTrayBridge()
 
 // kiroluker://accounts 之类的协议唤起，跳到对应页面
 let offNavigate: (() => void) | undefined
-// 托盘「退出程序」的确认框，避免连点托盘菜单弹出多个
-let offConfirmQuit: (() => void) | undefined
-let quitConfirmOpen = false
-
-function confirmQuit(): void {
-  if (quitConfirmOpen) return
-  quitConfirmOpen = true
-  Modal.confirm({
-    title: '退出 KiroLuker',
-    content: '退出后自动刷新会停止，托盘图标也会一起关闭。',
-    okText: '退出',
-    okType: 'danger',
-    cancelText: '取消',
-    onOk: () => void window.api.quitApp(),
-    afterClose: () => {
-      quitConfirmOpen = false
-    }
-  })
-}
 
 let offAccountsChanged: (() => void) | undefined
 
@@ -46,13 +27,11 @@ onMounted(() => {
   offNavigate = window.api.onAppNavigate((target) => {
     if (router.hasRoute(target)) void router.push({ name: target })
   })
-  offConfirmQuit = window.api.onConfirmQuit(confirmQuit)
   offAccountsChanged = window.api.onAccountsChanged((data) => accountsStore.applyServerData(data))
 
 })
 onUnmounted(() => {
   offNavigate?.()
-  offConfirmQuit?.()
   offAccountsChanged?.()
 })
 
