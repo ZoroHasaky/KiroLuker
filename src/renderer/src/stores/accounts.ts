@@ -39,7 +39,11 @@ import { runPool } from '@/utils/format'
 import { toPlain } from '@/utils/ipc'
 import { isSocialIdp, normalizeIdp } from '@/utils/transfer'
 import { useSettingsStore } from './settings'
-import { acknowledgePendingTagIds, overlayPendingTagIds } from './pendingTagOverlay'
+import {
+  acknowledgePendingAccountPatches,
+  overlayPendingAccountPatches,
+  type PendingAccountPatch
+} from './pendingAccountOverlay'
 
 export interface AccountFilter {
   search: string
@@ -131,8 +135,10 @@ export const useAccountsStore = defineStore('accounts', () => {
     tags: [],
     activeAccountId: null
   }
-  const pendingAccountTagIds = new Map<string, string[]>()
+  const pendingAccountPatches = new Map<string, PendingAccountPatch<Account>>()
   const pendingNewAccounts = new Map<string, Account>()
+  let pendingTags: { version: number; tags: AccountTag[] } | null = null
+  let mutationVersion = 0
 
   function snapshotForStore(): AccountStoreData {
     return {
@@ -144,26 +150,36 @@ export const useAccountsStore = defineStore('accounts', () => {
   }
 
   /**
-   * Live snapshots remain the server baseline, but local edits (such as tags and newly added accounts)
-   * stay rendered until the renderer receives a successful save response. Without this overlay,
-   * a background refresh arriving during the 600ms debounce would wipe out newly added accounts or tag selections.
+   * Live snapshots remain the server baseline, but local edits stay rendered until the renderer
+   * receives a save response that acknowledges the same mutation version. This is important when
+   * a usage refresh or an accounts:changed event arrives while the debounced save is in flight:
+   * replacing the whole list with that snapshot would otherwise lose payment links, nicknames,
+   * notes, or tag assignments made by the user.
    */
   function commitServerData(raw: AccountStoreData): void {
     const data = migrateAccountStoreData(raw).data
     serverSnapshot = toPlain(data)
-    let overlaidAccounts = overlayPendingTagIds(data.accounts, pendingAccountTagIds)
+    let overlaidAccounts = overlayPendingAccountPatches(data.accounts, pendingAccountPatches)
     if (pendingNewAccounts.size > 0) {
       const serverIds = new Set(overlaidAccounts.map((a) => a.id))
       for (const [id, newAcc] of pendingNewAccounts) {
         if (!serverIds.has(id)) {
-          overlaidAccounts = [...overlaidAccounts, newAcc]
+          const pendingPatch = pendingAccountPatches.get(id)?.patch
+          overlaidAccounts = [
+            ...overlaidAccounts,
+            pendingPatch ? { ...newAcc, ...pendingPatch } : newAcc
+          ]
         }
       }
     }
     accounts.value = overlaidAccounts
-    tags.value = data.tags
+    tags.value = pendingTags?.tags ?? data.tags
     activeAccountId.value = data.activeAccountId ?? null
     selectedIds.value = selectedIds.value.filter((id) => accounts.value.some((account) => account.id === id))
+  }
+
+  function markTagsPending(): void {
+    pendingTags = { version: ++mutationVersion, tags: tags.value.map((tag) => ({ ...tag })) }
   }
 
   function applyServerData(raw: AccountStoreData): void {
@@ -178,11 +194,15 @@ export const useAccountsStore = defineStore('accounts', () => {
         syncQueued = false
         const base = toPlain(serverSnapshot)
         const next = toPlain(snapshotForStore())
-        const submittedTagIds = new Map(pendingAccountTagIds)
+        const submittedAccountPatches = new Map(
+          [...pendingAccountPatches].map(([id, pending]) => [id, { version: pending.version, patch: { ...pending.patch } }])
+        )
+        const submittedTags = pendingTags ? { version: pendingTags.version } : null
         const submittedNewAccounts = new Map(pendingNewAccounts)
         const response = await window.api.saveAccounts(base, next)
         if (response.success && response.data) {
-          acknowledgePendingTagIds(pendingAccountTagIds, submittedTagIds)
+          acknowledgePendingAccountPatches(pendingAccountPatches, submittedAccountPatches)
+          if (submittedTags && pendingTags?.version === submittedTags.version) pendingTags = null
           for (const [id] of submittedNewAccounts) {
             if (response.data.accounts.some((a) => a.id === id)) {
               pendingNewAccounts.delete(id)
@@ -413,9 +433,29 @@ export const useAccountsStore = defineStore('accounts', () => {
     })
   }
 
+  function clonePatch<T>(value: T): T {
+    if (Array.isArray(value)) return value.map((item) => clonePatch(item)) as T
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, clonePatch(item)])
+      ) as T
+    }
+    return value
+  }
+
+  function recordPendingAccountPatch(id: string, patch: Partial<Account>): void {
+    // 记录字段级本地修改。保存期间收到后台快照时，只覆盖未修改字段，避免编辑被刷新回滚。
+    const currentPending = pendingAccountPatches.get(id)
+    pendingAccountPatches.set(id, {
+      version: ++mutationVersion,
+      patch: { ...currentPending?.patch, ...clonePatch(patch) }
+    })
+  }
+
   function updateAccount(id: string, patch: Partial<Account>): void {
     const index = accounts.value.findIndex((a) => a.id === id)
     if (index === -1) return
+    recordPendingAccountPatch(id, patch)
     // 整体换引用触发一次更新即可，避免先改元素再换数组产生两次写入
     const next = accounts.value.slice()
     next[index] = { ...next[index], ...patch }
@@ -436,6 +476,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     if (!normalizedColor) return { ok: false, error: '标签颜色格式无效' }
     const tag: AccountTag = { id: uuidv4(), name: normalizedName, color: normalizedColor }
     tags.value = [...tags.value, tag]
+    markTagsPending()
     persist()
     return { ok: true, tag }
   }
@@ -456,6 +497,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     if (current.name === name && current.color === color) return { ok: true, tag: current }
     const tag = { ...current, name, color }
     tags.value = tags.value.map((item) => (item.id === id ? tag : item))
+    markTagsPending()
     persist()
     return { ok: true, tag }
   }
@@ -469,10 +511,11 @@ export const useAccountsStore = defineStore('accounts', () => {
       if (!account.tagIds.includes(id)) return account
       affected++
       const tagIds = account.tagIds.filter((tagId) => tagId !== id)
-      pendingAccountTagIds.set(account.id, tagIds)
+      recordPendingAccountPatch(account.id, { tagIds })
       return { ...account, tagIds }
     })
     filter.value.tagIds = filter.value.tagIds.filter((tagId) => tagId !== id)
+    markTagsPending()
     persist()
     return affected
   }
@@ -489,7 +532,6 @@ export const useAccountsStore = defineStore('accounts', () => {
     ) {
       return true
     }
-    pendingAccountTagIds.set(accountId, [...nextIds])
     updateAccount(accountId, { tagIds: nextIds })
     return true
   }
@@ -511,7 +553,7 @@ export const useAccountsStore = defineStore('accounts', () => {
         return account
       }
       updated++
-      pendingAccountTagIds.set(account.id, [...nextIds])
+      recordPendingAccountPatch(account.id, { tagIds: nextIds })
       return { ...account, tagIds: nextIds }
     })
 
@@ -689,7 +731,10 @@ export const useAccountsStore = defineStore('accounts', () => {
       result.success++
     }
 
-    if (mergedTags.added) tags.value = mergedTags.tags
+    if (mergedTags.added) {
+      tags.value = mergedTags.tags
+      markTagsPending()
+    }
     if (created.length || mergedTags.added) {
       for (const account of created) {
         pendingNewAccounts.set(account.id, account)
