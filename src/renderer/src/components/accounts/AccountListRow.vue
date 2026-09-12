@@ -27,6 +27,7 @@ const props = defineProps<{
   tags: AccountTag[]
   selected: boolean
   busyAction?: string | null
+  freeSwitchDisabled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -40,7 +41,7 @@ const emit = defineEmits<{
   'copy-oidc': []
   'assign-tags': []
   'payment-link': []
-  test: []
+  'switch-free': []
   portal: []
   usage: []
 }>()
@@ -136,12 +137,13 @@ function copyEmail(): void {
           class="identity-actions"
           :active="props.account.isActive"
           :busy-action="props.busyAction"
+          :free-switch-disabled="props.freeSwitchDisabled"
           @logout="emit('logout')"
           @refresh-key="emit('refresh-key')"
           @refresh-usage="emit('refresh-usage')"
           @copy-oidc="emit('copy-oidc')"
           @payment-link="emit('payment-link')"
-          @test="emit('test')"
+          @switch-free="emit('switch-free')"
           @portal="emit('portal')"
           @edit="emit('edit')"
           @remove="emit('remove')"

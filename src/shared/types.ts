@@ -709,7 +709,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   revealExportedFile: true,
   trayEnabled: true,
   closeAction: 'minimize',
-  proactiveRenewalEnabled: true,
+  // Legacy compatibility field; IDE proactive renewal is no longer exposed or scheduled.
+  proactiveRenewalEnabled: false,
   portalLocale: DEFAULT_PORTAL_LOCALE
 }
 

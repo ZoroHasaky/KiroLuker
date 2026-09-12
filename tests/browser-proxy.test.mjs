@@ -176,6 +176,36 @@ async function localHttpConnectProxyFixture(t, expectedAuthority) {
   return { ...await serve(t, server), requests }
 }
 
+async function staticHttpProxyFixture(t) {
+  const requests = []
+  const server = http.createServer((request, response) => {
+    requests.push(request.url)
+    let target
+    try { target = new URL(request.url) } catch { response.writeHead(400); response.end(); return }
+    const port = Number(target.port)
+    const upstream = http.request({ host: '127.0.0.1', port, method: request.method, path: `${target.pathname}${target.search}`, headers: request.headers }, (upstreamResponse) => {
+      response.writeHead(upstreamResponse.statusCode || 502, upstreamResponse.headers)
+      upstreamResponse.pipe(response)
+    })
+    upstream.on('error', () => { if (!response.headersSent) response.writeHead(502); response.end() })
+    request.pipe(upstream)
+  })
+  server.on('connect', (request, client, head) => {
+    requests.push(request.url)
+    const match = /^(?:[^:]+):([0-9]+)$/.exec(request.url)
+    if (!match) { client.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n'); return }
+    const upstream = net.createConnection({ host: '127.0.0.1', port: Number(match[1]) })
+    const destroyPair = () => { client.destroy(); upstream.destroy() }
+    client.on('error', destroyPair); client.on('close', destroyPair)
+    upstream.on('error', destroyPair); upstream.on('close', destroyPair)
+    upstream.on('connect', () => {
+      client.write('HTTP/1.1 200 Connection established\r\n\r\n')
+      if (head.length) upstream.write(head)
+      client.pipe(upstream); upstream.pipe(client)
+    })
+  })
+  return { ...await serve(t, server), requests }
+}
 async function dynamicHttpProxyFixture(t, targets) {
   const requests = []
   function targetFor(host, port) {
@@ -342,6 +372,27 @@ test('real authenticated SOCKS5h forwards HTTP and TLS-encrypted HTTPS with remo
   for (const auth of socks.state.authentications) assert.deepEqual(auth, socks.credentials)
   for (const request of [...plainTarget.requests, ...secureTarget.requests]) assert.equal(request.headers['proxy-authorization'], undefined)
   assertRedacted({ bridge: bridge.proxyRules, plain, secure }, socks.credentials)
+})
+
+test('static HTTP mode chains browser traffic through a local HTTP proxy', { timeout: 10000 }, async (t) => {
+  const plainTarget = await targetFixture(t)
+  const secureTarget = await targetFixture(t, true)
+  const local = await staticHttpProxyFixture(t)
+  const loader = loadBridge()
+  const bridge = await loader.createBrowserProxyBridge({
+    enabled: true, mode: 'http', host: '127.0.0.1', port: local.port, username: '', password: '',
+    apiUrl: '', apiProxyHost: '', apiProxyPort: 7897
+  })
+  t.after(() => bridge.close())
+  const proxyUrl = new URL(bridge.proxyRules)
+  const forward = loader.proxyServers.find((server) => server.port === Number(proxyUrl.port))
+  const upstream = new URL((await forward.prepareRequestFunction({})).upstreamProxyUrl)
+  assert.equal(upstream.protocol, 'http:')
+  assert.equal(upstream.hostname, '127.0.0.1')
+  assert.equal(Number(upstream.port), local.port)
+  assert.equal(await httpThrough(Number(proxyUrl.port), plainTarget).then((result) => result.status), 200)
+  assert.match(await httpsThrough(Number(proxyUrl.port), secureTarget), /secure-target:.*secure/)
+  assert.equal(local.requests.length >= 2, true)
 })
 
 test('dynamic HTTP API mode chains browser traffic through the configured local proxy without a direct fallback', { timeout: 10000 }, async (t) => {

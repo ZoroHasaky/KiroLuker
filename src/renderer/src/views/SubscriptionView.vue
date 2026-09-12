@@ -5,27 +5,27 @@ import FreeSubscriptionPanel from '@/components/accounts/FreeSubscriptionPanel.v
 import { useAccountsStore } from '@/stores/accounts'
 
 const accountsStore = useAccountsStore()
-const activePanel = ref<'batch' | 'manage'>('batch')
+const activePanel = ref<'links' | 'free'>('links')
 </script>
 
 <template>
   <div class="subscription-page">
-    <div class="subscription-tabs">
-      <a-button :type="activePanel === 'batch' ? 'primary' : 'default'" @click="activePanel = 'batch'">
-        批量订阅
+    <div class="subscription-tabs" role="tablist" aria-label="订阅管理功能">
+      <a-button :type="activePanel === 'links' ? 'primary' : 'default'" @click="activePanel = 'links'">
+        提链
       </a-button>
-      <a-button :type="activePanel === 'manage' ? 'primary' : 'default'" @click="activePanel = 'manage'">
-        订阅生命周期管理
+      <a-button :type="activePanel === 'free' ? 'primary' : 'default'" @click="activePanel = 'free'">
+        切Free
       </a-button>
     </div>
     <div class="subscription-content">
       <BatchSubscriptionPanel
-        v-show="activePanel === 'batch'"
+        v-show="activePanel === 'links'"
         :accounts="accountsStore.accounts"
         :disabled="accountsStore.loading"
       />
       <FreeSubscriptionPanel
-        v-show="activePanel === 'manage'"
+        v-show="activePanel === 'free'"
         :accounts="accountsStore.accounts"
         :disabled="accountsStore.loading"
       />

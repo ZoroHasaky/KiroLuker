@@ -88,7 +88,7 @@ function createPatch(): BrowserConfigPatch {
       enabled, mode, host: host.trim(), port, username,
       apiUrl: apiUrl.trim(), apiProxyHost: apiProxyHost.trim(), apiProxyPort,
       // Never send an empty secret accidentally: blank means preserve, explicit clear means remove.
-      ...(mode === 'socks5' && (clearPassword.value ? true : password.value !== '')
+      ...((mode === 'socks5' || mode === 'http') && (clearPassword.value ? true : password.value !== '')
         ? { password: clearPassword.value ? '' : password.value }
         : {})
     },
@@ -124,13 +124,13 @@ function validate(patch: BrowserConfigPatch): string {
   if (strings.some((value) => /[\u0000-\u001f\u007f-\u009f]/.test(value) || new TextDecoder().decode(encoder.encode(value)) !== value)) {
     return '配置不能包含换行、控制字符或无效 Unicode。'
   }
-  if (proxy.mode !== 'socks5' && proxy.mode !== 'dynamic-http') return '请选择有效的代理模式。'
+  if (proxy.mode !== 'socks5' && proxy.mode !== 'http' && proxy.mode !== 'dynamic-http') return '请选择有效的代理模式。'
   if (!Number.isInteger(proxy.port) || proxy.port < 1 || proxy.port > 65535 || !Number.isInteger(proxy.apiProxyPort) || proxy.apiProxyPort < 1 || proxy.apiProxyPort > 65535) {
     return '代理端口必须为 1–65535 的整数。'
   }
-  if (proxy.mode === 'socks5') {
-    if ((proxy.enabled || proxy.host) && !validHost(proxy.host)) return '请填写有效的 SOCKS5 主机名或 IP（不含协议、端口或路径）。'
-    if ([proxy.username, proxy.password || ''].some((value) => encoder.encode(value).length > 255)) return 'SOCKS5 用户名和密码各不能超过 255 个 UTF-8 字节。'
+  if (proxy.mode === 'socks5' || proxy.mode === 'http') {
+    if ((proxy.enabled || proxy.host) && !validHost(proxy.host)) return `请填写有效的 ${proxy.mode === 'http' ? 'HTTP' : 'SOCKS5'} 代理主机名或 IP（不含协议、端口或路径）。`
+    if ([proxy.username, proxy.password || ''].some((value) => encoder.encode(value).length > 255)) return `${proxy.mode === 'http' ? 'HTTP' : 'SOCKS5'} 用户名和密码各不能超过 255 个 UTF-8 字节。`
   } else if (proxy.enabled) {
     if (!validHost(proxy.apiProxyHost)) return '请填写本机 HTTP 代理的主机名或 IP（不含协议、端口或路径）。'
     try {
@@ -308,14 +308,15 @@ onUnmounted(() => {
               <a-form-item label="代理模式" html-for="browser-proxy-mode">
                 <a-select id="browser-proxy-mode" v-model:value="draft.proxy.mode" :disabled="!draft.proxy.enabled">
                   <a-select-option value="socks5">静态 SOCKS5</a-select-option>
+                  <a-select-option value="http">本地 HTTP 代理</a-select-option>
                   <a-select-option value="dynamic-http">白名单动态 HTTP API</a-select-option>
                 </a-select>
               </a-form-item>
 
-              <template v-if="draft.proxy.mode === 'socks5'">
+              <template v-if="draft.proxy.mode === 'socks5' || draft.proxy.mode === 'http'">
                 <div class="host-port-grid">
-                  <a-form-item label="主机" html-for="browser-proxy-host">
-                    <a-input id="browser-proxy-host" v-model:value="draft.proxy.host" :disabled="!draft.proxy.enabled" placeholder="主机名或 IP，不含 socks5://" autocomplete="off" />
+                  <a-form-item :label="draft.proxy.mode === 'http' ? 'HTTP 主机' : 'SOCKS5 主机'" html-for="browser-proxy-host">
+                    <a-input id="browser-proxy-host" v-model:value="draft.proxy.host" :disabled="!draft.proxy.enabled" :placeholder="draft.proxy.mode === 'http' ? '例如 127.0.0.1' : '主机名或 IP，不含 socks5://'" autocomplete="off" />
                   </a-form-item>
                   <a-form-item label="端口" html-for="browser-proxy-port">
                     <a-input-number id="browser-proxy-port" v-model:value="draft.proxy.port" @input="draft.proxy.port = Number($event)" :disabled="!draft.proxy.enabled" :min="1" :max="65535" :precision="0" />
@@ -389,7 +390,7 @@ onUnmounted(() => {
       </a-spin>
 
       <div v-if="proxyCheck" class="check-result" role="status" data-testid="browser-proxy-result">
-        <a-tag color="green">验证成功 · {{ savedConfig?.proxy.enabled ? savedConfig.proxy.mode === 'dynamic-http' ? '动态 HTTP API' : 'SOCKS5' : '系统网络' }}</a-tag>
+        <a-tag color="green">验证成功 · {{ savedConfig?.proxy.enabled ? savedConfig.proxy.mode === 'dynamic-http' ? '动态 HTTP API' : savedConfig.proxy.mode === 'http' ? 'HTTP' : 'SOCKS5' : '系统网络' }}</a-tag>
         <span class="mono">{{ proxyCheck.ip }}</span>
         <span>{{ proxyCheck.country || '国家/地区未知' }}</span>
         <span class="muted">{{ proxyCheck.latencyMs }} ms · {{ new Date(proxyCheck.checkedAt).toLocaleString() }}（仅本次验证）</span>
@@ -416,7 +417,7 @@ onUnmounted(() => {
             <tbody>
               <tr v-for="item in windows" :key="item.id" :data-window-id="item.id">
                 <td><div class="window-label">{{ item.label || '临时窗口' }}</div><div class="muted origin">{{ item.activeOrigin || '空白页' }}</div></td>
-                <td><div class="mono">{{ item.exitIp || '未验证' }}</div><div class="muted">{{ item.proxyEnabled ? 'SOCKS5' : '系统网络' }} · {{ item.country || '国家/地区未知' }}</div></td>
+                <td><div class="mono">{{ item.exitIp || '未验证' }}</div><div class="muted">{{ item.proxyEnabled ? '自定义代理' : '系统网络' }} · {{ item.country || '国家/地区未知' }}</div></td>
                 <td>{{ item.tabCount }}</td>
                 <td><div class="window-actions"><a-button data-action="focus" :disabled="busyWindows.has(item.id)" @click="windowAction(item.id, 'focus')">聚焦</a-button><a-popconfirm title="关闭此窗口？临时站点数据将清理。" ok-text="关闭" cancel-text="取消" @confirm="windowAction(item.id, 'close')"><a-button data-action="close" danger :disabled="busyWindows.has(item.id)">关闭</a-button></a-popconfirm></div></td>
               </tr>

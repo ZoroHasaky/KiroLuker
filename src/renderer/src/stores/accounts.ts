@@ -1012,24 +1012,12 @@ export const useAccountsStore = defineStore('accounts', () => {
   const usageIntervalMs = (): number =>
     Math.max(1, settingsStore.settings.usageRefreshInterval) * 60_000
 
-  /**
-   * 只处理即将过期的账号（剩余有效期 < AUTO_REFRESH_WINDOW_MS）。
-   *
-   * refreshToken 是轮换式的，刷一次旧值立即作废，所以刷得越勤、轮换失败与限流的
-   * 面就越大，而 token 本身有 1 小时寿命，没必要每轮都换。
-   *
-   * IDE 当前激活账号在「主动续期」开启时排除在外：它每次轮换都必须同步写入 IDE 的
-   * token 文件，同步失败就会让 IDE 被登出。主进程的主动续期专门负责这个账号
-   * （剩 15 分钟时刷 + 写盘 + 失败即停止调度交给 IDE 兜底），两边同时刷同一个账号
-   * 反而会互相拿到已作废的旧 token。主动续期关闭时，这里照常覆盖它。
-   */
+  /** 只处理即将过期的账号（剩余有效期 < AUTO_REFRESH_WINDOW_MS）。 */
   async function refreshExpiringKeys(): Promise<void> {
-    const renewalOn = settingsStore.settings.proactiveRenewalEnabled
     const soon = accounts.value
       .filter(
         (a) =>
           a.status !== 'banned' &&
-          !(renewalOn && a.isActive) &&
           a.credentials.expiresAt - Date.now() < AUTO_REFRESH_WINDOW_MS
       )
       .map((a) => a.id)

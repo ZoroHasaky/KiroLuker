@@ -28,7 +28,6 @@ import ImportAccountsModal, { type ImportMode } from '@/components/accounts/Impo
 import ExportAccountsModal from '@/components/accounts/ExportAccountsModal.vue'
 import EditAccountModal from '@/components/accounts/EditAccountModal.vue'
 import AccountDetailDrawer from '@/components/accounts/AccountDetailDrawer.vue'
-import AccountTestModal from '@/components/accounts/AccountTestModal.vue'
 import UsageHistoryModal from '@/components/accounts/UsageHistoryModal.vue'
 import TagManagerModal from '@/components/accounts/TagManagerModal.vue'
 import AccountTagPickerModal from '@/components/accounts/AccountTagPickerModal.vue'
@@ -51,6 +50,8 @@ import {
 } from '@shared/refreshPolicy'
 import { buildOidcExportContent } from '@/utils/transfer'
 import type { Account, AppSettings } from '@shared/types'
+import type { SwitchSubscriptionToFreeResult } from '@shared/subscriptionFree'
+import { loadSubscriptionRecords, saveSubscriptionRecords, type SubscriptionRecords } from '@/utils/subscriptionRecords'
 
 const accountsStore = useAccountsStore()
 const settingsStore = useSettingsStore()
@@ -72,10 +73,13 @@ function openImport(kind: ImportMode = 'file'): void {
 const exportOpen = ref(false)
 const editTarget = ref<Account | null>(null)
 const detailTarget = ref<Account | null>(null)
-const testTarget = ref<Account | null>(null)
 const usageTarget = ref<Account | null>(null)
 /** 每个账号当前进行中的操作 key，用于只给被点的按钮加载态 */
 const rowBusy = ref<Record<string, string | undefined>>({})
+
+let initialFreeSwitchRecords: SubscriptionRecords = Object.create(null)
+try { initialFreeSwitchRecords = loadSubscriptionRecords(localStorage) } catch { /* 订阅页会显示存储错误；账号页仅保持按钮保守可用。 */ }
+const freeSwitchRecords = ref<SubscriptionRecords>(initialFreeSwitchRecords)
 
 /** 批量操作的进度文案，配合下面的函数式组件在 message 里实时刷新 */
 const batchProgress = ref('')
@@ -282,6 +286,104 @@ async function refreshUsage(account: Account): Promise<void> {
   })
 }
 
+function isFreeTier(account: Account): boolean {
+  const type = account.subscription.type.toUpperCase()
+  const title = (account.subscription.title || '').toUpperCase()
+  return type === 'FREE' || title.includes('FREE')
+}
+
+function isFreeSwitchDisabled(account: Account): boolean {
+  if (isFreeTier(account)) return true
+  const record = freeSwitchRecords.value[account.id]
+  return !!record && (record.needsCheck || record.settled ||
+    ['free', 'scheduled-free', 'canceling'].includes(record.renewal?.state || ''))
+}
+
+function saveFreeSwitchResult(accountId: string, data: SwitchSubscriptionToFreeResult): void {
+  try {
+    const records = loadSubscriptionRecords(localStorage)
+    records[accountId] = {
+      status: data.status === 'unverified' || data.warning ? 'warning' : 'success',
+      operation: 'switch',
+      message: switchFreeMessage(data),
+      previousPlan: data.previousPlan,
+      renewal: data.renewal,
+      warning: data.warning,
+      needsCheck: data.status === 'unverified',
+      settled: data.status !== 'unverified',
+      completedAt: Date.now(),
+      lastCheckAt: data.renewal?.checkedAt
+    }
+    saveSubscriptionRecords(localStorage, records)
+    freeSwitchRecords.value = records
+  } catch {
+    // 主操作已经得到门户结果；保存失败时仍在内存中置灰，避免本次会话重复提交。
+    freeSwitchRecords.value = {
+      ...freeSwitchRecords.value,
+      [accountId]: {
+        status: 'warning', operation: 'switch', message: switchFreeMessage(data),
+        previousPlan: data.previousPlan, renewal: data.renewal, warning: data.warning,
+        needsCheck: data.status === 'unverified', settled: data.status !== 'unverified',
+        completedAt: Date.now(), lastCheckAt: data.renewal?.checkedAt
+      }
+    }
+  }
+}
+
+function switchFreeMessage(data: SwitchSubscriptionToFreeResult): string {
+  const labels: Record<SwitchSubscriptionToFreeResult['status'], string> = {
+    'already-free': '门户已为 Free，无需修改',
+    'already-scheduled': '已安排转为 Free，无需重复提交',
+    'wont-renew': '已停止续费，请以门户显示的生效时间为准',
+    switched: '门户确认已转为 Free',
+    scheduled: '已安排转为 Free，可能在当前计费周期结束后生效',
+    unverified: '已提交切换请求，但结果不确定；请先只读复查，勿重复提交'
+  }
+  return labels[data.status]
+}
+
+async function switchFree(account: Account): Promise<void> {
+  if (isFreeSwitchDisabled(account)) return
+  await withBusy(account.id, 'switch-free', async () => {
+    // 和订阅管理页保持同样的安全闸门：真实写请求前先落盘 needsCheck，
+    // 即使应用在 IPC 返回前崩溃，重启后也不会把按钮误认为可重复提交。
+    try {
+      const records = loadSubscriptionRecords(localStorage)
+      records[account.id] = {
+        ...records[account.id],
+        status: 'warning',
+        operation: 'switch',
+        message: '切Free请求进行中；请先复核结果后再重试',
+        needsCheck: true,
+        settled: false,
+        attemptedAt: Date.now()
+      }
+      saveSubscriptionRecords(localStorage, records)
+      freeSwitchRecords.value = records
+    } catch {
+      return void message.error('本机订阅记录未保存，未提交切Free请求')
+    }
+
+    const result = await window.api.switchSubscriptionToFree(toPlain(account))
+    if (!result.success || !result.data) {
+      // 普通失败没有提交真实变更，可以恢复可点击；不确定结果由主进程返回 unverified 并继续置灰。
+      try {
+        const records = loadSubscriptionRecords(localStorage)
+        records[account.id] = {
+          ...records[account.id], status: 'error', operation: 'switch',
+          message: result.error || '切Free失败；请稍后重试', needsCheck: false, settled: false
+        }
+        saveSubscriptionRecords(localStorage, records)
+        freeSwitchRecords.value = records
+      } catch { /* 保持内存中的保守状态 */ }
+      return void message.error(result.error || '切Free失败；请稍后重试')
+    }
+    saveFreeSwitchResult(account.id, result.data)
+    if (result.data.status === 'unverified') message.warning(switchFreeMessage(result.data))
+    else message.success(switchFreeMessage(result.data))
+  })
+}
+
 /** 用该账号凭证在私密窗口打开官网后台，与详情抽屉走同一个通道 */
 async function openPortal(account: Account): Promise<void> {
   await withBusy(account.id, 'portal', async () => {
@@ -362,7 +464,6 @@ function clearDeletedAccountUi(ids: string[]): void {
   const deleted = new Set(ids)
   if (editTarget.value && deleted.has(editTarget.value.id)) editTarget.value = null
   if (detailTarget.value && deleted.has(detailTarget.value.id)) detailTarget.value = null
-  if (testTarget.value && deleted.has(testTarget.value.id)) testTarget.value = null
   if (usageTarget.value && deleted.has(usageTarget.value.id)) usageTarget.value = null
   if (tagTarget.value && deleted.has(tagTarget.value.id)) tagTarget.value = null
   if (paymentTarget.value && deleted.has(paymentTarget.value.id)) paymentTarget.value = null
@@ -687,6 +788,7 @@ function logoutIde(account: Account): void {
           :tags="accountsStore.tags"
           :selected="selectedIdSet.has(item.account.id)"
           :busy-action="rowBusy[item.account.id]"
+          :free-switch-disabled="isFreeSwitchDisabled(item.account)"
           @toggle-select="(checked) => toggleSelect(item.account.id, checked)"
           @detail="detailTarget = item.account"
           @portal="openPortal(item.account)"
@@ -698,7 +800,7 @@ function logoutIde(account: Account): void {
           @copy-oidc="copyOidc(item.account)"
           @assign-tags="tagTarget = item.account"
           @payment-link="paymentTarget = item.account"
-          @test="testTarget = item.account"
+          @switch-free="switchFree(item.account)"
           @usage="usageTarget = item.account"
         />
         <button v-else class="add-card" @click="addOpen = true">
@@ -724,6 +826,7 @@ function logoutIde(account: Account): void {
           :tags="accountsStore.tags"
           :selected="selectedIdSet.has(account.id)"
           :busy-action="rowBusy[account.id]"
+          :free-switch-disabled="isFreeSwitchDisabled(account)"
           @toggle-select="(checked) => toggleSelect(account.id, checked)"
           @detail="detailTarget = account"
           @portal="openPortal(account)"
@@ -735,7 +838,7 @@ function logoutIde(account: Account): void {
           @copy-oidc="copyOidc(account)"
           @assign-tags="tagTarget = account"
           @payment-link="paymentTarget = account"
-          @test="testTarget = account"
+          @switch-free="switchFree(account)"
           @usage="usageTarget = account"
         />
       </template>
@@ -765,7 +868,6 @@ function logoutIde(account: Account): void {
       :account="detailTarget"
       @close="detailTarget = null"
     />
-    <AccountTestModal v-if="testTarget" :account="testTarget" @close="testTarget = null" />
     <UsageHistoryModal
       v-if="usageTarget"
       :account="usageTarget"

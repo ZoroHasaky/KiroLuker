@@ -172,36 +172,42 @@ export async function createBrowserProxyBridge(input: BrowserResolvedConfig['pro
 
   try {
     // proxy-chain 3's SOCKS paths do not expose cancellation during the handshake.
-    // The SOCKS branch owns every real upstream socket (including pending DNS/TCP
-    // attempts). The dynamic branch first CONNECTs via the configured local proxy.
-    relay = createServer((client) => {
-      if (closing) { client.destroy(); return }
-      track(client)
-      if (dynamicEndpoint) {
-        relayThroughLocalHttpProxy(client, dynamicEndpoint)
-        return
-      }
-      const upstream = track(new Socket())
-      const destroyPair = bindPair(client, upstream)
-      upstream.setTimeout(CONNECT_TIMEOUT_MS, destroyPair)
-      upstream.once('connect', () => upstream.setTimeout(0))
-      upstream.connect(proxy.port, proxy.host)
-      client.pipe(upstream)
-      upstream.pipe(client)
-    })
-    relay.on('error', () => { void close() })
-    await listen(relay)
-    const address = relay.address()
-    if (!address || typeof address === 'string' || closing) throw new Error()
+    // SOCKS and dynamic HTTP therefore use a short-lived loopback relay. Static HTTP
+    // can be passed to proxy-chain directly, preserving HTTP CONNECT semantics and
+    // allowing local proxies such as 127.0.0.1:7899 without an extra hop.
+    if (proxy.mode !== 'http') {
+      relay = createServer((client) => {
+        if (closing) { client.destroy(); return }
+        track(client)
+        if (dynamicEndpoint) {
+          relayThroughLocalHttpProxy(client, dynamicEndpoint)
+          return
+        }
+        const upstream = track(new Socket())
+        const destroyPair = bindPair(client, upstream)
+        upstream.setTimeout(CONNECT_TIMEOUT_MS, destroyPair)
+        upstream.once('connect', () => upstream.setTimeout(0))
+        upstream.connect(proxy.port, proxy.host)
+        client.pipe(upstream)
+        upstream.pipe(client)
+      })
+      relay.on('error', () => { void close() })
+      await listen(relay)
+    }
+
+    const relayAddress = relay?.address()
+    if (proxy.mode !== 'http' && (!relayAddress || typeof relayAddress === 'string' || closing)) throw new Error()
 
     const credentials = proxy.username || proxy.password
       ? `${encodeURIComponent(proxy.username)}:${encodeURIComponent(proxy.password)}@`
       : ''
     // socks5h sends destination hostnames unchanged to the SOCKS server for REMOTE DNS.
-    // Dynamic HTTP endpoints are reached only through the local HTTP relay above.
+    // Dynamic HTTP endpoints are reached only through the configured local HTTP proxy.
     const upstreamProxyUrl = dynamicEndpoint
-      ? `http://127.0.0.1:${address.port}`
-      : `socks5h://${credentials}127.0.0.1:${address.port}`
+      ? `http://127.0.0.1:${(relayAddress as { port: number }).port}`
+      : proxy.mode === 'http'
+        ? `http://${credentials}${authority(proxy.host, proxy.port)}`
+        : `socks5h://${credentials}127.0.0.1:${(relayAddress as { port: number }).port}`
     forward = new ProxyServer({
       host: '127.0.0.1', port: 0, verbose: false,
       prepareRequestFunction: () => {

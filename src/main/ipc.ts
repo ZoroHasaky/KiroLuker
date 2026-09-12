@@ -32,11 +32,6 @@ import {
   type BrowserOpenOptions
 } from './browser'
 import { setTraySnapshot, setTrayEnabled } from './tray'
-import {
-  clearProactiveRenewal,
-  scheduleForActiveAccount,
-  scheduleProactiveRenewal
-} from './proactiveRenewal'
 import { setUsageApiType } from './kiroApi'
 import { setInAppLocale } from './kiroPortal'
 import { setProxyConfig } from './net'
@@ -155,7 +150,6 @@ export function registerIpc(
     const result = await accountApplicationService.deleteAccounts(Array.isArray(ids) ? ids : [])
     if (result.removed) {
       forgetSwitchedAccounts(ids)
-      scheduleForActiveAccount()
     }
     return ok({ accounts: result.data, removed: result.removed })
   })
@@ -177,16 +171,10 @@ export function registerIpc(
 
   handle('accounts:refresh-token', async (_e, account: Account) => {
     const { applied: _applied, ...result } = await accountApplicationService.refreshToken(account.id)
-    // 刷新的正是 IDE 当前激活账号时，基于新 expiresAt 重排主动续期
-    if (result.syncedToIde) scheduleProactiveRenewal(account.id, Date.now() + result.expiresIn * 1000)
     return ok(result)
   })
   handle('accounts:create-api-key', async (_e, account: Account, label: string) => {
     const result = await createAccountApiKey(account, label)
-    // 生成过程中若刷新过凭证，按新的到期时间重排主动续期
-    if (result.refreshed?.syncedToIde) {
-      scheduleProactiveRenewal(account.id, Date.now() + result.refreshed.expiresIn * 1000)
-    }
     return ok(result)
   })
 
@@ -220,17 +208,11 @@ export function registerIpc(
 
   handle('accounts:list-api-keys', async (_e, account: Account) => {
     const result = await listAccountApiKeys(account)
-    if (result.refreshed?.syncedToIde) {
-      scheduleProactiveRenewal(account.id, Date.now() + result.refreshed.expiresIn * 1000)
-    }
     return ok(result)
   })
 
   handle('accounts:delete-api-key', async (_e, account: Account, keyId: string) => {
     const result = await deleteAccountApiKey(account, keyId)
-    if (result.refreshed?.syncedToIde) {
-      scheduleProactiveRenewal(account.id, Date.now() + result.refreshed.expiresIn * 1000)
-    }
     return ok(result)
   })
 
@@ -246,7 +228,6 @@ export function registerIpc(
           { accessToken, refreshToken, expiresIn },
           account.credentials.refreshToken
         )
-        if (syncedToIde) scheduleProactiveRenewal(account.id, Date.now() + expiresIn * 1000)
       }
       return ok(snapshot)
     } catch (e) {
@@ -275,7 +256,6 @@ export function registerIpc(
 
   handle('kiro:logout', async () => {
     setLastSwitchedAccountId(null)
-    clearProactiveRenewal('logout ide')
     return ok({ deleted: await clearKiroSsoCache() })
   })
 
@@ -436,11 +416,6 @@ export function registerIpc(
     applyRuntimeSettings(merged)
     // 托盘开关变化时动态启用 / 关闭托盘图标
     if (patch.trayEnabled !== undefined) setTrayEnabled(patch.trayEnabled)
-    // 主动续期开关变化时立即生效：开启则按当前激活账号调度，关闭则清除
-    if (patch.proactiveRenewalEnabled !== undefined) {
-      if (patch.proactiveRenewalEnabled) scheduleForActiveAccount()
-      else clearProactiveRenewal('disabled by user')
-    }
     return ok(merged)
   })
 

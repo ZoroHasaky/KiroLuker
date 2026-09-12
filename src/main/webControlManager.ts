@@ -16,7 +16,7 @@ import {
 import { accountApplicationService } from './accountApplicationSingleton'
 import { billingService } from './applicationServices'
 import { createWebControlHttpApp } from './webControlHttp'
-import { ensureDefaultMobileApiKey, getCurrentMobileApiKey, publicApiKey, readMobileApiKey, regenerateMobileApiKey } from './webControlApiKey'
+import { ensureDefaultMobileApiKey, publicApiKey, readMobileApiKey, regenerateMobileApiKey } from './webControlApiKey'
 
 function apiKeyProtector() {
   try {
@@ -102,7 +102,8 @@ export class WebControlManager {
   }
 
   getMobileApiKey(): WebControlApiKeyPublic | null {
-    return getCurrentMobileApiKey(getWebControlAuth(), apiKeyProtector())
+    // 打开设置页即可保证存在一把默认 Key，不必等 API 服务先启动。
+    return this.ensureDefaultMobileApiKey()
   }
 
   regenerateMobileApiKey(): WebControlApiKeyPublic {
@@ -112,6 +113,7 @@ export class WebControlManager {
   }
 
   copyMobileApiKey(): string {
+    this.ensureDefaultMobileApiKey()
     return readMobileApiKey(getWebControlAuth(), apiKeyProtector())
   }
   async stop(): Promise<void> {

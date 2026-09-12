@@ -31,6 +31,7 @@ const props = defineProps<{
   selected: boolean
   /** 正在进行中的操作，只让对应按钮转圈 */
   busyAction?: string | null
+  freeSwitchDisabled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -44,7 +45,7 @@ const emit = defineEmits<{
   'copy-oidc': []
   'assign-tags': []
   'payment-link': []
-  test: []
+  'switch-free': []
   /** 用该账号凭证打开官网后台 */
   portal: []
   /** 点用量区域查看积分变化日志 */
@@ -271,12 +272,13 @@ function copyEmail(): void {
       <AccountActions
         :active="props.account.isActive"
         :busy-action="props.busyAction"
+        :free-switch-disabled="props.freeSwitchDisabled"
         @logout="emit('logout')"
         @refresh-key="emit('refresh-key')"
         @refresh-usage="emit('refresh-usage')"
         @copy-oidc="emit('copy-oidc')"
         @payment-link="emit('payment-link')"
-        @test="emit('test')"
+        @switch-free="emit('switch-free')"
         @portal="emit('portal')"
         @edit="emit('edit')"
         @remove="emit('remove')"

@@ -1,7 +1,7 @@
 import type { IpcResult } from './types'
 
 /** Browser UI contracts. Secrets are write-only; remote web pages never receive this API. */
-export type BrowserProxyMode = 'socks5' | 'dynamic-http'
+export type BrowserProxyMode = 'socks5' | 'http' | 'dynamic-http'
 
 export interface BrowserFingerprint {
   /** Empty means the bundled Chromium/host-platform Chrome UA. */
@@ -16,9 +16,9 @@ export interface BrowserFingerprint {
 export interface BrowserConfig {
   proxy: {
     enabled: boolean
-    /** Static SOCKS5, or a whitelist API which returns an HTTP CONNECT proxy. */
+    /** Static SOCKS5, static HTTP, or a whitelist API which returns an HTTP CONNECT proxy. */
     mode: BrowserProxyMode
-    /** Static SOCKS5 endpoint only. */
+    /** Static proxy endpoint; HTTP mode also supports local proxies such as 127.0.0.1:7899. */
     host: string
     port: number
     username: string

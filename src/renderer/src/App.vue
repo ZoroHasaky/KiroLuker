@@ -29,7 +29,7 @@ function confirmQuit(): void {
   quitConfirmOpen = true
   Modal.confirm({
     title: '退出 KiroLuker',
-    content: '退出后自动刷新与 IDE 主动续期都会停止，托盘图标也会一起关闭。',
+    content: '退出后自动刷新会停止，托盘图标也会一起关闭。',
     okText: '退出',
     okType: 'danger',
     cancelText: '取消',
@@ -40,8 +40,6 @@ function confirmQuit(): void {
   })
 }
 
-// 主进程主动续期后回传的新凭证
-let offRenewal: (() => void) | undefined
 let offAccountsChanged: (() => void) | undefined
 
 onMounted(() => {
@@ -49,16 +47,12 @@ onMounted(() => {
     if (router.hasRoute(target)) void router.push({ name: target })
   })
   offConfirmQuit = window.api.onConfirmQuit(confirmQuit)
-  offRenewal = window.api.onProactiveRenewal((payload) =>
-    accountsStore.applyRenewedCredentials(payload)
-  )
   offAccountsChanged = window.api.onAccountsChanged((data) => accountsStore.applyServerData(data))
 
 })
 onUnmounted(() => {
   offNavigate?.()
   offConfirmQuit?.()
-  offRenewal?.()
   offAccountsChanged?.()
 })
 

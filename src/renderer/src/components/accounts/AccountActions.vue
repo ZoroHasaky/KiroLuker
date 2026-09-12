@@ -8,14 +8,16 @@ import {
   KeyOutlined,
   LinkOutlined,
   LogoutOutlined,
-  SyncOutlined,
-  ThunderboltOutlined
+  RollbackOutlined,
+  SyncOutlined
 } from '@ant-design/icons-vue'
 
 const props = defineProps<{
   active: boolean
   /** 正在进行中的操作，只让对应按钮转圈 */
   busyAction?: string | null
+  /** 当前账号是否已经是 Free 或已有不可重复提交的切换结果 */
+  freeSwitchDisabled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -24,7 +26,7 @@ const emit = defineEmits<{
   'refresh-usage': []
   'copy-oidc': []
   'payment-link': []
-  test: []
+  'switch-free': []
   portal: []
   edit: []
   remove: []
@@ -38,7 +40,7 @@ type ActionKey =
   | 'refresh-usage'
   | 'copy-oidc'
   | 'payment-link'
-  | 'test'
+  | 'switch-free'
   | 'portal'
   | 'edit'
   | 'remove'
@@ -57,6 +59,7 @@ interface AccountAction {
   menu?: MenuEntry[]
   danger?: boolean
   color?: string
+  disabled?: boolean
 }
 
 /** 卡片与列表共用同一份动作定义，避免两种视图的能力逐渐不一致。 */
@@ -83,7 +86,7 @@ const actions = computed<AccountAction[]>(() => {
   items.push(
     { id: 'copy-oidc', action: 'copy-oidc', title: '复制 OIDC 精简 JSON', icon: CopyOutlined },
     { id: 'payment-link', action: 'payment-link', title: '支付链接', icon: LinkOutlined },
-    { id: 'test', action: 'test', title: '测活（发一次真实对话）', icon: ThunderboltOutlined },
+    { id: 'switch-free', action: 'switch-free', title: props.freeSwitchDisabled ? '已是 Free 或已提交切Free' : '切Free', icon: RollbackOutlined, disabled: props.freeSwitchDisabled },
     { id: 'portal', action: 'portal', title: '前往Kiro.dev官网', icon: GlobalOutlined },
     { id: 'edit', action: 'edit', title: '编辑', icon: EditOutlined },
     { id: 'remove', action: 'remove', title: '删除', icon: DeleteOutlined, danger: true }
@@ -135,7 +138,7 @@ function trigger(key: ActionKey): void {
           :danger="item.danger"
           :style="item.color ? { color: item.color } : undefined"
           :loading="isLoading(item)"
-          :disabled="busy && !isLoading(item)"
+          :disabled="item.disabled || (busy && !isLoading(item))"
           @click.stop="item.action && trigger(item.action)"
         >
           <template #icon><component :is="item.icon" /></template>

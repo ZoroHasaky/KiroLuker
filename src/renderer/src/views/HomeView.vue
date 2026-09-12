@@ -20,14 +20,9 @@ import kirolukerLogo from '@/assets/kiroluker-logo.png'
 import { useAccountsStore } from '@/stores/accounts'
 import { useSettingsStore } from '@/stores/settings'
 import {
-  IDP_META,
-  subscriptionMeta,
   formatCredits,
-  formatCreditsPair,
   formatDate,
   relativeTime,
-  subscriptionLabel,
-  tokenLife
 } from '@/utils/format'
 import { displayEmail as maskedEmail, displayName as accountName } from '@/utils/display'
 import type { AccountFilter } from '@/stores/accounts'
@@ -44,7 +39,6 @@ const settingsStore = useSettingsStore()
 
 const precision = computed(() => settingsStore.settings.usagePrecision)
 const stats = computed(() => accountsStore.stats)
-const active = computed(() => accountsStore.activeAccount)
 
 const statCards = computed(() => [
   {
@@ -175,71 +169,6 @@ const usageBarColor = computed(() => {
   if (p >= 50) return '#fadb14'
   return '#52c41a'
 })
-
-/** 当前账号 Token 剩余时间：越紧张颜色越警示 */
-const tokenState = computed(() => {
-  const life = tokenLife(active.value?.credentials.expiresAt)
-  switch (life.state) {
-    case 'unknown':
-      return { text: '未知', color: 'var(--kal-muted)' }
-    case 'expired':
-      return { text: '已过期', color: '#ff4d4f' }
-    case 'minutes':
-      return { text: `${life.minutes} 分钟`, color: '#faad14' }
-    default:
-      return { text: `${life.hours} 小时`, color: '#52c41a' }
-  }
-})
-
-const activeUsagePercent = computed(() => {
-  const usage = active.value?.usage
-  if (!usage || !usage.limit) return 0
-  return Math.min((usage.current / usage.limit) * 100, 100)
-})
-
-const activeUsageColor = computed(() => {
-  const p = (active.value?.usage.percentUsed ?? 0) * 100
-  if (p > 80) return '#ff4d4f'
-  if (p > 50) return '#faad14'
-  return '#52c41a'
-})
-
-const quotaDetails = computed(() => {
-  const usage = active.value?.usage
-  if (!usage) return []
-  const rows: { key: string; color: string; label: string; value: string; extra?: string }[] = []
-  const p = precision.value
-  if (usage.baseLimit) {
-    rows.push({
-      key: 'base',
-      color: '#1677ff',
-      label: '基础额度',
-      value: formatCreditsPair(usage.baseCurrent ?? 0, usage.baseLimit, p)
-    })
-  }
-  if (usage.freeTrialLimit) {
-    rows.push({
-      key: 'trial',
-      color: '#722ed1',
-      label: '试用额度',
-      value: formatCreditsPair(usage.freeTrialCurrent ?? 0, usage.freeTrialLimit, p),
-      extra: usage.freeTrialExpiry ? `至 ${formatDate(usage.freeTrialExpiry)}` : undefined
-    })
-  }
-  for (const bonus of usage.bonuses ?? []) {
-    rows.push({
-      key: `bonus-${bonus.code}`,
-      color: '#13c2c2',
-      label: bonus.name,
-      value: formatCreditsPair(bonus.current, bonus.limit, p),
-      extra: bonus.expiresAt ? `至 ${formatDate(bonus.expiresAt)}` : undefined
-    })
-  }
-  return rows
-})
-
-/** 当前账号显示名，模板里多处复用 */
-const activeName = computed(() => (active.value ? accountName(active.value, privacy.value) : ''))
 
 const recent = computed(() =>
   [...accountsStore.accounts].sort((a, b) => (b.lastUsedAt || 0) - (a.lastUsedAt || 0)).slice(0, 5)
@@ -397,123 +326,6 @@ function previewOf(list: Account[]): string {
         style="margin-top: 8px"
         :message="`已超额 +${(usageStats.percentUsed - 100).toFixed(precision ? 2 : 1)}%，超额积分 ${formatCredits(Math.abs(usageStats.remaining), precision)}`"
       />
-    </a-card>
-
-    <!-- 当前使用账号 -->
-    <a-card size="small" class="active-card">
-      <template #title>
-        <span class="card-title">
-          <span class="icon-box sm" style="background: rgba(124, 58, 237, 0.12); color: #7c3aed">
-            <ThunderboltOutlined />
-          </span>
-          当前使用账号
-        </span>
-      </template>
-
-      <template v-if="active">
-        <div class="active-head">
-          <div class="active-id">
-            <a-avatar :size="40" :style="{ background: 'rgba(124,58,237,0.18)', color: '#7c3aed' }">
-              {{ (activeName || '?')[0].toUpperCase() }}
-            </a-avatar>
-            <div>
-              <div class="active-name">{{ activeName }}</div>
-              <div class="muted" style="font-size: 13px">{{ displayEmail(active.email) }}</div>
-            </div>
-          </div>
-          <a-tag :color="subscriptionMeta(active.subscription.type).color" :bordered="false">
-            {{ subscriptionLabel(active.subscription) }}
-          </a-tag>
-        </div>
-
-        <div class="info-grid bordered-top">
-          <div class="info-cell">
-            <div class="info-label muted">本月用量</div>
-            <div class="info-value">
-              {{ formatCreditsPair(active.usage.current, active.usage.limit, precision) }}
-            </div>
-            <a-progress
-              :percent="activeUsagePercent"
-              :stroke-color="activeUsageColor"
-              :show-info="false"
-              :stroke-width="6"
-            />
-          </div>
-          <div class="info-cell">
-            <div class="info-label muted">订阅剩余</div>
-            <div class="info-value">
-              {{ active.subscription.daysRemaining != null ? `${active.subscription.daysRemaining} 天` : '永久' }}
-            </div>
-          </div>
-          <div class="info-cell">
-            <div class="info-label muted">Token 状态</div>
-            <div class="info-value" :style="{ color: tokenState.color }">{{ tokenState.text }}</div>
-          </div>
-          <div class="info-cell">
-            <div class="info-label muted">登录方式</div>
-            <div class="info-value">{{ IDP_META[active.idp].text }}</div>
-          </div>
-        </div>
-
-        <div class="bordered-top">
-          <div class="block-title muted">订阅详情</div>
-          <div class="kv-grid">
-            <div class="kv">
-              <span class="muted">订阅类型</span>
-              <span>{{ subscriptionLabel(active.subscription) }}</span>
-            </div>
-            <div v-if="active.subscription.rawType" class="kv">
-              <span class="muted">原始类型</span>
-              <span class="mono">{{ active.subscription.rawType }}</span>
-            </div>
-            <div v-if="active.subscription.expiresAt" class="kv">
-              <span class="muted">下次重置</span>
-              <span>{{ formatDate(active.subscription.expiresAt) }}</span>
-            </div>
-            <div v-if="active.usage.nextResetDate" class="kv">
-              <span class="muted">重置日期</span>
-              <span>{{ formatDate(active.usage.nextResetDate) }}</span>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="quotaDetails.length" class="bordered-top">
-          <div class="block-title muted">额度明细</div>
-          <div class="kv-grid">
-            <div v-for="row in quotaDetails" :key="row.key" class="kv">
-              <span class="dot" :style="{ background: row.color }" />
-              <span class="muted">{{ row.label }}</span>
-              <span>{{ row.value }}</span>
-              <span v-if="row.extra" class="muted" style="font-size: 11px">（{{ row.extra }}）</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="bordered-top">
-          <div class="block-title muted">账户信息</div>
-          <div class="kv-grid">
-            <div v-if="active.userId" class="kv">
-              <span class="muted">User ID</span>
-              <span class="mono">{{ active.userId }}</span>
-            </div>
-            <div class="kv">
-              <span class="muted">IDP</span>
-              <span>{{ active.idp }}</span>
-            </div>
-            <div class="kv">
-              <span class="muted">最后检查</span>
-              <span>{{ relativeTime(active.lastCheckedAt) }}</span>
-            </div>
-          </div>
-        </div>
-      </template>
-
-      <a-empty v-else description="本地 Kiro 凭证未匹配到已管理的账号">
-        <a-space>
-          <a-button type="primary" @click="router.push({ name: 'accounts' })">去账户管理</a-button>
-          <a-button @click="accountsStore.syncActiveFromIde()">重新检测</a-button>
-        </a-space>
-      </a-empty>
     </a-card>
 
     <a-row :gutter="16">

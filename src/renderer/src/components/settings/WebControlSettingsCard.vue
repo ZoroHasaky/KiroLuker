@@ -93,7 +93,7 @@ onMounted(() => void load())
 <template>
   <a-card size="small" title="移动 App API 服务" style="margin-bottom: 16px">
     <template #extra><a-tag :color="config?.running ? 'green' : 'default'">{{ config?.running ? '运行中' : '未运行' }}</a-tag></template>
-    <a-alert type="warning" show-icon style="margin-bottom: 14px" message="公网访问必须经 HTTPS 反向代理" description="应用不会自动开放防火墙，也不会忽略 TLS 证书错误。移动 App API Key 在服务首次启动时自动生成，使用系统安全存储保护；账号列表不返回凭证或完整支付链接。" />
+    <a-alert type="warning" show-icon style="margin-bottom: 14px" message="公网访问必须经 HTTPS 反向代理" description="应用不会自动开放防火墙，也不会忽略 TLS 证书错误。默认移动 App API Key 在服务首次启动时自动生成，使用系统安全存储保护；账号列表不返回凭证或完整支付链接。" />
     <a-form v-if="config" layout="horizontal" :label-col="{ flex: '0 0 130px' }" :wrapper-col="{ flex: '1 1 auto' }">
       <a-form-item label="启用服务"><a-switch v-model:checked="config.enabled" checked-children="开启" un-checked-children="关闭" /></a-form-item>
       <a-form-item label="监听地址"><a-input v-model:value="config.host" placeholder="127.0.0.1 / 0.0.0.0 / ::1" /></a-form-item>
@@ -104,9 +104,8 @@ onMounted(() => void load())
       <a-form-item><a-space><a-button type="primary" :loading="loading" @click="save"><template #icon><ReloadOutlined /></template>保存并应用</a-button><a-button :loading="loading" @click="toggleService"><template #icon><GlobalOutlined /></template>{{ config.running ? '停止服务' : '启动服务' }}</a-button></a-space></a-form-item>
     </a-form>
     <a-alert v-if="config?.error" type="error" show-icon :message="config.error" />
-  </a-card>
 
-  <a-card size="small" title="移动 App 登录 API Key" style="margin-bottom: 16px">
+    <a-divider orientation="left" plain>移动 App 登录 API Key</a-divider>
     <a-alert type="info" show-icon style="margin-bottom: 14px" message="默认 Key 已拥有全部移动 App 权限" description="Key 不在页面显示明文，且不会经 HTTP API 返回。可随时复制；重新创建会立即撤销旧 Key。" />
     <a-alert v-if="keyError" type="error" show-icon style="margin-bottom: 14px" :message="keyError" />
     <a-empty v-if="!mobileApiKey" description="启动 API 服务后会自动生成默认 API Key" />

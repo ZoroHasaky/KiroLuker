@@ -20,11 +20,6 @@ import {
   isAppProtocolUrl,
   registerAppProtocol
 } from './appProtocol'
-import {
-  clearProactiveRenewal,
-  initProactiveRenewal,
-  scheduleForActiveAccount
-} from './proactiveRenewal'
 import { flushUsageHistory } from './usageHistory'
 import { initLogger, installConsoleBridge, log, shutdownLogger } from './logger'
 import { sendToRenderer } from './utils'
@@ -248,7 +243,6 @@ app.whenReady().then(async () => {
   applyRuntimeSettings(getSettings())
   // 授权回调页的「返回应用」按钮靠这个回调把主窗口带到前台
   registerLoginFocusHandler(focusWindow)
-  initProactiveRenewal(() => mainWindow)
   registerIpc(
     () => mainWindow,
     () => {
@@ -292,9 +286,6 @@ app.whenReady().then(async () => {
   const launchUrl = findAppProtocolUrl(process.argv)
   if (launchUrl) handleAppProtocolUrl(launchUrl, focusWindow, () => mainWindow)
 
-  // 按上次持久化的激活账号，启动即恢复主动续期调度（若功能已开启）
-  scheduleForActiveAccount()
-
   // 先登记回调，再按设置决定是否真正创建托盘图标
   registerTrayCallbacks({
     onShowWindow: focusWindow,
@@ -333,7 +324,6 @@ app.on('will-quit', () => {
   cancelLogin()
   shutdownLoginServers()
   unregisterProtocol()
-  clearProactiveRenewal('app quitting')
   flushUsageHistory()
   destroyTray()
   void shutdownLogger()

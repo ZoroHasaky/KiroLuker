@@ -266,12 +266,6 @@ function clearAll(): void {
             只刷新 30 分钟内即将过期的账号，避免无谓轮换 Refresh Token
           </span>
         </a-form-item>
-        <a-form-item label="IDE 主动续期" class="field-inline">
-          <SettingSwitch field="proactiveRenewalEnabled" />
-          <span class="muted">
-            在 IDE 激活账号的 token 剩 ~15 分钟时抢先 refresh，让 Kiro IDE 永远不自己 refresh
-          </span>
-        </a-form-item>
         <a-form-item label="自动刷新用量" class="field-inline">
           <SettingSwitch field="autoRefreshUsage" />
           <span class="muted">
@@ -350,10 +344,6 @@ function clearAll(): void {
         <li>账号很多时建议把用量刷新间隔调大一些，全量拉取用量的请求量随账号数线性增长。</li>
         <li>手动批量操作进行中时定时任务会等待，操作结束后立即补跑到期的那一轮。</li>
         <li>窗口最小化到托盘、电脑睡眠唤醒后错过的轮次都会自动补跑，不需要重开窗口。</li>
-        <li>
-          主动续期只对 IDE 当前激活的那一个账号维护定时器，续期成功后写回磁盘并刷新界面；
-          该账号一旦不再是 IDE 当前账号就自动停止，交给 IDE 自身兜底。
-        </li>
       </ul>
     </a-card>
 

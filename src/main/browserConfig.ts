@@ -29,7 +29,7 @@ function integer(value: unknown, min: number, max: number, field: string): numbe
 function proxyMode(value: unknown): BrowserProxyMode {
   // Stored v1 configurations and direct callers are static SOCKS5 configurations.
   if (value === undefined || value === 'socks5') return 'socks5'
-  if (value === 'dynamic-http') return value
+  if (value === 'http' || value === 'dynamic-http') return value
   throw new Error('代理模式无效')
 }
 
@@ -125,7 +125,7 @@ export function validateBrowserProxy(value: unknown): BrowserResolvedConfig['pro
   }
 }
 
-/** The patch contract is a complete form; only password is optional (omitted retains it in SOCKS5 mode). */
+/** The patch contract is a complete form; only password is optional (omitted retains it for static proxy modes). */
 export function validateBrowserConfigPatch(value: unknown, previousPassword = ''): BrowserResolvedConfig {
   const patch = object(value, '浏览器配置')
   const proxy = object(patch.proxy, '代理配置')
@@ -185,7 +185,7 @@ function secureStorageRequired(): void {
 function encodeConfig(config: BrowserResolvedConfig): StoredBrowserConfig {
   const { enabled, mode, host, port, username, password, apiUrl, apiProxyHost, apiProxyPort } = config.proxy
   let encryptedCredentials = ''
-  if (mode === 'socks5' && (username || password)) {
+  if ((mode === 'socks5' || mode === 'http') && (username || password)) {
     secureStorageRequired()
     try {
       encryptedCredentials = safeStorage.encryptString(JSON.stringify({ username, password })).toString('base64')
@@ -279,7 +279,7 @@ export function saveBrowserConfig(patch: BrowserConfigPatch): BrowserConfig {
   // Validate before any read/write. Dynamic mode has no SOCKS secret and deliberately
   // clears stale SOCKS credentials instead of retaining an unused encrypted value.
   const config = validateBrowserConfigPatch(patch)
-  if (config.proxy.mode === 'socks5' && patch.proxy.password === undefined) {
+  if ((config.proxy.mode === 'socks5' || config.proxy.mode === 'http') && patch.proxy.password === undefined) {
     config.proxy.password = readConfig().proxy.password
   } else if (config.proxy.mode === 'dynamic-http') {
     config.proxy.username = ''
