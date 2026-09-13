@@ -4,6 +4,19 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.31] - 2026-09-13
+
+### 变更
+
+- 移动端「提链」改为手机本机直连 Kiro `CreateSubscriptionToken` 生成订阅链接，成功后回传桌面存储；桌面不再代发提链请求，「切Free」与订阅计划列表维持桌面执行。
+- 新增移动 API：`GET /api/v1/accounts/:id/subscription-material`（按需下发 accessToken / serviceRegion / profileArn，桌面 resolve 后下发；`accounts:export`、no-store、不写日志）、`PUT /api/v1/accounts/:id/payment-link`（回传存储，空字符串清除链接）。
+- access token 剩余有效期不足 5 分钟时，手机先借用桌面现有刷新任务再重新取材料；提链逐账号顺序执行，单账号失败不中断。
+- 旧接口 `POST /api/v1/subscriptions/link` 保留供旧版本 App 使用。
+
+### 测试
+
+- 桌面 web-control 测试 8/8 通过（material 双 ARN 形态、no-store、写后读回、非法链接 400、scope 403 等）；移动新增 9 项直连客户端测试（URL/请求头/请求体与桌面逐字对齐、响应双字段名兼容、上游错误映射），flutter analyze 无告警，Debug APK 构建通过。
+
 ## [1.2.30] - 2026-09-13
 
 ### 变更

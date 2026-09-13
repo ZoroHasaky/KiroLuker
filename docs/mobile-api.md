@@ -18,10 +18,22 @@
 - `PATCH /api/v1/accounts/:id`（仅标签、备注、昵称）
 - `GET /api/v1/accounts/:id/oidc`（需要 `accounts:export`）
 - `GET /api/v1/accounts/:id/payment-link`（需要 `accounts:payment`）
+- `GET /api/v1/accounts/:id/subscription-material`（需要 `accounts:export`）
+- `PUT /api/v1/accounts/:id/payment-link`（需要 `accounts:payment`；空字符串清除链接）
 - `GET /api/v1/tags`
 - `POST /api/v1/billing/checkout/generate`（需要 `billing:generate`）
 
 所有接口使用 `Authorization: Bearer <API Key>`。移动 App 默认 Key 始终拥有当前全部移动权限；重新创建后旧 Key 会立即失效。
+
+### 手机直连提链
+
+「提链」由手机本机直接请求 Kiro 的 `CreateSubscriptionToken`，桌面只提供材料与存储，不代发请求：
+
+1. `GET /api/v1/accounts/:id/subscription-material` 取回 `{ accessToken, serviceRegion, profileArn, tokenExpiresAt }`（profileArn 与 serviceRegion 已在桌面 resolve）；该接口下发 accessToken，与 OIDC 导出同级敏感，`no-store`，绝不写日志。
+2. 手机用材料直连 `https://q.<serviceRegion>.amazonaws.com/CreateSubscriptionToken` 生成链接；token 临期时手机先调用桌面现有刷新任务再重新取材料。
+3. `PUT /api/v1/accounts/:id/payment-link` 把生成的 URL 回传桌面存储。
+
+`POST /api/v1/subscriptions/link`（桌面代跑提链的旧接口）保留供旧版本 App 使用，新版本应使用上述直连流程。
 
 ### 账号列表筛选
 

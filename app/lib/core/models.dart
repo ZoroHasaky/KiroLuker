@@ -205,6 +205,32 @@ class WebJob {
   );
 }
 
+class SubscriptionMaterial {
+  const SubscriptionMaterial({
+    required this.accessToken,
+    required this.serviceRegion,
+    required this.profileArn,
+    required this.tokenExpiresAt,
+  });
+
+  /// 手机端直连 Kiro 提链所需的材料；由桌面按需下发（与 OIDC 导出同级敏感）。
+  final String accessToken;
+  /// 已归并的服务区域：'us-east-1' 或 'eu-central-1'。
+  final String serviceRegion;
+  /// 桌面 resolve 完成的 profileArn。
+  final String profileArn;
+  /// access token 过期时间戳（毫秒）。
+  final int tokenExpiresAt;
+
+  factory SubscriptionMaterial.fromJson(Map<String, dynamic> json) =>
+      SubscriptionMaterial(
+        accessToken: json['accessToken']?.toString() ?? '',
+        serviceRegion: json['serviceRegion']?.toString() ?? 'us-east-1',
+        profileArn: json['profileArn']?.toString() ?? '',
+        tokenExpiresAt: (json['tokenExpiresAt'] as num?)?.toInt() ?? 0,
+      );
+}
+
 class PublicAccount {
   const PublicAccount({
     required this.id,

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
 import '../../core/app_state.dart';
+import '../../core/kiro_subscription_client.dart';
 import '../../core/models.dart';
 
 class SubscriptionScreen extends StatelessWidget {
@@ -92,21 +93,62 @@ class _SubscriptionOperationPaneState
       _message = null;
     });
     try {
-      final jobId = widget.operation == _SubscriptionOperation.link
-          ? await apiFor(ref).createSubscriptionLinks(ids, _selectedPlan!)
-          : await apiFor(ref).switchSubscriptionsToFree(ids);
-      final job = await _waitJob(jobId);
-      if (!mounted) return;
-      setState(() {
-        _message = '完成：成功 ${job.succeeded}，失败 ${job.failed}，跳过 ${job.skipped}';
-        _selected.clear();
-      });
+      if (widget.operation == _SubscriptionOperation.link) {
+        await _runDirectLinks(ids);
+      } else {
+        final jobId = await apiFor(ref).switchSubscriptionsToFree(ids);
+        final job = await _waitJob(jobId);
+        if (!mounted) return;
+        setState(() {
+          _message = '完成：成功 ${job.succeeded}，失败 ${job.failed}，跳过 ${job.skipped}';
+          _selected.clear();
+        });
+      }
       ref.invalidate(subscriptionAccountsProvider);
     } on ApiFailure catch (error) {
       if (mounted) setState(() => _message = error.message);
     } finally {
       if (mounted) setState(() => _working = false);
     }
+  }
+
+  /// 提链在手机本机直连 Kiro：逐账号取材料 → 请求 CreateSubscriptionToken → 回传桌面存储。
+  /// 顺序执行不并发，避免手机侧集中请求；单个账号失败不中断其余账号。
+  Future<void> _runDirectLinks(List<String> ids) async {
+    final client = KiroSubscriptionClient();
+    var succeeded = 0;
+    final failures = <String>[];
+    for (var index = 0; index < ids.length; index++) {
+      final id = ids[index];
+      if (mounted) setState(() => _message = '正在提链 ${index + 1}/${ids.length}…');
+      try {
+        var material = await apiFor(ref).subscriptionMaterial(id);
+        // access token 临期时先借桌面现有刷新任务，再重新取材料。
+        if (material.tokenExpiresAt - DateTime.now().millisecondsSinceEpoch <
+            5 * 60 * 1000) {
+          final job = await _waitJob(await apiFor(ref).refreshToken(id));
+          if (job.failed > 0) {
+            throw const ApiFailure('REFRESH_FAILED', '刷新密钥失败，请稍后重试');
+          }
+          material = await apiFor(ref).subscriptionMaterial(id);
+        }
+        final url = await client.createSubscriptionToken(
+          material: material,
+          subscriptionType: _selectedPlan!,
+        );
+        await apiFor(ref).setPaymentLink(id, url);
+        succeeded++;
+      } on ApiFailure catch (error) {
+        failures.add('${index + 1}. ${error.message}');
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _selected.clear();
+      _message = failures.isEmpty
+          ? '完成：成功 $succeeded'
+          : '完成：成功 $succeeded，失败 ${failures.length}\n${failures.take(5).join('\n')}';
+    });
   }
 
   Future<WebJob> _waitJob(String id) async {

@@ -230,3 +230,58 @@ test('mobile capability, OIDC export, payment link and checkout billing endpoint
     assert.equal(denied.json().error.code, 'INSUFFICIENT_SCOPE')
   } finally { await closeFixture(fixture) }
 })
+
+test('subscription material returns resolved direct-link inputs on demand and payment-link writeback validates and stores', async () => {
+  const fixture = await createFixture(data([
+    account(),
+    account({
+      id: 'social-1',
+      email: 'two@example.com',
+      idp: 'Google',
+      credentials: { accessToken: 'social-access', refreshToken: 'social-refresh', expiresAt: 5, authMethod: 'social', provider: 'Google' }
+    })
+  ]))
+  try {
+    const mobile = fixture.issue('mobile', ['accounts:read', 'accounts:export', 'accounts:payment'])
+    const auth = bearer(mobile.token)
+
+    const material = await fixture.app.inject({ method: 'GET', url: '/api/v1/accounts/account-1/subscription-material', headers: auth })
+    assert.equal(material.statusCode, 200)
+    assert.equal(material.headers['cache-control'], 'no-store')
+    assert.deepEqual(material.json().data, {
+      accessToken: 'access-secret',
+      serviceRegion: 'us-east-1',
+      profileArn: 'arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX',
+      tokenExpiresAt: 9_999_999_999_999
+    })
+
+    const social = await fixture.app.inject({ method: 'GET', url: '/api/v1/accounts/social-1/subscription-material', headers: auth })
+    assert.equal(social.statusCode, 200)
+    assert.equal(social.json().data.profileArn, 'arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK')
+    assert.equal(social.json().data.tokenExpiresAt, 5)
+
+    const put = await fixture.app.inject({ method: 'PUT', url: '/api/v1/accounts/account-1/payment-link', headers: auth, payload: { url: 'https://checkout.stripe.com/c/pay/mobile-direct' } })
+    assert.equal(put.statusCode, 200)
+    assert.equal(put.headers['cache-control'], 'no-store')
+    assert.equal(put.json().data.hasPaymentLink, true)
+    assert.equal('paymentLink' in put.json().data, false)
+
+    const readBack = await fixture.app.inject({ method: 'GET', url: '/api/v1/accounts/account-1/payment-link', headers: auth })
+    assert.deepEqual(readBack.json().data, { configured: true, url: 'https://checkout.stripe.com/c/pay/mobile-direct' })
+
+    const invalid = await fixture.app.inject({ method: 'PUT', url: '/api/v1/accounts/account-1/payment-link', headers: auth, payload: { url: 'javascript:alert(1)' } })
+    assert.equal(invalid.statusCode, 400)
+    assert.equal(invalid.json().error.code, 'INVALID_PAYMENT_LINK')
+
+    const missing = await fixture.app.inject({ method: 'PUT', url: '/api/v1/accounts/none/payment-link', headers: auth, payload: { url: 'https://ok.example' } })
+    assert.equal(missing.statusCode, 404)
+
+    const cleared = await fixture.app.inject({ method: 'PUT', url: '/api/v1/accounts/account-1/payment-link', headers: auth, payload: { url: '' } })
+    assert.equal(cleared.statusCode, 200)
+    assert.equal(fixture.accountFixture.stored().accounts[0].paymentLink, '')
+
+    const readonly = fixture.issue('readonly', ['accounts:read'])
+    assert.equal((await fixture.app.inject({ method: 'GET', url: '/api/v1/accounts/account-1/subscription-material', headers: bearer(readonly.token) })).statusCode, 403)
+    assert.equal((await fixture.app.inject({ method: 'PUT', url: '/api/v1/accounts/account-1/payment-link', headers: bearer(readonly.token), payload: { url: 'https://x.example' } })).statusCode, 403)
+  } finally { await closeFixture(fixture) }
+})

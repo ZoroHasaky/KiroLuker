@@ -18,7 +18,7 @@ import type {
   SubscriptionPlansResult
 } from '../shared/types'
 
-function subscriptionProfileArn(account: Account): string {
+export function subscriptionProfileArn(account: Account): string {
   return resolveProfileArn({
     profileArn: account.profileArn || account.credentials.profileArn,
     authMethod: account.credentials.authMethod,

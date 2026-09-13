@@ -4,6 +4,7 @@ import type { BillingPublicConfig, BillingResult } from '../shared/billing'
 import { type WebApiScope, type WebControlAuthData, type WebControlSettings } from '../shared/webControl'
 import type { AccountTag, AppSettings, BatchResult, VerifyCredentialsInput } from '../shared/types'
 import { classifyAccountGroup, type AccountGroup } from '../shared/accountGrouping'
+import { isHttpSubscriptionUrl } from '../shared/subscriptionBatch'
 import { getSubscriptionPlans, createSubscriptionLink } from './subscriptionService'
 import { switchSubscriptionToFree } from './stripePortalService'
 import { AccountApplicationService, type PublicAccount } from './accountApplicationService'
@@ -314,6 +315,27 @@ export async function createWebControlHttpApp(deps: WebControlHttpDependencies):
     }
     reply.header('cache-control', 'no-store')
     return ok(request, link ? { configured: true, url: link } : { configured: false })
+  })
+
+  /**
+   * 手机端直连 Kiro 提链所需的材料（含 accessToken）。与 OIDC 导出同级敏感：
+   * 仅按需读取、no-store、绝不写入日志；profileArn 与 serviceRegion 已在桌面 resolve。
+   */
+  app.get('/api/v1/accounts/:id/subscription-material', { schema: { tags: ['accounts'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', minLength: 1, maxLength: 100 } } }, response: { 200: responseEnvelopeSchema } }, preHandler: requireAuth(['accounts:export']) }, async (request, reply) => {
+    const material = deps.accountService.getSubscriptionMaterial((request.params as { id: string }).id)
+    if (!material) throw new HttpError(404, 'NOT_FOUND', '账号不存在')
+    reply.header('cache-control', 'no-store')
+    return ok(request, material)
+  })
+
+  /** 手机端直连生成链接后的回传存储；空字符串清除链接。 */
+  app.put('/api/v1/accounts/:id/payment-link', { schema: { tags: ['accounts'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string', minLength: 1, maxLength: 100 } } }, body: { type: 'object', additionalProperties: false, required: ['url'], properties: { url: { type: 'string', maxLength: 2000 } } }, response: { 200: responseEnvelopeSchema } }, preHandler: requireAuth(['accounts:payment']) }, async (request, reply) => {
+    const id = (request.params as { id: string }).id
+    const url = readString((request.body as Record<string, unknown>).url, '支付链接', { max: 2000 })!.trim()
+    if (url && !isHttpSubscriptionUrl(url)) throw new HttpError(400, 'INVALID_PAYMENT_LINK', '支付链接必须是有效的 http/https 地址')
+    if (!deps.accountService.getPublicAccount(id)) throw new HttpError(404, 'NOT_FOUND', '账号不存在')
+    reply.header('cache-control', 'no-store')
+    return ok(request, await deps.accountService.setPaymentLink(id, url))
   })
 
   app.patch('/api/v1/accounts/:id', { schema: { tags: ['accounts'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }, body: { type: 'object', additionalProperties: false, properties: { nickname: { type: 'string', maxLength: 200 }, note: { type: 'string', maxLength: 4000 }, tagIds: { type: 'array', maxItems: 100, items: { type: 'string', minLength: 1, maxLength: 100 } } } }, response: { 200: responseEnvelopeSchema } }, preHandler: requireAuth(['accounts:write'], false, true) }, async (request) => {

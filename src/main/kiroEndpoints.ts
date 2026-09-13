@@ -48,7 +48,7 @@ export const KIRO_OIDC_SCOPES = [
 ]
 
 /** 接口只在这两个区域有部署，其它区域按地理位置就近归并 */
-type ServiceRegion = 'us-east-1' | 'eu-central-1'
+export type ServiceRegion = 'us-east-1' | 'eu-central-1'
 
 /** 把任意 AWS 区域归并到最近的服务区域 */
 export function serviceRegion(region?: string): ServiceRegion {

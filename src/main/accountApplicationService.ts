@@ -11,6 +11,8 @@ import type {
   VerifyCredentialsInput
 } from '../shared/types'
 import { ACCOUNT_STORE_VERSION, buildOidcImportItem, inferAuthMethod } from '../shared/accountData'
+import { serviceRegion, type ServiceRegion } from './kiroEndpoints'
+import { subscriptionProfileArn } from './subscriptionService'
 
 export interface PublicAccount {
   id: string
@@ -36,6 +38,15 @@ export interface PublicAccount {
 export interface AccountChange {
   data: AccountStoreData
   removedIds: string[]
+}
+
+/** 移动端直连 Kiro 提链所需的材料；与 OIDC 导出同级敏感，仅在按需接口下发。 */
+export interface SubscriptionMaterial {
+  accessToken: string
+  serviceRegion: ServiceRegion
+  profileArn: string
+  /** access token 过期时间戳（ms），手机端据此判断是否先刷新。 */
+  tokenExpiresAt: number
 }
 
 interface AccountRepository {
@@ -177,6 +188,19 @@ export class AccountApplicationService {
     if (!account) return null
     const link = account.paymentLink?.trim() ?? ''
     return link || null
+  }
+
+  /** profileArn 与 serviceRegion 在桌面 resolve 完再下发，手机端不复刻判断逻辑。 */
+  getSubscriptionMaterial(id: string): SubscriptionMaterial | null {
+    const account = this.repository.load().accounts.find((item) => item.id === id)
+    if (!account) return null
+    if (!account.credentials.accessToken) throw new Error('账号缺少 Access Token，请先刷新密钥')
+    return {
+      accessToken: account.credentials.accessToken,
+      serviceRegion: serviceRegion(account.credentials.region),
+      profileArn: subscriptionProfileArn(account),
+      tokenExpiresAt: account.credentials.expiresAt
+    }
   }
 
   private async write<T>(mutator: (data: AccountStoreData) => { data: AccountStoreData; result: T; removedIds?: string[] }): Promise<T> {
