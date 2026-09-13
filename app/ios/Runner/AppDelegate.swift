@@ -7,12 +7,14 @@ private let paymentViewType = "com.kiroluker/payment-browser"
 private final class PaymentSession {
   let id: String
   let url: URL
+  let identity: BrowserIdentity?
   let dataStore: WKWebsiteDataStore
   var webView: WKWebView?
 
-  init(id: String, url: URL) {
+  init(id: String, url: URL, identity: BrowserIdentity?) {
     self.id = id
     self.url = url
+    self.identity = identity
     self.dataStore = WKWebsiteDataStore.nonPersistent()
   }
 }
@@ -25,8 +27,21 @@ private final class PaymentSessionRegistry {
     guard let url = URL(string: request.initialUrl), url.scheme == "https", url.host == "checkout.stripe.com" else {
       return PaymentSessionStatus(supported: false, message: "支付链接不是受支持的 Stripe Checkout HTTPS 地址")
     }
-    sessions[request.sessionId] = PaymentSession(id: request.sessionId, url: url)
+    // 与桌面端同一标准：UA 超长或含控制字符时放弃伪装，回退系统默认 UA。
+    let identity = request.identity.flatMap { identity -> BrowserIdentity? in
+      let userAgent = identity.userAgent
+      let sane = !userAgent.isEmpty && userAgent.count <= 512
+        && !userAgent.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+      return sane ? identity : nil
+    }
+    sessions[request.sessionId] = PaymentSession(id: request.sessionId, url: url, identity: identity)
     return PaymentSessionStatus(supported: true)
+  }
+
+  func engineInfo() -> BrowserEngineInfo {
+    let device = UIDevice.current
+    let model = device.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
+    return BrowserEngineInfo(engineUserAgent: "", osVersion: device.systemVersion, deviceModel: model, buildId: nil, architecture: nil)
   }
 
   func createView(sessionId: String, frame: CGRect) -> UIView {
@@ -36,6 +51,10 @@ private final class PaymentSessionRegistry {
     configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
     // No WKScriptMessageHandler, URL scheme handler, or platform-channel bridge is exposed to the page.
     let webView = WKWebView(frame: frame, configuration: configuration)
+    // WebKit 无 navigator.userAgentData，customUserAgent 同时覆盖 HTTP 头与 navigator.userAgent。
+    if let userAgent = session.identity?.userAgent {
+      webView.customUserAgent = userAgent
+    }
     webView.allowsBackForwardNavigationGestures = true
     webView.navigationDelegate = PaymentNavigationDelegate()
     session.webView = webView
@@ -199,6 +218,7 @@ private final class PaymentBrowserHost: PaymentBrowserHostApi {
   private let registry: PaymentSessionRegistry
   init(registry: PaymentSessionRegistry) { self.registry = registry }
   func createSession(request: PaymentSessionRequest) async throws -> PaymentSessionStatus { try registry.create(request) }
+  func getBrowserEngineInfo() async throws -> BrowserEngineInfo { registry.engineInfo() }
   func canGoBack(sessionId: String) async throws -> Bool { registry.canGoBack(sessionId) }
   func goBack(sessionId: String) async throws { try registry.goBack(sessionId) }
   func reload(sessionId: String) async throws { try registry.reload(sessionId) }

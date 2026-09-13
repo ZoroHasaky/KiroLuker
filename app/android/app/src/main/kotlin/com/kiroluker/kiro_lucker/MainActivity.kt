@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.content.Intent
 import android.app.DownloadManager
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.graphics.Color
 import android.net.ConnectivityManager
@@ -28,6 +29,7 @@ import android.widget.TextView
 import androidx.webkit.ProfileStore
 import androidx.webkit.WebStorageCompat
 import androidx.webkit.WebViewBuilder
+import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -63,6 +65,7 @@ private data class PaymentSession(
   val url: String,
   val profileName: String?,
   val isolated: Boolean,
+  val identity: BrowserIdentity? = null,
   var webView: WebView? = null,
 )
 
@@ -85,15 +88,16 @@ private class PaymentSessionRegistry(private val context: Context) {
     if (!request.initialUrl.isStripeCheckout()) {
       return PaymentSessionStatus(false, "支付链接不是受支持的 Stripe Checkout HTTPS 地址")
     }
+    val identity = sanitizeIdentity(request.identity)
     if (supportsProfiles()) {
       val profileName = "$PROFILE_PREFIX${request.sessionId.replace("-", "")}"
       ProfileStore.getInstance().getOrCreateProfile(profileName)
-      sessions[request.sessionId] = PaymentSession(request.sessionId, request.initialUrl, profileName, true)
+      sessions[request.sessionId] = PaymentSession(request.sessionId, request.initialUrl, profileName, true, identity)
       preferences.edit().putString(profileName, profileName).apply()
       return PaymentSessionStatus(true)
     }
     clearLegacyWebData()
-    sessions[request.sessionId] = PaymentSession(request.sessionId, request.initialUrl, null, false)
+    sessions[request.sessionId] = PaymentSession(request.sessionId, request.initialUrl, null, false, identity)
     return PaymentSessionStatus(
       true,
       "兼容模式：当前 Android System WebView 不支持独立支付 profile。本次会话开始和关闭时会清除本应用 WebView 的 Cookie、缓存和网页存储；请勿在共享设备上保存支付信息。",
@@ -124,6 +128,7 @@ private class PaymentSessionRegistry(private val context: Context) {
     webView.removeJavascriptInterface("searchBoxJavaBridge_")
     webView.removeJavascriptInterface("accessibility")
     webView.removeJavascriptInterface("accessibilityTraversal")
+    session.identity?.let { applyBrowserIdentity(webView, it) }
     webView.webChromeClient = WebChromeClient()
     webView.webViewClient = object : WebViewClient() {
       override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
@@ -172,7 +177,8 @@ private class PaymentSessionRegistry(private val context: Context) {
     // could start another navigation while cleanup is already in progress.
     view?.stopLoading()
     view?.webChromeClient = null
-    view?.webViewClient = null
+    // 新版 SDK 的 setWebViewClient 不接受 null，换成默认实例以解除自定义导航过滤。
+    view?.webViewClient = WebViewClient()
     view?.clearHistory()
     view?.clearCache(true)
     view?.clearFormData()
@@ -228,6 +234,94 @@ private class PaymentSessionRegistry(private val context: Context) {
     ?: throw FlutterError("SESSION_NOT_READY", "支付页面尚未加载或已关闭", null)
 
   private fun errorView(message: String): View = TextView(context).apply { text = message; setPadding(32, 32, 32, 32) }
+
+  fun engineInfo(): BrowserEngineInfo {
+    val abi = Build.SUPPORTED_ABIS.firstOrNull()
+    val architecture = when {
+      abi == null -> null
+      abi.contains("arm64") || abi.contains("armeabi") -> "arm"
+      abi.contains("x86") -> "x86"
+      else -> null
+    }
+    return BrowserEngineInfo(
+      WebSettings.getDefaultUserAgent(context),
+      Build.VERSION.RELEASE ?: "",
+      Build.MODEL ?: "",
+      Build.ID,
+      architecture,
+    )
+  }
+
+  /** 与桌面端 browserConfig 同一标准：UA 超长或含控制字符时放弃伪装，回退系统默认 UA。 */
+  private fun sanitizeIdentity(identity: BrowserIdentity?): BrowserIdentity? {
+    if (identity == null) return null
+    val userAgent = identity.userAgent
+    if (userAgent.isEmpty() || userAgent.length > 512 || userAgent.any { it.code in 0x00..0x1F }) return null
+    return identity
+  }
+
+  /**
+   * 设自定义 UA 后 WebView 不再发送 sec-ch-ua 系请求头，HTTP 侧自动一致；
+   * JS 侧的 navigator.userAgentData 品牌仍来自真实 WebView，需在文档开始前覆写对齐。
+   */
+  private fun applyBrowserIdentity(webView: WebView, identity: BrowserIdentity) {
+    webView.settings.userAgentString = identity.userAgent
+    if (identity.brands.isEmpty()) return
+    if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return
+    val major = identity.fullVersion.substringBefore('.')
+    val brands = JSONArray()
+    val fullVersionList = JSONArray()
+    for (brand in identity.brands) {
+      brands.put(JSONObject().put("brand", brand.brand).put("version", brand.version))
+      // GREASE 品牌保留自身版本，浏览器品牌换成完整版本号。
+      fullVersionList.put(
+        JSONObject().put("brand", brand.brand)
+          .put("version", if (brand.version == major) identity.fullVersion else brand.version)
+      )
+    }
+    val data = JSONObject().apply {
+      put("brands", brands)
+      put("fullVersionList", fullVersionList)
+      put("fullVersion", identity.fullVersion)
+      put("mobile", identity.mobile)
+      put("platform", identity.platform)
+      put("platformVersion", identity.platformVersion ?: "")
+      put("architecture", identity.architecture ?: "")
+      put("model", identity.model ?: "")
+    }
+    val script = """
+      (function () {
+        var d = $data;
+        function brandsOf(list) { return list.map(function (item) { return { brand: item.brand, version: item.version }; }); }
+        var uaData = {
+          brands: brandsOf(d.brands),
+          mobile: d.mobile,
+          platform: d.platform,
+          getHighEntropyValues: function (hints) {
+            var all = {
+              brands: brandsOf(d.brands),
+              fullVersionList: brandsOf(d.fullVersionList),
+              fullVersion: d.fullVersion,
+              platform: d.platform,
+              platformVersion: d.platformVersion,
+              architecture: d.architecture,
+              model: d.model,
+              mobile: d.mobile,
+              bitness: '',
+              wow64: false
+            };
+            var out = {};
+            (hints || []).forEach(function (hint) { if (hint in all) out[hint] = all[hint]; });
+            return Promise.resolve(out);
+          }
+        };
+        var descriptor = { get: function () { return uaData; }, configurable: true };
+        try { Object.defineProperty(Navigator.prototype, 'userAgentData', descriptor); } catch (error) {}
+        try { Object.defineProperty(navigator, 'userAgentData', descriptor); } catch (error) {}
+      })();
+    """.trimIndent()
+    WebViewCompat.addDocumentStartJavaScript(webView, script, setOf("*"))
+  }
 }
 
 /**
@@ -500,6 +594,7 @@ private class PaymentBrowserPlatformViewFactory(private val registry: PaymentSes
 
 private class PaymentBrowserHost(private val registry: PaymentSessionRegistry) : PaymentBrowserHostApi {
   override suspend fun createSession(request: PaymentSessionRequest): PaymentSessionStatus = registry.create(request)
+  override suspend fun getBrowserEngineInfo(): BrowserEngineInfo = registry.engineInfo()
   override suspend fun canGoBack(sessionId: String): Boolean = registry.canGoBack(sessionId)
   override suspend fun goBack(sessionId: String) = registry.goBack(sessionId)
   override suspend fun reload(sessionId: String) = registry.reload(sessionId)

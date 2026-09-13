@@ -184,43 +184,225 @@ private func nilOrValue<T>(_ value: Any?) -> T? {
 }
 
 
+/// 原生 WebView 运行环境的只读事实，Dart 侧据此构造伪装标识。
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct BrowserEngineInfo: Hashable, CustomStringConvertible {
+  /// Android：WebView 默认 UA（解析引擎版本用）；iOS 为空串。
+  var engineUserAgent: String
+  /// Android：Build.VERSION.RELEASE；iOS：UIDevice.systemVersion。
+  var osVersion: String
+  /// Android：Build.MODEL；iOS："iPhone" 或 "iPad"。
+  var deviceModel: String
+  /// Android：Build.ID；iOS 为 null。
+  var buildId: String? = nil
+  /// Android：如 "arm"（已按 UA-CH 惯例映射）；iOS 为 null。
+  var architecture: String? = nil
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> BrowserEngineInfo? {
+    let engineUserAgent = pigeonVar_list[0] as! String
+    let osVersion = pigeonVar_list[1] as! String
+    let deviceModel = pigeonVar_list[2] as! String
+    let buildId: String? = nilOrValue(pigeonVar_list[3])
+    let architecture: String? = nilOrValue(pigeonVar_list[4])
+
+    return BrowserEngineInfo(
+      engineUserAgent: engineUserAgent,
+      osVersion: osVersion,
+      deviceModel: deviceModel,
+      buildId: buildId,
+      architecture: architecture
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      engineUserAgent,
+      osVersion,
+      deviceModel,
+      buildId,
+      architecture,
+    ]
+  }
+  static func == (lhs: BrowserEngineInfo, rhs: BrowserEngineInfo) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return PaymentBrowserApiPigeonInternal.deepEquals(lhs.engineUserAgent, rhs.engineUserAgent) && PaymentBrowserApiPigeonInternal.deepEquals(lhs.osVersion, rhs.osVersion) && PaymentBrowserApiPigeonInternal.deepEquals(lhs.deviceModel, rhs.deviceModel) && PaymentBrowserApiPigeonInternal.deepEquals(lhs.buildId, rhs.buildId) && PaymentBrowserApiPigeonInternal.deepEquals(lhs.architecture, rhs.architecture)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("BrowserEngineInfo")
+    PaymentBrowserApiPigeonInternal.deepHash(value: engineUserAgent, hasher: &hasher)
+    PaymentBrowserApiPigeonInternal.deepHash(value: osVersion, hasher: &hasher)
+    PaymentBrowserApiPigeonInternal.deepHash(value: deviceModel, hasher: &hasher)
+    PaymentBrowserApiPigeonInternal.deepHash(value: buildId, hasher: &hasher)
+    PaymentBrowserApiPigeonInternal.deepHash(value: architecture, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "BrowserEngineInfo(engineUserAgent: \(String(describing: engineUserAgent)), osVersion: \(String(describing: osVersion)), deviceModel: \(String(describing: deviceModel)), buildId: \(String(describing: buildId)), architecture: \(String(describing: architecture)))"
+  }
+}
+
+/// UA-CH 品牌条目；只传结构化数据，注入脚本模板留在原生侧。
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct BrandVersion: Hashable, CustomStringConvertible {
+  var brand: String
+  var version: String
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> BrandVersion? {
+    let brand = pigeonVar_list[0] as! String
+    let version = pigeonVar_list[1] as! String
+
+    return BrandVersion(
+      brand: brand,
+      version: version
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      brand,
+      version,
+    ]
+  }
+  static func == (lhs: BrandVersion, rhs: BrandVersion) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return PaymentBrowserApiPigeonInternal.deepEquals(lhs.brand, rhs.brand) && PaymentBrowserApiPigeonInternal.deepEquals(lhs.version, rhs.version)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("BrandVersion")
+    PaymentBrowserApiPigeonInternal.deepHash(value: brand, hasher: &hasher)
+    PaymentBrowserApiPigeonInternal.deepHash(value: version, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "BrandVersion(brand: \(String(describing: brand)), version: \(String(describing: version)))"
+  }
+}
+
+/// 支付 WebView 的浏览器伪装标识。全字段由 Dart 侧白名单模板生成，原生不执行透传脚本。
+///
+/// Generated class from Pigeon that represents data sent in messages.
+struct BrowserIdentity: Hashable, CustomStringConvertible {
+  var userAgent: String
+  var brands: [BrandVersion]
+  var mobile: Bool
+  var platform: String
+  var platformVersion: String? = nil
+  var architecture: String? = nil
+  var fullVersion: String
+  var model: String? = nil
+
+
+  // swift-format-ignore: AlwaysUseLowerCamelCase
+  static func fromList(_ pigeonVar_list: [Any?]) -> BrowserIdentity? {
+    let userAgent = pigeonVar_list[0] as! String
+    let brands = pigeonVar_list[1] as! [BrandVersion]
+    let mobile = pigeonVar_list[2] as! Bool
+    let platform = pigeonVar_list[3] as! String
+    let platformVersion: String? = nilOrValue(pigeonVar_list[4])
+    let architecture: String? = nilOrValue(pigeonVar_list[5])
+    let fullVersion = pigeonVar_list[6] as! String
+    let model: String? = nilOrValue(pigeonVar_list[7])
+
+    return BrowserIdentity(
+      userAgent: userAgent,
+      brands: brands,
+      mobile: mobile,
+      platform: platform,
+      platformVersion: platformVersion,
+      architecture: architecture,
+      fullVersion: fullVersion,
+      model: model
+    )
+  }
+  func toList() -> [Any?] {
+    return [
+      userAgent,
+      brands,
+      mobile,
+      platform,
+      platformVersion,
+      architecture,
+      fullVersion,
+      model,
+    ]
+  }
+  static func == (lhs: BrowserIdentity, rhs: BrowserIdentity) -> Bool {
+    if Swift.type(of: lhs) != Swift.type(of: rhs) {
+      return false
+    }
+    return PaymentBrowserApiPigeonInternal.deepEquals(lhs.userAgent, rhs.userAgent) && PaymentBrowserApiPigeonInternal.deepEquals(lhs.brands, rhs.brands) && PaymentBrowserApiPigeonInternal.deepEquals(lhs.mobile, rhs.mobile) && PaymentBrowserApiPigeonInternal.deepEquals(lhs.platform, rhs.platform) && PaymentBrowserApiPigeonInternal.deepEquals(lhs.platformVersion, rhs.platformVersion) && PaymentBrowserApiPigeonInternal.deepEquals(lhs.architecture, rhs.architecture) && PaymentBrowserApiPigeonInternal.deepEquals(lhs.fullVersion, rhs.fullVersion) && PaymentBrowserApiPigeonInternal.deepEquals(lhs.model, rhs.model)
+  }
+
+  func hash(into hasher: inout Hasher) {
+    hasher.combine("BrowserIdentity")
+    PaymentBrowserApiPigeonInternal.deepHash(value: userAgent, hasher: &hasher)
+    PaymentBrowserApiPigeonInternal.deepHash(value: brands, hasher: &hasher)
+    PaymentBrowserApiPigeonInternal.deepHash(value: mobile, hasher: &hasher)
+    PaymentBrowserApiPigeonInternal.deepHash(value: platform, hasher: &hasher)
+    PaymentBrowserApiPigeonInternal.deepHash(value: platformVersion, hasher: &hasher)
+    PaymentBrowserApiPigeonInternal.deepHash(value: architecture, hasher: &hasher)
+    PaymentBrowserApiPigeonInternal.deepHash(value: fullVersion, hasher: &hasher)
+    PaymentBrowserApiPigeonInternal.deepHash(value: model, hasher: &hasher)
+  }
+
+  public var description: String {
+    return "BrowserIdentity(userAgent: \(String(describing: userAgent)), brands: \(String(describing: brands)), mobile: \(String(describing: mobile)), platform: \(String(describing: platform)), platformVersion: \(String(describing: platformVersion)), architecture: \(String(describing: architecture)), fullVersion: \(String(describing: fullVersion)), model: \(String(describing: model)))"
+  }
+}
+
 /// Generated class from Pigeon that represents data sent in messages.
 struct PaymentSessionRequest: Hashable, CustomStringConvertible {
   var sessionId: String
   var initialUrl: String
+  /// null 表示不做伪装，沿用系统默认 UA。
+  var identity: BrowserIdentity? = nil
 
 
   // swift-format-ignore: AlwaysUseLowerCamelCase
   static func fromList(_ pigeonVar_list: [Any?]) -> PaymentSessionRequest? {
     let sessionId = pigeonVar_list[0] as! String
     let initialUrl = pigeonVar_list[1] as! String
+    let identity: BrowserIdentity? = nilOrValue(pigeonVar_list[2])
 
     return PaymentSessionRequest(
       sessionId: sessionId,
-      initialUrl: initialUrl
+      initialUrl: initialUrl,
+      identity: identity
     )
   }
   func toList() -> [Any?] {
     return [
       sessionId,
       initialUrl,
+      identity,
     ]
   }
   static func == (lhs: PaymentSessionRequest, rhs: PaymentSessionRequest) -> Bool {
     if Swift.type(of: lhs) != Swift.type(of: rhs) {
       return false
     }
-    return PaymentBrowserApiPigeonInternal.deepEquals(lhs.sessionId, rhs.sessionId) && PaymentBrowserApiPigeonInternal.deepEquals(lhs.initialUrl, rhs.initialUrl)
+    return PaymentBrowserApiPigeonInternal.deepEquals(lhs.sessionId, rhs.sessionId) && PaymentBrowserApiPigeonInternal.deepEquals(lhs.initialUrl, rhs.initialUrl) && PaymentBrowserApiPigeonInternal.deepEquals(lhs.identity, rhs.identity)
   }
 
   func hash(into hasher: inout Hasher) {
     hasher.combine("PaymentSessionRequest")
     PaymentBrowserApiPigeonInternal.deepHash(value: sessionId, hasher: &hasher)
     PaymentBrowserApiPigeonInternal.deepHash(value: initialUrl, hasher: &hasher)
+    PaymentBrowserApiPigeonInternal.deepHash(value: identity, hasher: &hasher)
   }
 
   public var description: String {
-    return "PaymentSessionRequest(sessionId: \(String(describing: sessionId)), initialUrl: \(String(describing: initialUrl)))"
+    return "PaymentSessionRequest(sessionId: \(String(describing: sessionId)), initialUrl: \(String(describing: initialUrl)), identity: \(String(describing: identity)))"
   }
 }
 
@@ -393,12 +575,18 @@ private class PaymentBrowserApiPigeonCodecReader: FlutterStandardReader {
   override func readValue(ofType type: UInt8) -> Any? {
     switch type {
     case 129:
-      return PaymentSessionRequest.fromList(self.readValue() as! [Any?])
+      return BrowserEngineInfo.fromList(self.readValue() as! [Any?])
     case 130:
-      return PaymentSessionStatus.fromList(self.readValue() as! [Any?])
+      return BrandVersion.fromList(self.readValue() as! [Any?])
     case 131:
-      return PaymentFillResult.fromList(self.readValue() as! [Any?])
+      return BrowserIdentity.fromList(self.readValue() as! [Any?])
     case 132:
+      return PaymentSessionRequest.fromList(self.readValue() as! [Any?])
+    case 133:
+      return PaymentSessionStatus.fromList(self.readValue() as! [Any?])
+    case 134:
+      return PaymentFillResult.fromList(self.readValue() as! [Any?])
+    case 135:
       return CheckoutBillingPayload.fromList(self.readValue() as! [Any?])
     default:
       return super.readValue(ofType: type)
@@ -408,17 +596,26 @@ private class PaymentBrowserApiPigeonCodecReader: FlutterStandardReader {
 
 private class PaymentBrowserApiPigeonCodecWriter: FlutterStandardWriter {
   override func writeValue(_ value: Any) {
-    if let value = value as? PaymentSessionRequest {
+    if let value = value as? BrowserEngineInfo {
       super.writeByte(129)
       super.writeValue(value.toList())
-    } else if let value = value as? PaymentSessionStatus {
+    } else if let value = value as? BrandVersion {
       super.writeByte(130)
       super.writeValue(value.toList())
-    } else if let value = value as? PaymentFillResult {
+    } else if let value = value as? BrowserIdentity {
       super.writeByte(131)
       super.writeValue(value.toList())
-    } else if let value = value as? CheckoutBillingPayload {
+    } else if let value = value as? PaymentSessionRequest {
       super.writeByte(132)
+      super.writeValue(value.toList())
+    } else if let value = value as? PaymentSessionStatus {
+      super.writeByte(133)
+      super.writeValue(value.toList())
+    } else if let value = value as? PaymentFillResult {
+      super.writeByte(134)
+      super.writeValue(value.toList())
+    } else if let value = value as? CheckoutBillingPayload {
+      super.writeByte(135)
       super.writeValue(value.toList())
     } else {
       super.writeValue(value)
@@ -446,6 +643,8 @@ class PaymentBrowserApiPigeonCodec: FlutterStandardMessageCodec, @unchecked Send
 /// Generated protocol from Pigeon that represents a handler of messages from Flutter.
 protocol PaymentBrowserHostApi {
   func createSession(request: PaymentSessionRequest) async throws -> PaymentSessionStatus
+  /// 读取 WebView 引擎与系统的只读信息，供 Dart 构造伪装 UA。
+  func getBrowserEngineInfo() async throws -> BrowserEngineInfo
   func canGoBack(sessionId: String) async throws -> Bool
   func goBack(sessionId: String) async throws
   func reload(sessionId: String) async throws
@@ -476,6 +675,22 @@ class PaymentBrowserHostApiSetup {
       }
     } else {
       createSessionChannel.setMessageHandler(nil)
+    }
+    /// 读取 WebView 引擎与系统的只读信息，供 Dart 构造伪装 UA。
+    let getBrowserEngineInfoChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.kiro_lucker.PaymentBrowserHostApi.getBrowserEngineInfo\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
+    if let api = api {
+      getBrowserEngineInfoChannel.setMessageHandler { _, reply in
+        Task { @MainActor in
+          do {
+            let result = try await api.getBrowserEngineInfo()
+            reply(wrapResult(result))
+          } catch {
+            reply(wrapError(error))
+          }
+        }
+      }
+    } else {
+      getBrowserEngineInfoChannel.setMessageHandler(nil)
     }
     let canGoBackChannel = FlutterBasicMessageChannel(name: "dev.flutter.pigeon.kiro_lucker.PaymentBrowserHostApi.canGoBack\(channelSuffix)", binaryMessenger: binaryMessenger, codec: codec)
     if let api = api {

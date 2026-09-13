@@ -97,20 +97,228 @@ int _deepHash(Object? value) {
 }
 
 
+/// 原生 WebView 运行环境的只读事实，Dart 侧据此构造伪装标识。
+class BrowserEngineInfo {
+  BrowserEngineInfo({
+    required this.engineUserAgent,
+    required this.osVersion,
+    required this.deviceModel,
+    this.buildId,
+    this.architecture,
+  });
+
+  /// Android：WebView 默认 UA（解析引擎版本用）；iOS 为空串。
+  String engineUserAgent;
+
+  /// Android：Build.VERSION.RELEASE；iOS：UIDevice.systemVersion。
+  String osVersion;
+
+  /// Android：Build.MODEL；iOS："iPhone" 或 "iPad"。
+  String deviceModel;
+
+  /// Android：Build.ID；iOS 为 null。
+  String? buildId;
+
+  /// Android：如 "arm"（已按 UA-CH 惯例映射）；iOS 为 null。
+  String? architecture;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      engineUserAgent,
+      osVersion,
+      deviceModel,
+      buildId,
+      architecture,
+    ];
+  }
+
+  Object encode() {
+    return _toList();  }
+
+  static BrowserEngineInfo decode(Object result) {
+    result as List<Object?>;
+    return BrowserEngineInfo(
+      engineUserAgent: result[0]! as String,
+      osVersion: result[1]! as String,
+      deviceModel: result[2]! as String,
+      buildId: result[3] as String?,
+      architecture: result[4] as String?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! BrowserEngineInfo || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(engineUserAgent, other.engineUserAgent) && _deepEquals(osVersion, other.osVersion) && _deepEquals(deviceModel, other.deviceModel) && _deepEquals(buildId, other.buildId) && _deepEquals(architecture, other.architecture);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'BrowserEngineInfo(engineUserAgent: $engineUserAgent, osVersion: $osVersion, deviceModel: $deviceModel, buildId: $buildId, architecture: $architecture)';
+  }
+}
+
+/// UA-CH 品牌条目；只传结构化数据，注入脚本模板留在原生侧。
+class BrandVersion {
+  BrandVersion({
+    required this.brand,
+    required this.version,
+  });
+
+  String brand;
+
+  String version;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      brand,
+      version,
+    ];
+  }
+
+  Object encode() {
+    return _toList();  }
+
+  static BrandVersion decode(Object result) {
+    result as List<Object?>;
+    return BrandVersion(
+      brand: result[0]! as String,
+      version: result[1]! as String,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! BrandVersion || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(brand, other.brand) && _deepEquals(version, other.version);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'BrandVersion(brand: $brand, version: $version)';
+  }
+}
+
+/// 支付 WebView 的浏览器伪装标识。全字段由 Dart 侧白名单模板生成，原生不执行透传脚本。
+class BrowserIdentity {
+  BrowserIdentity({
+    required this.userAgent,
+    required this.brands,
+    required this.mobile,
+    required this.platform,
+    this.platformVersion,
+    this.architecture,
+    required this.fullVersion,
+    this.model,
+  });
+
+  String userAgent;
+
+  List<BrandVersion> brands;
+
+  bool mobile;
+
+  String platform;
+
+  String? platformVersion;
+
+  String? architecture;
+
+  String fullVersion;
+
+  String? model;
+
+  List<Object?> _toList() {
+    return <Object?>[
+      userAgent,
+      brands,
+      mobile,
+      platform,
+      platformVersion,
+      architecture,
+      fullVersion,
+      model,
+    ];
+  }
+
+  Object encode() {
+    return _toList();  }
+
+  static BrowserIdentity decode(Object result) {
+    result as List<Object?>;
+    return BrowserIdentity(
+      userAgent: result[0]! as String,
+      brands: (result[1]! as List<Object?>).cast<BrandVersion>(),
+      mobile: result[2]! as bool,
+      platform: result[3]! as String,
+      platformVersion: result[4] as String?,
+      architecture: result[5] as String?,
+      fullVersion: result[6]! as String,
+      model: result[7] as String?,
+    );
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  bool operator ==(Object other) {
+    if (other is! BrowserIdentity || other.runtimeType != runtimeType) {
+      return false;
+    }
+    if (identical(this, other)) {
+      return true;
+    }
+    return _deepEquals(userAgent, other.userAgent) && _deepEquals(brands, other.brands) && _deepEquals(mobile, other.mobile) && _deepEquals(platform, other.platform) && _deepEquals(platformVersion, other.platformVersion) && _deepEquals(architecture, other.architecture) && _deepEquals(fullVersion, other.fullVersion) && _deepEquals(model, other.model);
+  }
+
+  @override
+  // ignore: avoid_equals_and_hash_code_on_mutable_classes
+  int get hashCode => _deepHash(<Object?>[runtimeType, ..._toList()]);
+
+  @override
+  String toString() {
+    return 'BrowserIdentity(userAgent: $userAgent, brands: $brands, mobile: $mobile, platform: $platform, platformVersion: $platformVersion, architecture: $architecture, fullVersion: $fullVersion, model: $model)';
+  }
+}
+
 class PaymentSessionRequest {
   PaymentSessionRequest({
     required this.sessionId,
     required this.initialUrl,
+    this.identity,
   });
 
   String sessionId;
 
   String initialUrl;
 
+  /// null 表示不做伪装，沿用系统默认 UA。
+  BrowserIdentity? identity;
+
   List<Object?> _toList() {
     return <Object?>[
       sessionId,
       initialUrl,
+      identity,
     ];
   }
 
@@ -122,6 +330,7 @@ class PaymentSessionRequest {
     return PaymentSessionRequest(
       sessionId: result[0]! as String,
       initialUrl: result[1]! as String,
+      identity: result[2] as BrowserIdentity?,
     );
   }
 
@@ -134,7 +343,7 @@ class PaymentSessionRequest {
     if (identical(this, other)) {
       return true;
     }
-    return _deepEquals(sessionId, other.sessionId) && _deepEquals(initialUrl, other.initialUrl);
+    return _deepEquals(sessionId, other.sessionId) && _deepEquals(initialUrl, other.initialUrl) && _deepEquals(identity, other.identity);
   }
 
   @override
@@ -143,7 +352,7 @@ class PaymentSessionRequest {
 
   @override
   String toString() {
-    return 'PaymentSessionRequest(sessionId: $sessionId, initialUrl: $initialUrl)';
+    return 'PaymentSessionRequest(sessionId: $sessionId, initialUrl: $initialUrl, identity: $identity)';
   }
 }
 
@@ -350,17 +559,26 @@ class _PigeonCodec extends StandardMessageCodec {
     if (value is int) {
       buffer.putUint8(4);
       buffer.putInt64(value);
-    }    else if (value is PaymentSessionRequest) {
+    }    else if (value is BrowserEngineInfo) {
       buffer.putUint8(129);
       writeValue(buffer, value.encode());
-    }    else if (value is PaymentSessionStatus) {
+    }    else if (value is BrandVersion) {
       buffer.putUint8(130);
       writeValue(buffer, value.encode());
-    }    else if (value is PaymentFillResult) {
+    }    else if (value is BrowserIdentity) {
       buffer.putUint8(131);
       writeValue(buffer, value.encode());
-    }    else if (value is CheckoutBillingPayload) {
+    }    else if (value is PaymentSessionRequest) {
       buffer.putUint8(132);
+      writeValue(buffer, value.encode());
+    }    else if (value is PaymentSessionStatus) {
+      buffer.putUint8(133);
+      writeValue(buffer, value.encode());
+    }    else if (value is PaymentFillResult) {
+      buffer.putUint8(134);
+      writeValue(buffer, value.encode());
+    }    else if (value is CheckoutBillingPayload) {
+      buffer.putUint8(135);
       writeValue(buffer, value.encode());
     } else {
       super.writeValue(buffer, value);
@@ -371,12 +589,18 @@ class _PigeonCodec extends StandardMessageCodec {
   Object? readValueOfType(int type, ReadBuffer buffer) {
     switch (type) {
       case 129:
-        return PaymentSessionRequest.decode(readValue(buffer)!);
+        return BrowserEngineInfo.decode(readValue(buffer)!);
       case 130:
-        return PaymentSessionStatus.decode(readValue(buffer)!);
+        return BrandVersion.decode(readValue(buffer)!);
       case 131:
-        return PaymentFillResult.decode(readValue(buffer)!);
+        return BrowserIdentity.decode(readValue(buffer)!);
       case 132:
+        return PaymentSessionRequest.decode(readValue(buffer)!);
+      case 133:
+        return PaymentSessionStatus.decode(readValue(buffer)!);
+      case 134:
+        return PaymentFillResult.decode(readValue(buffer)!);
+      case 135:
         return CheckoutBillingPayload.decode(readValue(buffer)!);
       default:
         return super.readValueOfType(type, buffer);
@@ -415,6 +639,26 @@ class PaymentBrowserHostApi {
     )
     ;
     return pigeonVar_replyValue! as PaymentSessionStatus;
+  }
+
+  /// 读取 WebView 引擎与系统的只读信息，供 Dart 构造伪装 UA。
+  Future<BrowserEngineInfo> getBrowserEngineInfo() async {
+    final pigeonVar_channelName = 'dev.flutter.pigeon.kiro_lucker.PaymentBrowserHostApi.getBrowserEngineInfo$pigeonVar_messageChannelSuffix';
+    final pigeonVar_channel = BasicMessageChannel<Object?>(
+      pigeonVar_channelName,
+      pigeonChannelCodec,
+      binaryMessenger: pigeonVar_binaryMessenger,
+    );
+    final Future<Object?> pigeonVar_sendFuture = pigeonVar_channel.send(null);
+    final pigeonVar_replyList = await pigeonVar_sendFuture as List<Object?>?;
+
+    final Object? pigeonVar_replyValue = _extractReplyValueOrThrow(
+        pigeonVar_replyList,
+        pigeonVar_channelName,
+        isNullValid: false,
+    )
+    ;
+    return pigeonVar_replyValue! as BrowserEngineInfo;
   }
 
   Future<bool> canGoBack(String sessionId) async {

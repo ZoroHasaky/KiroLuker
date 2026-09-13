@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'api_client.dart';
+import 'browser_persona.dart';
 import 'connection.dart';
 import 'connection_store.dart';
 import 'models.dart';
@@ -110,6 +111,42 @@ KiroApi apiFor(dynamic ref) {
   final config = status.asData?.value.config;
   if (config == null) throw const ApiFailure('AUTH_REQUIRED', '请先连接桌面服务');
   return KiroApi(config);
+}
+
+/// 支付浏览器伪装标识；持久化在系统安全存储里，与连接配置同库。
+final browserPersonaProvider =
+    NotifierProvider<BrowserPersonaController, BrowserPersona>(
+      BrowserPersonaController.new,
+    );
+
+class BrowserPersonaController extends Notifier<BrowserPersona> {
+  static const _storageKey = 'payment.browser_persona';
+
+  @override
+  BrowserPersona build() {
+    _restore();
+    return BrowserPersona.auto;
+  }
+
+  Future<void> _restore() async {
+    try {
+      final stored = await ref.read(secureStorageProvider).read(key: _storageKey);
+      final persona = BrowserPersona.values.where((item) => item.name == stored).firstOrNull;
+      // safari 只是 iOS 端的解析结果，不作为可保存的选择。
+      if (persona != null && persona != BrowserPersona.safari) state = persona;
+    } catch (_) {
+      // 读取失败保持默认，不阻塞设置页。
+    }
+  }
+
+  Future<void> set(BrowserPersona persona) async {
+    state = persona;
+    try {
+      await ref.read(secureStorageProvider).write(key: _storageKey, value: persona.name);
+    } catch (_) {
+      // 写入失败只影响下次启动的默认值，本次会话仍生效。
+    }
+  }
 }
 
 class AccountFilter {

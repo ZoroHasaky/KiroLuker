@@ -4,6 +4,24 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.29] - 2026-09-13
+
+### 新增
+
+- 移动端支付浏览器新增浏览器伪装标识，设置页可选：自动推荐（Android: Chrome / iOS: Safari）、Chrome、Edge、夸克浏览器；选择持久化在系统安全存储。
+- User-Agent 的引擎版本号动态取自设备真实 WebView（与桌面端同一原则：声称版本与实际引擎能力严格吻合）；Android 侧同步对齐 `navigator.userAgentData` 品牌与高熵值，设自定义 UA 后 WebView 停发 `sec-ch-ua` 请求头，HTTP 与 JS 两侧均一致。
+- iOS 所有可选标识同为 WebKit 引擎且均无 `navigator.userAgentData`，`customUserAgent` 一属性即达引擎级一致；夸克在 iOS 回落 Safari。
+- 桥接契约维持「无任意 JavaScript 执行接口」：Dart 侧白名单模板生成结构化标识，注入脚本模板固定在原生侧。
+
+### 修复
+
+- 修复上一版引入的 Android 编译错误：`setWebViewClient` 在新版 SDK 不接受 null，改为替换默认实例（HEAD 在本版前已无法构建）。
+
+### 测试
+
+- 新增 Dart 侧伪装矩阵测试 12 项（缩减/完整引擎 UA、品牌列表、版本回落、iPad token、夸克 iOS 回落等），`flutter analyze` 无告警，Android Debug APK 构建通过。
+- 仓库存在与本次无关的存量失败：桌面 `pending-account-overlay`（测试文件语法错误）、`payment-fill-script` 两项（逐字符输入与单事件断言不匹配）、移动端 `accounts_screen_test` 一项（查找器歧义），均已在未改动的 HEAD 上复现。
+
 ## [1.2.15] - 2026-09-10
 
 ### 版本

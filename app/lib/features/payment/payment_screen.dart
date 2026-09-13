@@ -43,7 +43,10 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
       if (url == null) {
         throw const ApiFailure('PAYMENT_LINK_NOT_CONFIGURED', '桌面端未配置支付链接');
       }
-      final session = await PaymentBrowserSession.create(url);
+      final session = await PaymentBrowserSession.create(
+        url,
+        persona: ref.read(browserPersonaProvider),
+      );
       if (!session.supported) {
         throw ApiFailure('PAYMENT_UNSUPPORTED', session.message ?? '支付浏览器不可用');
       }

@@ -198,23 +198,203 @@ class FlutterError (
   val details: Any? = null
 ) : RuntimeException()
 
+/**
+ * 原生 WebView 运行环境的只读事实，Dart 侧据此构造伪装标识。
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class BrowserEngineInfo (
+  /** Android：WebView 默认 UA（解析引擎版本用）；iOS 为空串。 */
+  val engineUserAgent: String,
+  /** Android：Build.VERSION.RELEASE；iOS：UIDevice.systemVersion。 */
+  val osVersion: String,
+  /** Android：Build.MODEL；iOS："iPhone" 或 "iPad"。 */
+  val deviceModel: String,
+  /** Android：Build.ID；iOS 为 null。 */
+  val buildId: String? = null,
+  /** Android：如 "arm"（已按 UA-CH 惯例映射）；iOS 为 null。 */
+  val architecture: String? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): BrowserEngineInfo {
+      val engineUserAgent = pigeonVar_list[0] as String
+      val osVersion = pigeonVar_list[1] as String
+      val deviceModel = pigeonVar_list[2] as String
+      val buildId = pigeonVar_list[3] as String?
+      val architecture = pigeonVar_list[4] as String?
+      return BrowserEngineInfo(engineUserAgent, osVersion, deviceModel, buildId, architecture)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      engineUserAgent,
+      osVersion,
+      deviceModel,
+      buildId,
+      architecture,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as BrowserEngineInfo
+    return PaymentBrowserApiPigeonUtils.deepEquals(this.engineUserAgent, other.engineUserAgent) && PaymentBrowserApiPigeonUtils.deepEquals(this.osVersion, other.osVersion) && PaymentBrowserApiPigeonUtils.deepEquals(this.deviceModel, other.deviceModel) && PaymentBrowserApiPigeonUtils.deepEquals(this.buildId, other.buildId) && PaymentBrowserApiPigeonUtils.deepEquals(this.architecture, other.architecture)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.engineUserAgent)
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.osVersion)
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.deviceModel)
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.buildId)
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.architecture)
+    return result
+  }
+  override fun toString(): String {
+    return "BrowserEngineInfo(engineUserAgent=$engineUserAgent, osVersion=$osVersion, deviceModel=$deviceModel, buildId=$buildId, architecture=$architecture)"
+  }
+}
+
+/**
+ * UA-CH 品牌条目；只传结构化数据，注入脚本模板留在原生侧。
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class BrandVersion (
+  val brand: String,
+  val version: String
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): BrandVersion {
+      val brand = pigeonVar_list[0] as String
+      val version = pigeonVar_list[1] as String
+      return BrandVersion(brand, version)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      brand,
+      version,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as BrandVersion
+    return PaymentBrowserApiPigeonUtils.deepEquals(this.brand, other.brand) && PaymentBrowserApiPigeonUtils.deepEquals(this.version, other.version)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.brand)
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.version)
+    return result
+  }
+  override fun toString(): String {
+    return "BrandVersion(brand=$brand, version=$version)"
+  }
+}
+
+/**
+ * 支付 WebView 的浏览器伪装标识。全字段由 Dart 侧白名单模板生成，原生不执行透传脚本。
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class BrowserIdentity (
+  val userAgent: String,
+  val brands: List<BrandVersion>,
+  val mobile: Boolean,
+  val platform: String,
+  val platformVersion: String? = null,
+  val architecture: String? = null,
+  val fullVersion: String,
+  val model: String? = null
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): BrowserIdentity {
+      val userAgent = pigeonVar_list[0] as String
+      val brands = pigeonVar_list[1] as List<BrandVersion>
+      val mobile = pigeonVar_list[2] as Boolean
+      val platform = pigeonVar_list[3] as String
+      val platformVersion = pigeonVar_list[4] as String?
+      val architecture = pigeonVar_list[5] as String?
+      val fullVersion = pigeonVar_list[6] as String
+      val model = pigeonVar_list[7] as String?
+      return BrowserIdentity(userAgent, brands, mobile, platform, platformVersion, architecture, fullVersion, model)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      userAgent,
+      brands,
+      mobile,
+      platform,
+      platformVersion,
+      architecture,
+      fullVersion,
+      model,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other == null || other.javaClass != javaClass) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    val other = other as BrowserIdentity
+    return PaymentBrowserApiPigeonUtils.deepEquals(this.userAgent, other.userAgent) && PaymentBrowserApiPigeonUtils.deepEquals(this.brands, other.brands) && PaymentBrowserApiPigeonUtils.deepEquals(this.mobile, other.mobile) && PaymentBrowserApiPigeonUtils.deepEquals(this.platform, other.platform) && PaymentBrowserApiPigeonUtils.deepEquals(this.platformVersion, other.platformVersion) && PaymentBrowserApiPigeonUtils.deepEquals(this.architecture, other.architecture) && PaymentBrowserApiPigeonUtils.deepEquals(this.fullVersion, other.fullVersion) && PaymentBrowserApiPigeonUtils.deepEquals(this.model, other.model)
+  }
+
+  override fun hashCode(): Int {
+    var result = javaClass.hashCode()
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.userAgent)
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.brands)
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.mobile)
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.platform)
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.platformVersion)
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.architecture)
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.fullVersion)
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.model)
+    return result
+  }
+  override fun toString(): String {
+    return "BrowserIdentity(userAgent=$userAgent, brands=$brands, mobile=$mobile, platform=$platform, platformVersion=$platformVersion, architecture=$architecture, fullVersion=$fullVersion, model=$model)"
+  }
+}
+
 /** Generated class from Pigeon that represents data sent in messages. */
 data class PaymentSessionRequest (
   val sessionId: String,
-  val initialUrl: String
+  val initialUrl: String,
+  /** null 表示不做伪装，沿用系统默认 UA。 */
+  val identity: BrowserIdentity? = null
 )
  {
   companion object {
     fun fromList(pigeonVar_list: List<Any?>): PaymentSessionRequest {
       val sessionId = pigeonVar_list[0] as String
       val initialUrl = pigeonVar_list[1] as String
-      return PaymentSessionRequest(sessionId, initialUrl)
+      val identity = pigeonVar_list[2] as BrowserIdentity?
+      return PaymentSessionRequest(sessionId, initialUrl, identity)
     }
   }
   fun toList(): List<Any?> {
     return listOf(
       sessionId,
       initialUrl,
+      identity,
     )
   }
   override fun equals(other: Any?): Boolean {
@@ -225,17 +405,18 @@ data class PaymentSessionRequest (
       return true
     }
     val other = other as PaymentSessionRequest
-    return PaymentBrowserApiPigeonUtils.deepEquals(this.sessionId, other.sessionId) && PaymentBrowserApiPigeonUtils.deepEquals(this.initialUrl, other.initialUrl)
+    return PaymentBrowserApiPigeonUtils.deepEquals(this.sessionId, other.sessionId) && PaymentBrowserApiPigeonUtils.deepEquals(this.initialUrl, other.initialUrl) && PaymentBrowserApiPigeonUtils.deepEquals(this.identity, other.identity)
   }
 
   override fun hashCode(): Int {
     var result = javaClass.hashCode()
     result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.sessionId)
     result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.initialUrl)
+    result = 31 * result + PaymentBrowserApiPigeonUtils.deepHash(this.identity)
     return result
   }
   override fun toString(): String {
-    return "PaymentSessionRequest(sessionId=$sessionId, initialUrl=$initialUrl)"
+    return "PaymentSessionRequest(sessionId=$sessionId, initialUrl=$initialUrl, identity=$identity)"
   }
 }
 
@@ -402,20 +583,35 @@ private open class PaymentBrowserApiPigeonCodec : StandardMessageCodec() {
     return when (type) {
       129.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PaymentSessionRequest.fromList(it)
+          BrowserEngineInfo.fromList(it)
         }
       }
       130.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PaymentSessionStatus.fromList(it)
+          BrandVersion.fromList(it)
         }
       }
       131.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PaymentFillResult.fromList(it)
+          BrowserIdentity.fromList(it)
         }
       }
       132.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          PaymentSessionRequest.fromList(it)
+        }
+      }
+      133.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          PaymentSessionStatus.fromList(it)
+        }
+      }
+      134.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          PaymentFillResult.fromList(it)
+        }
+      }
+      135.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           CheckoutBillingPayload.fromList(it)
         }
@@ -425,20 +621,32 @@ private open class PaymentBrowserApiPigeonCodec : StandardMessageCodec() {
   }
   override fun writeValue(stream: ByteArrayOutputStream, value: Any?)   {
     when (value) {
-      is PaymentSessionRequest -> {
+      is BrowserEngineInfo -> {
         stream.write(129)
         writeValue(stream, value.toList())
       }
-      is PaymentSessionStatus -> {
+      is BrandVersion -> {
         stream.write(130)
         writeValue(stream, value.toList())
       }
-      is PaymentFillResult -> {
+      is BrowserIdentity -> {
         stream.write(131)
         writeValue(stream, value.toList())
       }
-      is CheckoutBillingPayload -> {
+      is PaymentSessionRequest -> {
         stream.write(132)
+        writeValue(stream, value.toList())
+      }
+      is PaymentSessionStatus -> {
+        stream.write(133)
+        writeValue(stream, value.toList())
+      }
+      is PaymentFillResult -> {
+        stream.write(134)
+        writeValue(stream, value.toList())
+      }
+      is CheckoutBillingPayload -> {
+        stream.write(135)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -454,6 +662,8 @@ private open class PaymentBrowserApiPigeonCodec : StandardMessageCodec() {
  */
 interface PaymentBrowserHostApi {
   suspend fun createSession(request: PaymentSessionRequest): PaymentSessionStatus
+  /** 读取 WebView 引擎与系统的只读信息，供 Dart 构造伪装 UA。 */
+  suspend fun getBrowserEngineInfo(): BrowserEngineInfo
   suspend fun canGoBack(sessionId: String): Boolean
   suspend fun goBack(sessionId: String)
   suspend fun reload(sessionId: String)
@@ -479,6 +689,23 @@ interface PaymentBrowserHostApi {
             CoroutineScope(Dispatchers.Main).launch {
               val wrapped: List<Any?> = try {
                 listOf(api.createSession(requestArg))
+              } catch (exception: Throwable) {
+                PaymentBrowserApiPigeonUtils.wrapError(exception)
+              }
+              reply.reply(wrapped)
+            }
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.kiro_lucker.PaymentBrowserHostApi.getBrowserEngineInfo$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            CoroutineScope(Dispatchers.Main).launch {
+              val wrapped: List<Any?> = try {
+                listOf(api.getBrowserEngineInfo())
               } catch (exception: Throwable) {
                 PaymentBrowserApiPigeonUtils.wrapError(exception)
               }

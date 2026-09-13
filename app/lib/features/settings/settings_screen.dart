@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/app_state.dart';
 import '../../core/app_version.dart';
+import '../../core/browser_persona.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -112,6 +113,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final state = ref.watch(connectionControllerProvider).asData?.value;
     final capabilities = state?.capabilities;
     final current = appVersion;
+    final selectedPersona = ref.watch(browserPersonaProvider);
     final hasUpdate =
         _latestVersion != null &&
         _compareVersion(_latestVersion!, appVersion) > 0;
@@ -232,6 +234,59 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 .disconnect(clearSaved: true),
             icon: const Icon(Icons.delete_outline),
             label: const Text('清除已保存连接'),
+          ),
+          const SizedBox(height: 24),
+          Text('支付浏览器标识', style: Theme.of(context).textTheme.titleLarge),
+          Card(
+            child: RadioGroup<BrowserPersona>(
+              groupValue: selectedPersona,
+              onChanged: (value) {
+                if (value != null) {
+                  ref.read(browserPersonaProvider.notifier).set(value);
+                }
+              },
+              child: Column(
+                children: [
+                  for (final (persona, title, subtitle) in [
+                    (
+                      BrowserPersona.auto,
+                      '自动推荐',
+                      'Android 伪装为 Chrome，iOS 伪装为 Safari',
+                    ),
+                    (
+                      BrowserPersona.chrome,
+                      'Chrome',
+                      'Android 为手机版 Chrome，iOS 为 Chrome（CriOS）',
+                    ),
+                    (
+                      BrowserPersona.edge,
+                      'Edge',
+                      'Android 为 EdgA，iOS 为 EdgiOS',
+                    ),
+                    (
+                      BrowserPersona.quark,
+                      '夸克浏览器',
+                      'Android 为夸克完整标识；iOS 回落为 Safari',
+                    ),
+                  ])
+                    RadioListTile<BrowserPersona>(
+                      value: persona,
+                      title: Text(title),
+                      subtitle: Text(subtitle),
+                      dense: true,
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                '支付页 WebView 会伪装成所选浏览器：User-Agent 与 navigator.userAgentData 品牌与真实浏览器一致，'
+                '引擎版本号动态取自设备真实 WebView，与声称版本严格吻合。夸克、Chrome iOS 与 Edge iOS 的品牌版本号随应用发版维护。',
+              ),
+            ),
           ),
           const SizedBox(height: 24),
           Text('安全说明', style: Theme.of(context).textTheme.titleLarge),

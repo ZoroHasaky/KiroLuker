@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart' show PlatformViewHitTestBehavior;
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
 
+import '../core/browser_persona.dart';
 import '../core/models.dart';
 import 'payment_browser_api.g.dart';
 
@@ -23,10 +24,22 @@ class PaymentBrowserSession {
   final String? message;
   static final _api = PaymentBrowserHostApi();
 
-  static Future<PaymentBrowserSession> create(String url) async {
+  static Future<PaymentBrowserSession> create(String url, {BrowserPersona? persona}) async {
     final id = const Uuid().v4();
+    // 引擎信息拿不到时保持系统默认 UA，伪装失败不阻断支付。
+    BrowserIdentity? identity;
+    try {
+      final engineInfo = await _api.getBrowserEngineInfo();
+      identity = buildBrowserIdentity(
+        persona: persona ?? BrowserPersona.auto,
+        engineInfo: engineInfo,
+        isAndroid: Platform.isAndroid,
+      );
+    } catch (_) {
+      identity = null;
+    }
     final status = await _api.createSession(
-      PaymentSessionRequest(sessionId: id, initialUrl: url),
+      PaymentSessionRequest(sessionId: id, initialUrl: url, identity: identity),
     );
     return PaymentBrowserSession._(
       id: id,
