@@ -139,6 +139,21 @@ export class AccountApplicationService {
     return clone(this.repository.load())
   }
 
+  getAccount(id: string): Account | null {
+    const account = this.repository.load().accounts.find((item) => item.id === id)
+    return account ? clone(account) : null
+  }
+
+  async setPaymentLink(id: string, paymentLink: string): Promise<PublicAccount> {
+    return this.write((data) => {
+      const index = data.accounts.findIndex((account) => account.id === id)
+      if (index < 0) throw new Error('账号不存在')
+      const next = { ...data.accounts[index], paymentLink: paymentLink.trim() }
+      data.accounts[index] = next
+      return { data, result: publicAccount(next) }
+    })
+  }
+
   getPublicAccount(id: string): PublicAccount | null {
     const account = this.repository.load().accounts.find((item) => item.id === id)
     return account ? publicAccount(account) : null

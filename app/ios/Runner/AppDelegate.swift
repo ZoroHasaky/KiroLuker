@@ -157,13 +157,15 @@ private func checkoutFillScript(_ billing: CheckoutBillingPayload) -> String {
         labelTargetSelect(terms) ||
         selectControls().find((el) => [key, ...terms].some((term) => matchTerm(metadata(el), term))) || null;
     };
-    const setInputValue = (el,value) => { const prototype=el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; const setter=Object.getOwnPropertyDescriptor(prototype,'value')?.set; if(setter) setter.call(el,value); else el.value=value; };
+    const pause = (ms) => { const until = Date.now() + ms; while (Date.now() < until) {} };
+    const emitInput = (el) => el.dispatchEvent(new Event('input',{bubbles:true}));
+    const setInputValue = (el,value) => { const prototype=el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; const setter=Object.getOwnPropertyDescriptor(prototype,'value')?.set; let current=''; for (const character of String(value || '')) { current += character; if(setter) setter.call(el,current); else el.value=current; emitInput(el); pause(30 + ((current.length * 17) % 61)); } };
     const setSelectValue = (el,value) => { const setter=Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value')?.set; if(setter) setter.call(el,value); else el.value=value; };
     const provinceAliases = {
       '安徽省':['安徽','Anhui','CN-AH','CN-34'], '北京市':['北京','Beijing','CN-BJ','CN-11'], '重庆市':['重庆','Chongqing','CN-CQ','CN-50'], '福建省':['福建','Fujian','CN-FJ','CN-35'], '甘肃省':['甘肃','Gansu','CN-GS','CN-62'], '广东省':['广东','Guangdong','CN-GD','CN-44'], '广西壮族自治区':['广西','Guangxi','CN-GX','CN-45'], '贵州省':['贵州','Guizhou','CN-GZ','CN-52'], '海南省':['海南','Hainan','CN-HI','CN-46'], '河北省':['河北','Hebei','CN-HE','CN-13'], '黑龙江省':['黑龙江','Heilongjiang','CN-HL','CN-23'], '河南省':['河南','Henan','CN-HA','CN-41'], '湖北省':['湖北','Hubei','CN-HB','CN-42'], '湖南省':['湖南','Hunan','CN-HN','CN-43'], '江苏省':['江苏','Jiangsu','CN-JS','CN-32'], '江西省':['江西','Jiangxi','CN-JX','CN-36'], '吉林省':['吉林','Jilin','CN-JL','CN-22'], '辽宁省':['辽宁','Liaoning','CN-LN','CN-21'], '内蒙古自治区':['内蒙古','Inner Mongolia','CN-NM','CN-15'], '宁夏回族自治区':['宁夏','Ningxia','CN-NX','CN-64'], '青海省':['青海','Qinghai','CN-QH','CN-63'], '陕西省':['陕西','Shaanxi','CN-SN','CN-61'], '山东省':['山东','Shandong','CN-SD','CN-37'], '上海市':['上海','Shanghai','CN-SH','CN-31'], '山西省':['山西','Shanxi','CN-SX','CN-14'], '四川省':['四川','Sichuan','CN-SC','CN-51'], '天津市':['天津','Tianjin','CN-TJ','CN-12'], '西藏自治区':['西藏','Tibet','CN-XZ','CN-54'], '新疆维吾尔自治区':['新疆','Xinjiang','CN-XJ','CN-65'], '云南省':['云南','Yunnan','CN-YN','CN-53'], '浙江省':['浙江','Zhejiang','CN-ZJ','CN-33']
     };
-    const setText = (name,key,value,terms) => { const el=findInput(key,terms); if(!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) || (el.autocomplete && el.autocomplete.startsWith('cc-') && el.autocomplete !== 'cc-name')) { failed.push(name); return; } el.focus(); setInputValue(el,value); emit(el); done.push(name); };
-    const setSelect = (name,key,value,terms,fallback) => { const el=findSelect(key,terms); if(!(el instanceof HTMLSelectElement)) { failed.push(name); return; } const aliases=name === '省/州' ? (provinceAliases[data.province] || []) : ['China','中国','中华人民共和国']; const choices=[value,fallback,...aliases].filter(Boolean); const match=Array.from(el.options).find((option) => choices.some((choice) => option.value===choice || option.textContent.trim()===choice || normalize(option.value)===normalize(choice) || normalize(option.textContent)===normalize(choice))); if(!match) { failed.push(name); return; } el.focus(); setSelectValue(el,match.value); emit(el); done.push(name); };
+    const setText = (name,key,value,terms) => { const el=findInput(key,terms); if(!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) || (el.autocomplete && el.autocomplete.startsWith('cc-') && el.autocomplete !== 'cc-name')) { failed.push(name); return; } el.focus(); setInputValue(el,value); emit(el); pause(160 + ((String(value).length * 23) % 241)); done.push(name); };
+    const setSelect = (name,key,value,terms,fallback) => { const el=findSelect(key,terms); if(!(el instanceof HTMLSelectElement)) { failed.push(name); return; } const aliases=name === '省/州' ? (provinceAliases[data.province] || []) : ['China','中国','中华人民共和国']; const choices=[value,fallback,...aliases].filter(Boolean); const match=Array.from(el.options).find((option) => choices.some((choice) => option.value===choice || option.textContent.trim()===choice || normalize(option.value)===normalize(choice) || normalize(option.textContent)===normalize(choice))); if(!match) { failed.push(name); return; } el.focus(); setSelectValue(el,match.value); emit(el); pause(180); done.push(name); };
     setSelect('国家/地区','country',data.countryCode,['country','国家/地区'],'China');
     setText('持卡人姓名','cc-name',data.pinyinName,['name on card','持卡人姓名']);
     setSelect('省/州','address-level1',data.province,['province','state','省']);
@@ -215,6 +217,11 @@ private final class PaymentBrowserHost: PaymentBrowserHostApi {
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
     guard let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PaymentBrowser") else { return }
+    let updateChannel = FlutterMethodChannel(name: "com.kiroluker/app-update", binaryMessenger: registrar.messenger())
+    updateChannel.setMethodCallHandler { call, result in
+      guard call.method == "openUrl", let args = call.arguments as? [String: Any], let value = args["url"] as? String, let url = URL(string: value) else { result(false); return }
+      UIApplication.shared.open(url, options: [:]) { result($0) }
+    }
     let host = PaymentBrowserHost(registry: paymentRegistry)
     paymentHost = host
     registrar.register(PaymentBrowserPlatformViewFactory(registry: paymentRegistry), withId: paymentViewType)

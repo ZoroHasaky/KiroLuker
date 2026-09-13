@@ -2,6 +2,7 @@ import { safeStorage } from 'electron'
 import { isIP } from 'node:net'
 import type { FastifyInstance } from 'fastify'
 import {
+  getSettings,
   getWebControlAuth,
   getWebControlSettings,
   setWebControlAuth,
@@ -83,6 +84,7 @@ export class WebControlManager {
       billingService,
       authRepository: { load: getWebControlAuth, save: setWebControlAuth },
       getSettings: getWebControlSettings,
+      getAccountSettings: () => getSettings(),
     })
     try {
       await server.listen({ host: settings.host, port: settings.port })

@@ -97,6 +97,7 @@ class KiroApi {
     String? paymentStatus,
     int? createdAfter,
     int? createdBefore,
+    AccountGroup? group,
   }) => {
     'page': page,
     'pageSize': pageSize,
@@ -108,6 +109,7 @@ class KiroApi {
       'paymentStatus': paymentStatus,
     ..._optionalIntQuery('createdAfter', createdAfter),
     ..._optionalIntQuery('createdBefore', createdBefore),
+    if (group != null) 'group': group.name,
   };
 
   Future<AccountPage> accounts({
@@ -119,6 +121,7 @@ class KiroApi {
     String? paymentStatus,
     int? createdAfter,
     int? createdBefore,
+    AccountGroup? group,
   }) => _request(
     'GET',
     '/api/v1/accounts',
@@ -131,6 +134,7 @@ class KiroApi {
       paymentStatus: paymentStatus,
       createdAfter: createdAfter,
       createdBefore: createdBefore,
+      group: group,
     ),
     decode: (data) =>
         AccountPage.fromJson((data as Map).cast<String, dynamic>()),
@@ -176,5 +180,38 @@ class KiroApi {
     data: const {},
     decode: (data) =>
         CheckoutBillingResult.fromJson((data as Map).cast<String, dynamic>()),
+  );
+
+  Future<SubscriptionPlansResult> subscriptionPlans(String accountId) =>
+      _request(
+        'GET',
+        '/api/v1/subscriptions/plans',
+        query: {'accountId': accountId},
+        decode: (data) => SubscriptionPlansResult.fromJson(
+          (data as Map).cast<String, dynamic>(),
+        ),
+      );
+
+  Future<String> createSubscriptionLinks(
+    List<String> accountIds,
+    String subscriptionType,
+  ) => _request(
+    'POST',
+    '/api/v1/subscriptions/link',
+    data: {'accountIds': accountIds, 'subscriptionType': subscriptionType},
+    decode: (data) => ((data as Map)['jobId'] as String),
+  );
+
+  Future<String> switchSubscriptionsToFree(List<String> accountIds) => _request(
+    'POST',
+    '/api/v1/subscriptions/free',
+    data: {'accountIds': accountIds},
+    decode: (data) => ((data as Map)['jobId'] as String),
+  );
+
+  Future<WebJob> job(String id) => _request(
+    'GET',
+    '/api/v1/jobs/$id',
+    decode: (data) => WebJob.fromJson((data as Map).cast<String, dynamic>()),
   );
 }

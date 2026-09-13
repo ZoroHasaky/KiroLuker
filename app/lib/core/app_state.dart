@@ -195,6 +195,27 @@ final accountPageProvider = FutureProvider.autoDispose<AccountPage>((ref) {
   );
 });
 
+final accountPageByGroupProvider = FutureProvider.autoDispose
+    .family<AccountPage, AccountGroup>((ref, group) {
+      final filter = ref.watch(accountFilterProvider);
+      return apiFor(ref).accounts(
+        page: filter.page,
+        search: filter.search,
+        subscription: filter.subscription,
+        tagId: filter.tagId,
+        paymentStatus: filter.paymentStatus,
+        createdAfter: filter.createdAfter,
+        createdBefore: filter.createdBefore,
+        group: group,
+      );
+    });
+
+final subscriptionAccountsProvider = FutureProvider.autoDispose
+    .family<AccountPage, AccountGroup>(
+      (ref, group) =>
+          apiFor(ref).accounts(page: 1, pageSize: 100, group: group),
+    );
+
 final tagsProvider = FutureProvider.autoDispose<List<AccountTag>>(
   (ref) => apiFor(ref).tags(),
 );

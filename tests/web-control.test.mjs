@@ -206,7 +206,7 @@ test('mobile capability, OIDC export, payment link and checkout billing endpoint
     const auth = bearer(mobile.token)
     const capabilities = await fixture.app.inject({ method: 'GET', url: '/api/v1/capabilities', headers: auth })
     assert.equal(capabilities.statusCode, 200)
-    assert.deepEqual(capabilities.json().data.features, { accountExport: true, paymentLinks: true, checkoutBilling: true })
+    assert.deepEqual(capabilities.json().data.features, { accountExport: true, paymentLinks: true, checkoutBilling: true, subscriptionManagement: true })
 
     const oidc = await fixture.app.inject({ method: 'GET', url: '/api/v1/accounts/account-1/oidc', headers: auth })
     assert.equal(oidc.statusCode, 200)

@@ -90,6 +90,121 @@ String _formatNumber(num value) => value == value.roundToDouble()
     ? value.toInt().toString()
     : value.toStringAsFixed(1);
 
+enum AccountGroup { unused, pending, subscribed, deprecated }
+
+String accountGroupLabel(AccountGroup group) => switch (group) {
+  AccountGroup.unused => '未使用',
+  AccountGroup.pending => '待支付',
+  AccountGroup.subscribed => '已订阅',
+  AccountGroup.deprecated => '已废弃',
+};
+
+AccountGroup? accountGroupFromJson(Object? value) =>
+    switch (value?.toString()) {
+      'unused' => AccountGroup.unused,
+      'pending' => AccountGroup.pending,
+      'subscribed' => AccountGroup.subscribed,
+      'deprecated' => AccountGroup.deprecated,
+      _ => null,
+    };
+
+class SubscriptionPlan {
+  const SubscriptionPlan({
+    required this.name,
+    required this.type,
+    required this.title,
+    required this.billingInterval,
+    required this.features,
+    required this.amount,
+    required this.currency,
+  });
+  final String name;
+  final String type;
+  final String title;
+  final String billingInterval;
+  final List<String> features;
+  final num amount;
+  final String currency;
+
+  factory SubscriptionPlan.fromJson(Map<String, dynamic> json) =>
+      SubscriptionPlan(
+        name: json['name']?.toString() ?? '',
+        type: json['qSubscriptionType']?.toString() ?? '',
+        title:
+            (json['description'] as Map?)?['title']?.toString() ??
+            json['name']?.toString() ??
+            '',
+        billingInterval:
+            (json['description'] as Map?)?['billingInterval']?.toString() ?? '',
+        features:
+            (((json['description'] as Map?)?['features'] as List?) ?? const [])
+                .whereType<String>()
+                .toList(growable: false),
+        amount: ((json['pricing'] as Map?)?['amount'] as num?) ?? 0,
+        currency: (json['pricing'] as Map?)?['currency']?.toString() ?? 'USD',
+      );
+
+  String get priceLabel =>
+      '$currency ${(amount / 100).toStringAsFixed(2)}${billingInterval.isEmpty ? '' : '/$billingInterval'}';
+}
+
+class SubscriptionPlansResult {
+  const SubscriptionPlansResult({
+    required this.plans,
+    this.disclaimer = const [],
+  });
+  final List<SubscriptionPlan> plans;
+  final List<String> disclaimer;
+
+  factory SubscriptionPlansResult.fromJson(Map<String, dynamic> json) =>
+      SubscriptionPlansResult(
+        plans: ((json['plans'] as List?) ?? const [])
+            .whereType<Map>()
+            .map(
+              (item) => SubscriptionPlan.fromJson(item.cast<String, dynamic>()),
+            )
+            .toList(growable: false),
+        disclaimer: ((json['disclaimer'] as List?) ?? const [])
+            .whereType<String>()
+            .toList(growable: false),
+      );
+}
+
+class WebJob {
+  const WebJob({
+    required this.id,
+    required this.status,
+    required this.total,
+    required this.completed,
+    required this.succeeded,
+    required this.failed,
+    required this.skipped,
+    required this.messages,
+  });
+  final String id;
+  final String status;
+  final int total;
+  final int completed;
+  final int succeeded;
+  final int failed;
+  final int skipped;
+  final List<String> messages;
+  bool get finished => status == 'completed' || status == 'failed';
+
+  factory WebJob.fromJson(Map<String, dynamic> json) => WebJob(
+    id: json['id']?.toString() ?? '',
+    status: json['status']?.toString() ?? '',
+    total: json['total'] as int? ?? 0,
+    completed: json['completed'] as int? ?? 0,
+    succeeded: json['succeeded'] as int? ?? 0,
+    failed: json['failed'] as int? ?? 0,
+    skipped: json['skipped'] as int? ?? 0,
+    messages: ((json['messages'] as List?) ?? const [])
+        .whereType<String>()
+        .toList(growable: false),
+  );
+}
+
 class PublicAccount {
   const PublicAccount({
     required this.id,
@@ -104,6 +219,7 @@ class PublicAccount {
     this.note,
     this.createdAt,
     this.lastUsedAt,
+    this.group,
   });
 
   final String id;
@@ -118,10 +234,15 @@ class PublicAccount {
   final bool hasPaymentLink;
   final int? createdAt;
   final int? lastUsedAt;
+  final AccountGroup? group;
 
   /// `pending` is deliberately the same predicate used by the desktop API.
   bool get isPaymentPending =>
-      hasPaymentLink && subscription.type == 'Free' && usage.current == 0;
+      group == AccountGroup.pending ||
+      (group == null &&
+          hasPaymentLink &&
+          subscription.type == 'Free' &&
+          usage.current == 0);
 
   factory PublicAccount.fromJson(Map<String, dynamic> json) => PublicAccount(
     id: json['id'] as String,
@@ -142,6 +263,7 @@ class PublicAccount {
     hasPaymentLink: json['hasPaymentLink'] == true,
     createdAt: json['createdAt'] as int?,
     lastUsedAt: json['lastUsedAt'] as int?,
+    group: accountGroupFromJson(json['group']),
   );
 }
 

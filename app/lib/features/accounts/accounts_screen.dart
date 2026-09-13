@@ -14,11 +14,21 @@ class AccountsScreen extends ConsumerStatefulWidget {
   ConsumerState<AccountsScreen> createState() => _AccountsScreenState();
 }
 
-class _AccountsScreenState extends ConsumerState<AccountsScreen> {
+class _AccountsScreenState extends ConsumerState<AccountsScreen>
+    with SingleTickerProviderStateMixin {
   final _search = TextEditingController();
+  AccountGroup _group = AccountGroup.unused;
+  late final TabController _tabs;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabs = TabController(length: AccountGroup.values.length, vsync: this);
+  }
 
   @override
   void dispose() {
+    _tabs.dispose();
     _search.dispose();
     super.dispose();
   }
@@ -67,7 +77,24 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> {
   @override
   Widget build(BuildContext context) {
     final filter = ref.watch(accountFilterProvider);
-    final page = ref.watch(accountPageProvider);
+    final unusedPage = ref.watch(
+      accountPageByGroupProvider(AccountGroup.unused),
+    );
+    final pendingPage = ref.watch(
+      accountPageByGroupProvider(AccountGroup.pending),
+    );
+    final subscribedPage = ref.watch(
+      accountPageByGroupProvider(AccountGroup.subscribed),
+    );
+    final deprecatedPage = ref.watch(
+      accountPageByGroupProvider(AccountGroup.deprecated),
+    );
+    final page = switch (_group) {
+      AccountGroup.unused => unusedPage,
+      AccountGroup.pending => pendingPage,
+      AccountGroup.subscribed => subscribedPage,
+      AccountGroup.deprecated => deprecatedPage,
+    };
     final tags = ref.watch(tagsProvider);
     final today = DateUtils.dateOnly(DateTime.now());
 
@@ -75,7 +102,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> {
       appBar: AppBar(title: const Text('账号')),
       body: RefreshIndicator(
         onRefresh: () async {
-          ref.invalidate(accountPageProvider);
+          ref.invalidate(accountPageByGroupProvider);
           ref.invalidate(tagsProvider);
         },
         child: ListView(
@@ -170,6 +197,31 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> {
               ],
             ),
             const SizedBox(height: 12),
+            TabBar(
+              controller: _tabs,
+              isScrollable: true,
+              onTap: (index) =>
+                  setState(() => _group = AccountGroup.values[index]),
+              tabs: [
+                Tab(
+                  text:
+                      '${accountGroupLabel(AccountGroup.unused)}${_countLabel(unusedPage)}',
+                ),
+                Tab(
+                  text:
+                      '${accountGroupLabel(AccountGroup.pending)}${_countLabel(pendingPage)}',
+                ),
+                Tab(
+                  text:
+                      '${accountGroupLabel(AccountGroup.subscribed)}${_countLabel(subscribedPage)}',
+                ),
+                Tab(
+                  text:
+                      '${accountGroupLabel(AccountGroup.deprecated)}${_countLabel(deprecatedPage)}',
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             page.when(
               loading: () => const Padding(
                 padding: EdgeInsets.all(48),
@@ -177,7 +229,7 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> {
               ),
               error: (error, _) => _RetryCard(
                 error: error,
-                onRetry: () => ref.invalidate(accountPageProvider),
+                onRetry: () => ref.invalidate(accountPageByGroupProvider),
               ),
               data: (data) => Column(
                 children: [
@@ -240,6 +292,12 @@ class _AccountsScreenState extends ConsumerState<AccountsScreen> {
     );
   }
 }
+
+String _countLabel(AsyncValue<AccountPage> value) => value.when(
+  data: (page) => ' (${page.total})',
+  loading: () => '',
+  error: (_, _) => ' (?)',
+);
 
 String _formatDate(DateTime value) =>
     '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
@@ -464,7 +522,7 @@ class AccountDetailScreen extends ConsumerWidget {
     try {
       await apiFor(ref).updateTags(id, next);
       ref.invalidate(accountDetailProvider(id));
-      ref.invalidate(accountPageProvider);
+      ref.invalidate(accountPageByGroupProvider);
       if (context.mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('账号标签已同步到桌面端')));

@@ -40,15 +40,27 @@ void main() {
     expect(account(subscription: 'Pro_Plus').subscription.displayType, 'Pro+');
     expect(account(subscription: 'Pro_Max').subscription.displayType, 'Max');
     expect(
-      account(subscription: 'Free', hasPaymentLink: true, current: 0).isPaymentPending,
+      account(
+        subscription: 'Free',
+        hasPaymentLink: true,
+        current: 0,
+      ).isPaymentPending,
       isTrue,
     );
     expect(
-      account(subscription: 'Free', hasPaymentLink: true, current: 10).isPaymentPending,
+      account(
+        subscription: 'Free',
+        hasPaymentLink: true,
+        current: 10,
+      ).isPaymentPending,
       isFalse,
     );
     expect(
-      account(subscription: 'Pro', hasPaymentLink: true, current: 0).isPaymentPending,
+      account(
+        subscription: 'Pro',
+        hasPaymentLink: true,
+        current: 0,
+      ).isPaymentPending,
       isFalse,
     );
     expect(formatUsage(account(current: 125).usage), '125 / 1000（12.5%）');
@@ -103,7 +115,20 @@ void main() {
     );
     final container = ProviderContainer(
       overrides: [
-        accountPageProvider.overrideWith((ref) async => page),
+        accountPageByGroupProvider(AccountGroup.unused)
+            .overrideWith((ref) async => page),
+        accountPageByGroupProvider(AccountGroup.pending).overrideWith(
+          (ref) async =>
+              AccountPage(items: const [], page: 1, pageSize: 30, total: 0),
+        ),
+        accountPageByGroupProvider(AccountGroup.subscribed).overrideWith(
+          (ref) async =>
+              AccountPage(items: const [], page: 1, pageSize: 30, total: 0),
+        ),
+        accountPageByGroupProvider(AccountGroup.deprecated).overrideWith(
+          (ref) async =>
+              AccountPage(items: const [], page: 1, pageSize: 30, total: 0),
+        ),
         tagsProvider.overrideWith((ref) async => const <AccountTag>[]),
       ],
     );

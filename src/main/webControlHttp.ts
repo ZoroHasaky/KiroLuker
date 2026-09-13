@@ -2,7 +2,10 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify'
 import type { BillingPublicConfig, BillingResult } from '../shared/billing'
 import { type WebApiScope, type WebControlAuthData, type WebControlSettings } from '../shared/webControl'
-import type { AccountTag, BatchResult, VerifyCredentialsInput } from '../shared/types'
+import type { AccountTag, AppSettings, BatchResult, VerifyCredentialsInput } from '../shared/types'
+import { classifyAccountGroup, type AccountGroup } from '../shared/accountGrouping'
+import { getSubscriptionPlans, createSubscriptionLink } from './subscriptionService'
+import { switchSubscriptionToFree } from './stripePortalService'
 import { AccountApplicationService, type PublicAccount } from './accountApplicationService'
 import type { BillingService } from './billingService'
 
@@ -19,12 +22,13 @@ export interface WebControlHttpDependencies {
   billingService: BillingService
   authRepository: WebControlAuthRepository
   getSettings(): WebControlSettings
+  getAccountSettings?: () => Pick<AppSettings, 'deprecatedUsageCurrentThreshold' | 'deprecatedUsagePercentThreshold'>
 }
 
 export interface WebJob {
   id: string
   owner: string
-  kind: 'import' | 'refresh-token' | 'refresh-usage' | 'batch'
+  kind: 'import' | 'refresh-token' | 'refresh-usage' | 'batch' | 'subscription-link' | 'subscription-free'
   status: 'queued' | 'running' | 'completed' | 'failed'
   total: number
   completed: number
@@ -147,6 +151,15 @@ function publicJob(job: WebJob): WebJob {
   return structuredClone(job)
 }
 
+function groupingThresholds(deps: WebControlHttpDependencies) {
+  const value = deps.getAccountSettings?.() ?? {}
+  const settings = value as Partial<Pick<AppSettings, 'deprecatedUsageCurrentThreshold' | 'deprecatedUsagePercentThreshold'>>
+  return {
+    absoluteCurrent: Number(settings.deprecatedUsageCurrentThreshold ?? 0),
+    percent: Number(settings.deprecatedUsagePercentThreshold ?? 100)
+  }
+}
+
 const responseEnvelopeSchema = {
   type: 'object',
   required: ['success', 'requestId'],
@@ -245,20 +258,22 @@ export async function createWebControlHttpApp(deps: WebControlHttpDependencies):
   app.get('/api/v1/capabilities', { schema: { tags: ['capabilities'], response: { 200: responseEnvelopeSchema } }, preHandler: requireAuth() }, async (request) => ok(request, {
     apiVersion: '1',
     scopes: [...request.webAuth!.scopes],
-    features: { accountExport: true, paymentLinks: true, checkoutBilling: true }
+    features: { accountExport: true, paymentLinks: true, checkoutBilling: true, subscriptionManagement: true }
   }))
 
-  app.get('/api/v1/accounts', { schema: { tags: ['accounts'], querystring: { type: 'object', additionalProperties: false, properties: { page: { type: 'integer', minimum: 1 }, pageSize: { type: 'integer', minimum: 1, maximum: 100 }, search: { type: 'string', maxLength: 200 }, status: { type: 'string' }, subscription: { type: 'string' }, idp: { type: 'string' }, tagId: { type: 'string', maxLength: 100 }, createdAfter: { type: 'integer', minimum: 0 }, createdBefore: { type: 'integer', minimum: 0 }, paymentStatus: { type: 'string', enum: ['pending', 'not_pending'] } } }, response: { 200: responseEnvelopeSchema } }, preHandler: requireAuth(['accounts:read']) }, async (request) => {
+  app.get('/api/v1/accounts', { schema: { tags: ['accounts'], querystring: { type: 'object', additionalProperties: false, properties: { page: { type: 'integer', minimum: 1 }, pageSize: { type: 'integer', minimum: 1, maximum: 100 }, search: { type: 'string', maxLength: 200 }, status: { type: 'string' }, subscription: { type: 'string' }, idp: { type: 'string' }, tagId: { type: 'string', maxLength: 100 }, createdAfter: { type: 'integer', minimum: 0 }, createdBefore: { type: 'integer', minimum: 0 }, paymentStatus: { type: 'string', enum: ['pending', 'not_pending'] }, group: { type: 'string', enum: ['unused', 'pending', 'subscribed', 'deprecated'] } } }, response: { 200: responseEnvelopeSchema } }, preHandler: requireAuth(['accounts:read']) }, async (request) => {
     const query = (request.query ?? {}) as Record<string, unknown>
     const page = Number(query.page ?? 1)
     const pageSize = Number(query.pageSize ?? 30)
     const search = typeof query.search === 'string' ? query.search.trim().toLowerCase() : ''
     const createdAfter = typeof query.createdAfter === 'number' ? query.createdAfter : undefined
     const createdBefore = typeof query.createdBefore === 'number' ? query.createdBefore : undefined
-    if (createdAfter !== undefined && createdBefore !== undefined && createdAfter >= createdBefore) {
-      throw new HttpError(400, 'INVALID_DATE_RANGE', '导入日期范围无效')
-    }
-    let accounts = deps.accountService.listPublicAccounts()
+    if (createdAfter !== undefined && createdBefore !== undefined && createdAfter >= createdBefore) throw new HttpError(400, 'INVALID_DATE_RANGE', '导入日期范围无效')
+    const thresholds = groupingThresholds(deps)
+    let accounts = deps.accountService.listPublicAccounts().map((account) => ({
+      ...account,
+      group: classifyAccountGroup(account, thresholds)
+    }))
     if (search) accounts = accounts.filter((account) => `${account.email} ${account.nickname ?? ''}`.toLowerCase().includes(search))
     for (const key of ['status', 'subscription', 'idp'] as const) {
       const value = query[key]
@@ -269,12 +284,9 @@ export async function createWebControlHttpApp(deps: WebControlHttpDependencies):
     if (createdAfter !== undefined) accounts = accounts.filter((account) => account.createdAt >= createdAfter)
     if (createdBefore !== undefined) accounts = accounts.filter((account) => account.createdAt < createdBefore)
     const paymentStatus = typeof query.paymentStatus === 'string' ? query.paymentStatus : ''
-    if (paymentStatus) {
-      accounts = accounts.filter((account) => {
-        const pending = account.hasPaymentLink && account.subscription.type === 'Free' && (account.usage?.current ?? 0) === 0
-        return paymentStatus === 'pending' ? pending : !pending
-      })
-    }
+    if (paymentStatus) accounts = accounts.filter((account) => paymentStatus === 'pending' ? account.group === 'pending' : account.group !== 'pending')
+    const group = typeof query.group === 'string' ? query.group as AccountGroup : undefined
+    if (group) accounts = accounts.filter((account) => account.group === group)
     const total = accounts.length
     return ok(request, { items: accounts.slice((page - 1) * pageSize, page * pageSize), page, pageSize, total })
   })
@@ -283,7 +295,7 @@ export async function createWebControlHttpApp(deps: WebControlHttpDependencies):
     const id = (request.params as { id: string }).id
     const account = deps.accountService.getPublicAccount(id)
     if (!account) throw new HttpError(404, 'NOT_FOUND', '账号不存在')
-    return ok(request, account)
+    return ok(request, { ...account, group: classifyAccountGroup(account, groupingThresholds(deps)) })
   })
 
   /** 凭证导出只在用户显式复制时读取，不会进入 PublicAccount 或普通列表缓存。 */
@@ -343,6 +355,45 @@ export async function createWebControlHttpApp(deps: WebControlHttpDependencies):
   const refreshSchema = { tags: ['accounts'], params: { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }, response: { 202: responseEnvelopeSchema } }
   app.post('/api/v1/accounts/:id/refresh-token', { schema: refreshSchema, preHandler: requireAuth(['accounts:refresh'], false, true) }, refreshRoute('refresh-token'))
   app.post('/api/v1/accounts/:id/refresh-usage', { schema: refreshSchema, preHandler: requireAuth(['accounts:refresh'], false, true) }, refreshRoute('refresh-usage'))
+
+  app.get('/api/v1/subscriptions/plans', { schema: { tags: ['subscriptions'], querystring: { type: 'object', required: ['accountId'], properties: { accountId: { type: 'string', minLength: 1, maxLength: 100 } } }, response: { 200: responseEnvelopeSchema } }, preHandler: requireAuth(['accounts:payment']) }, async (request) => {
+    const accountId = String((request.query as { accountId?: string }).accountId || '').trim()
+    const account = deps.accountService.getAccount(accountId)
+    if (!account) throw new HttpError(404, 'NOT_FOUND', '账号不存在')
+    return ok(request, await getSubscriptionPlans(account))
+  })
+
+  app.post('/api/v1/subscriptions/link', { schema: { tags: ['subscriptions'], body: { type: 'object', additionalProperties: false, required: ['accountIds', 'subscriptionType'], properties: { accountIds: { type: 'array', minItems: 1, maxItems: MAX_BATCH_ITEMS, items: { type: 'string', minLength: 1, maxLength: 100 } }, subscriptionType: { type: 'string', minLength: 2, maxLength: 100 } } }, response: { 202: responseEnvelopeSchema } }, preHandler: requireAuth(['accounts:payment'], false, true) }, async (request, reply) => {
+    const body = readRecord(request.body)
+    const ids = Array.isArray(body.accountIds) ? [...new Set(body.accountIds.map((value) => String(value).trim()).filter(Boolean))] : []
+    const subscriptionType = readString(body.subscriptionType, 'subscriptionType', { required: true, max: 100 })!
+    if (!ids.length || ids.length > MAX_BATCH_ITEMS) throw new HttpError(400, 'INVALID_BODY', 'accountIds数量无效')
+    const job = jobs.enqueue(request.webAuth!.owner, 'subscription-link', ids.length, async (state) => {
+      await runItems(state, ids, async (id) => {
+        const account = deps.accountService.getAccount(id)
+        if (!account) return 'skipped'
+        const result = await createSubscriptionLink(account, subscriptionType)
+        await deps.accountService.setPaymentLink(id, result.url)
+        return 'success'
+      })
+    })
+    return reply.status(202).send(ok(request, { jobId: job.id }))
+  })
+
+  app.post('/api/v1/subscriptions/free', { schema: { tags: ['subscriptions'], body: { type: 'object', additionalProperties: false, required: ['accountIds'], properties: { accountIds: { type: 'array', minItems: 1, maxItems: MAX_BATCH_ITEMS, items: { type: 'string', minLength: 1, maxLength: 100 } } } }, response: { 202: responseEnvelopeSchema } }, preHandler: requireAuth(['accounts:write'], false, true) }, async (request, reply) => {
+    const body = readRecord(request.body)
+    const ids = Array.isArray(body.accountIds) ? [...new Set(body.accountIds.map((value) => String(value).trim()).filter(Boolean))] : []
+    if (!ids.length || ids.length > MAX_BATCH_ITEMS) throw new HttpError(400, 'INVALID_BODY', 'accountIds数量无效')
+    const job = jobs.enqueue(request.webAuth!.owner, 'subscription-free', ids.length, async (state) => {
+      await runItems(state, ids, async (id) => {
+        const account = deps.accountService.getAccount(id)
+        if (!account) return 'skipped'
+        await switchSubscriptionToFree(account)
+        return 'success'
+      })
+    })
+    return reply.status(202).send(ok(request, { jobId: job.id }))
+  })
 
   app.post('/api/v1/accounts/batch', { schema: { tags: ['accounts'], body: { type: 'object', additionalProperties: false, required: ['operation', 'ids'], properties: { operation: { type: 'string', enum: ['refresh-token', 'refresh-usage', 'delete', 'set-tags'] }, ids: { type: 'array', minItems: 1, maxItems: MAX_BATCH_ITEMS, items: { type: 'string', minLength: 1, maxLength: 100 } }, tagIds: { type: 'array', maxItems: 100, items: { type: 'string', minLength: 1, maxLength: 100 } } } }, response: { 202: responseEnvelopeSchema } }, preHandler: async (request) => {
     const body = readRecord(request.body)

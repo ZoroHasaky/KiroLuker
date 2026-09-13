@@ -4,6 +4,10 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.content.Intent
+import android.app.DownloadManager
+import android.net.Uri
+import android.os.Environment
 import android.graphics.Color
 import android.net.ConnectivityManager
 import android.net.Network
@@ -46,6 +50,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 private const val PAYMENT_VIEW_TYPE = "com.kiroluker/payment-browser"
 private const val PROFILE_PREFIX = "kiroluker_payment_"
 private const val NETWORK_IP_CHANNEL = "com.kiroluker/network-ip"
+private const val APP_UPDATE_CHANNEL = "com.kiroluker/app-update"
 private const val PHONE_STATE_PERMISSION_REQUEST = 7401
 
 /** A fresh profile is used when Android System WebView exposes the profile API. */
@@ -423,10 +428,18 @@ private fun checkoutFillScript(billing: CheckoutBillingPayload): String {
           labelTargetSelect(terms) ||
           selectControls().find((el) => [key, ...terms].some((term) => matchTerm(metadata(el), term))) || null;
       };
+      const pause = (ms) => { const until = Date.now() + ms; while (Date.now() < until) {} };
+      const emitInput = (el) => el.dispatchEvent(new Event('input', {bubbles: true}));
       const setInputValue = (el, value) => {
         const prototype = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
         const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
-        if (setter) setter.call(el, value); else el.value = value;
+        let current = '';
+        for (const character of String(value || '')) {
+          current += character;
+          if (setter) setter.call(el, current); else el.value = current;
+          emitInput(el);
+          pause(30 + ((current.length * 17) % 61));
+        }
       };
       const setSelectValue = (el, value) => {
         const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
@@ -438,7 +451,7 @@ private fun checkoutFillScript(billing: CheckoutBillingPayload): String {
       const setText = (name, key, value, terms) => {
         const el = findInput(key, terms);
         if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) || (el.autocomplete && el.autocomplete.startsWith('cc-') && el.autocomplete !== 'cc-name')) { failed.push(name); return; }
-        el.focus(); setInputValue(el, value); emit(el); done.push(name);
+        el.focus(); setInputValue(el, value); emit(el); pause(160 + ((String(value).length * 23) % 241)); done.push(name);
       };
       const setSelect = (name, key, value, terms, fallback) => {
         const el = findSelect(key, terms);
@@ -447,7 +460,7 @@ private fun checkoutFillScript(billing: CheckoutBillingPayload): String {
         const choices = [value, fallback, ...aliases].filter(Boolean);
         const match = Array.from(el.options).find((option) => choices.some((choice) => option.value === choice || option.textContent.trim() === choice || normalize(option.value) === normalize(choice) || normalize(option.textContent) === normalize(choice)));
         if (!match) { failed.push(name); return; }
-        el.focus(); setSelectValue(el, match.value); emit(el); done.push(name);
+        el.focus(); setSelectValue(el, match.value); emit(el); pause(180); done.push(name);
       };
       setSelect('国家/地区', 'country', data.countryCode, ['country','国家/地区'], 'China');
       setText('持卡人姓名', 'cc-name', data.pinyinName, ['name on card','持卡人姓名']);
@@ -488,6 +501,33 @@ class MainActivity : FlutterActivity() {
     simNetworkIpDetector = SimNetworkIpDetector(applicationContext)
     flutterEngine.platformViewsController.registry.registerViewFactory(PAYMENT_VIEW_TYPE, PaymentBrowserPlatformViewFactory(registry))
     PaymentBrowserHostApi.setUp(flutterEngine.dartExecutor.binaryMessenger, PaymentBrowserHost(registry))
+    MethodChannel(flutterEngine.dartExecutor.binaryMessenger, APP_UPDATE_CHANNEL).setMethodCallHandler { call, result ->
+      when (call.method) {
+        "openUrl" -> {
+          val value = call.argument<String>("url")
+          if (value.isNullOrBlank()) result.success(false)
+          else try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(value)))
+            result.success(true)
+          } catch (error: Exception) { result.error("OPEN_UPDATE_FAILED", error.message, null) }
+        }
+        "downloadUrl" -> {
+          val value = call.argument<String>("url")
+          if (value.isNullOrBlank()) result.success(false)
+          else try {
+            val request = DownloadManager.Request(Uri.parse(value))
+              .setTitle("KiroLuker 更新")
+              .setDescription("正在下载 Android 更新包")
+              .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+              .setMimeType("application/vnd.android.package-archive")
+              .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, call.argument<String>("filename") ?: "kiroluker-update.apk")
+            getSystemService(DownloadManager::class.java).enqueue(request)
+            result.success(true)
+          } catch (error: Exception) { result.error("DOWNLOAD_UPDATE_FAILED", error.message, null) }
+        }
+        else -> result.notImplemented()
+      }
+    }
     MethodChannel(flutterEngine.dartExecutor.binaryMessenger, NETWORK_IP_CHANNEL).setMethodCallHandler { call, result ->
       when (call.method) {
         "detectSimIps" -> Thread {
@@ -525,6 +565,7 @@ class MainActivity : FlutterActivity() {
   }
   override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
     PaymentBrowserHostApi.setUp(flutterEngine.dartExecutor.binaryMessenger, null)
+    MethodChannel(flutterEngine.dartExecutor.binaryMessenger, APP_UPDATE_CHANNEL).setMethodCallHandler(null)
     MethodChannel(flutterEngine.dartExecutor.binaryMessenger, NETWORK_IP_CHANNEL).setMethodCallHandler(null)
     super.cleanUpFlutterEngine(flutterEngine)
   }
