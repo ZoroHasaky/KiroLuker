@@ -307,10 +307,10 @@ test('each attempt has a fresh nonpersistent partition/bridge, independent langu
   assertClean(two.session)
 })
 
-test('disabled proxy explicitly uses system settings, creates no bridge/probe, and still secures and cleans its session', async () => {
+test('disabled proxy connects directly, creates no bridge/probe, and still secures and cleans its session', async () => {
   const h = harness({ createBridge: forbidden, fetch: forbidden })
   const resource = await h.api.createBrowserSession(browserConfig({ enabled: false }))
-  assert.deepEqual(resource.session.proxyCalls, [{ mode: 'system' }])
+  assert.deepEqual(resource.session.proxyCalls, [{ mode: 'direct' }])
   assert.equal(resource.check, undefined)
   assert.equal(h.bridges.length, 0)
   assert.equal(h.clock.history.length, 0)

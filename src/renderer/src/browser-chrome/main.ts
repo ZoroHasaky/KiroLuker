@@ -141,7 +141,7 @@ function render(next: BrowserChromeState): void {
   reloadButton.setAttribute('aria-label', reloadButton.title)
   quickGithubButton.disabled = !tab
   quickKiroButton.disabled = !tab
-  proxyStatus.textContent = `${next.proxyEnabled ? 'SOCKS5 出口' : '系统网络出口'}：${next.exitIp || '未验证'}${next.country ? ` · ${next.country}` : ''}（启动样本）`
+  proxyStatus.textContent = `${next.proxyEnabled ? 'SOCKS5 出口' : '直连出口'}：${next.exitIp || '未验证'}${next.country ? ` · ${next.country}` : ''}（启动样本）`
   document.title = next.label || '临时浏览器'
 
   // 渲染账号检测与添加操作按钮

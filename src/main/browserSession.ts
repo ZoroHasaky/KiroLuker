@@ -179,7 +179,8 @@ export async function createBrowserSession(
         throw new Error('[代理连接] 代理转接启动失败；未回退直连')
       }
     } else {
-      await abortable(ses.setProxy({ mode: 'system' }), lifetime.signal)
+      // 未启用自定义代理即直连，不静默进入系统代理；与刷新/订阅后台的默认直连保持一致。
+      await abortable(ses.setProxy({ mode: 'direct' }), lifetime.signal)
     }
     checkAborted(lifetime.signal)
     configurePortalSession(ses, {

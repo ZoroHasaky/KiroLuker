@@ -275,7 +275,9 @@ export async function createSubscriptionPortalContext(
   }
   try {
     const proxy = deps.proxyUrl()
-    await ses.setProxy(proxy ? { proxyRules: proxy } : { mode: 'system' })
+    // 默认直连，与刷新用量/凭证的 undici 路径一致：后台门户操作不静默进入系统代理。
+    // 需要走代理时在设置里启用 HTTP 代理，用显式 proxyRules 覆盖。
+    await ses.setProxy(proxy ? { proxyRules: proxy } : { mode: 'direct' })
     deps.configureSession(ses)
     initializedArn = await deps.initializeSession(ses, account)
     return context

@@ -312,7 +312,7 @@ test('contexts use unique non-persistent sessions; initialization and close neve
       assert.deepEqual(ses.events[1], ['storage', { storages: ['cookies'] }])
     }
     assert.deepEqual(firstSession.events[0], ['proxy', { proxyRules: 'http://127.0.0.1:3128' }])
-    assert.deepEqual(secondSession.events[0], ['proxy', { mode: 'system' }])
+    assert.deepEqual(secondSession.events[0], ['proxy', { mode: 'direct' }])
     const secondSnapshot = structuredClone([...secondSession.cookieJar])
     const secondEvents = structuredClone(secondSession.events)
     await first.close(); await first.close()

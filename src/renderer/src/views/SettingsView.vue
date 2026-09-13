@@ -73,8 +73,6 @@ watch(
   }
 )
 
-const presetColors = ['#7c3aed', '#1677ff', '#13c2c2', '#52c41a', '#fa8c16', '#eb2f96', '#f5222d']
-
 /** 输入框可能给出 null 或越界值，统一夹到 1-100 */
 function clampImportConcurrency(value: unknown): number {
   const num = Number(value)
@@ -230,33 +228,6 @@ function clearAll(): void {
 
 <template>
   <div>
-    <a-card size="small" title="外观" style="margin-bottom: 16px">
-      <a-form v-bind="FORM_LAYOUT">
-        <a-form-item label="深色模式">
-          <SettingSwitch field="darkMode" />
-        </a-form-item>
-        <a-form-item label="主题色">
-          <a-space wrap>
-            <button
-              v-for="color in presetColors"
-              :key="color"
-              class="color-dot"
-              :class="{ selected: settings.primaryColor === color }"
-              :style="{ background: color }"
-              @click="update({ primaryColor: color })"
-            />
-          </a-space>
-        </a-form-item>
-        <a-form-item label="隐私打码" class="field-inline">
-          <SettingSwitch field="privacyMode" />
-          <span class="muted">列表与详情中隐藏邮箱、昵称等隐私信息</span>
-        </a-form-item>
-        <a-form-item label="积分两位小数">
-          <SettingSwitch field="usagePrecision" />
-        </a-form-item>
-      </a-form>
-    </a-card>
-
     <a-card size="small" title="账号刷新" style="margin-bottom: 16px">
       <a-form v-bind="FORM_LAYOUT">
         <a-form-item label="自动刷新密钥" class="field-inline">
@@ -538,7 +509,7 @@ function clearAll(): void {
         <div class="data-row-text">
           <div class="data-row-title">恢复默认设置</div>
           <div class="muted">
-            把上面所有设置项（外观、刷新、网络、导入、托盘等）恢复到初始值，账号数据不受影响
+            把上面所有设置项（刷新、网络、导入、托盘等）恢复到初始值，账号数据不受影响
           </div>
         </div>
         <a-button type="primary" danger :loading="resetting" @click="resetSettings">
@@ -576,21 +547,6 @@ function clearAll(): void {
 </template>
 
 <style scoped>
-.color-dot {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  cursor: pointer;
-  padding: 0;
-  outline-offset: 2px;
-}
-
-.color-dot.selected {
-  border-color: rgba(0, 0, 0, 0.45);
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.6) inset;
-}
-
 /*
  * 控件与右侧说明文字默认按基线对齐，说明文字会偏下。
  * 改成 flex 居中，让两者垂直对齐。

@@ -153,7 +153,7 @@ app.whenReady().then(async () => {
   assert.match(await evaluate(view, 'document.querySelector("[data-testid=browser-windows-table]").innerText'), /主进程隐私标签/)
   assert.equal(await evaluate(view, 'document.body.innerText.includes("fixture@example.invalid")'), false)
   assert.equal(await evaluate(view, 'document.querySelector("[data-testid=open-account-browser]").disabled'), true)
-  assert.match(await evaluate(view, 'document.body.innerText'), /系统网络.*系统代理/s)
+  assert.match(await evaluate(view, 'document.body.innerText'), /关闭时直连，不使用任何代理（含系统代理）/)
   await input(view, '#browser-proxy-host', 'proxy-updated.example.invalid')
   assert.equal(await evaluate(view, 'document.querySelector("[data-testid=open-anonymous-browser]").disabled'), true, 'unsaved proxy change must not start with old settings')
   assert.equal(await evaluate(view, 'document.querySelector("[data-testid=test-browser-proxy]").disabled'), true)
@@ -374,7 +374,7 @@ app.whenReady().then(async () => {
   state.tabs[0].error = undefined
   state.proxyEnabled = false
   chrome.webContents.send('fixture-chrome-push', clone(state))
-  await wait(chrome, 'document.querySelector("#proxy-status").textContent.includes("系统网络出口")', 'system network wording')
+  await wait(chrome, 'document.querySelector("#proxy-status").textContent.includes("直连出口")', 'direct connection wording')
   nativeTheme.themeSource = 'dark'
   await new Promise((resolve) => setTimeout(resolve, 100))
   await capture(chrome, 'chrome-dark-wide.png', { x: 0, y: 0, width: 1000, height: 112 })

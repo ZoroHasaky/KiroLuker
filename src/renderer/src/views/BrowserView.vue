@@ -308,7 +308,7 @@ onUnmounted(() => {
                 <label for="browser-proxy-enabled">启用自定义代理</label>
                 <a-switch id="browser-proxy-enabled" v-model:checked="draft.proxy.enabled" data-testid="proxy-enabled" />
               </div>
-              <p class="muted field-help">关闭时使用系统网络（可能受系统代理影响），不使用自定义代理。</p>
+              <p class="muted field-help">关闭时直连，不使用任何代理（含系统代理）。</p>
               <a-form-item label="代理模式" html-for="browser-proxy-mode">
                 <a-select id="browser-proxy-mode" v-model:value="draft.proxy.mode" :disabled="!draft.proxy.enabled">
                   <a-select-option value="socks5">静态 SOCKS5</a-select-option>
@@ -398,7 +398,7 @@ onUnmounted(() => {
       </a-spin>
 
       <div v-if="proxyCheck" class="check-result" role="status" data-testid="browser-proxy-result">
-        <a-tag color="green">验证成功 · {{ savedConfig?.proxy.enabled ? savedConfig.proxy.mode === 'dynamic-http' ? '动态 HTTP API' : savedConfig.proxy.mode === 'http' ? 'HTTP' : 'SOCKS5' : '系统网络' }}</a-tag>
+        <a-tag color="green">验证成功 · {{ savedConfig?.proxy.enabled ? savedConfig.proxy.mode === 'dynamic-http' ? '动态 HTTP API' : savedConfig.proxy.mode === 'http' ? 'HTTP' : 'SOCKS5' : '直连' }}</a-tag>
         <span class="mono">{{ proxyCheck.ip }}</span>
         <span>{{ proxyCheck.country || '国家/地区未知' }}</span>
         <span class="muted">{{ proxyCheck.latencyMs }} ms · {{ new Date(proxyCheck.checkedAt).toLocaleString() }}（仅本次验证）</span>
@@ -425,7 +425,7 @@ onUnmounted(() => {
             <tbody>
               <tr v-for="item in windows" :key="item.id" :data-window-id="item.id">
                 <td><div class="window-label">{{ item.label || '临时窗口' }}</div><div class="muted origin">{{ item.activeOrigin || '空白页' }}</div></td>
-                <td><div class="mono">{{ item.exitIp || '未验证' }}</div><div class="muted">{{ item.proxyEnabled ? '自定义代理' : '系统网络' }} · {{ item.country || '国家/地区未知' }}</div></td>
+                <td><div class="mono">{{ item.exitIp || '未验证' }}</div><div class="muted">{{ item.proxyEnabled ? '自定义代理' : '直连' }} · {{ item.country || '国家/地区未知' }}</div></td>
                 <td>{{ item.tabCount }}</td>
                 <td><div class="window-actions"><a-button data-action="focus" :disabled="busyWindows.has(item.id)" @click="windowAction(item.id, 'focus')">聚焦</a-button><a-popconfirm title="关闭此窗口？临时站点数据将清理。" ok-text="关闭" cancel-text="取消" @confirm="windowAction(item.id, 'close')"><a-button data-action="close" danger :disabled="busyWindows.has(item.id)">关闭</a-button></a-popconfirm></div></td>
               </tr>
