@@ -5,7 +5,8 @@ for (const name of ['getSettings', 'getAppInfo', 'loadAccounts', 'getActiveKiroT
   'checkSubscriptionRenewal', 'switchSubscriptionToFree']) {
   api[name] = (...args) => ipcRenderer.invoke('subscription-ui-fixture', name, args)
 }
-for (const name of ['onAppNavigate', 'onConfirmQuit', 'onProactiveRenewal', 'onTrayAction', 'onUpdateState']) {
+for (const name of ['onAccountsChanged', 'onAppNavigate', 'onBrowserWindowsChanged', 'onLogAppended',
+  'onState', 'onTrayAction', 'onUpdateState']) {
   api[name] = () => () => {}
 }
 contextBridge.exposeInMainWorld('api', api)

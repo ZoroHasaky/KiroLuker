@@ -11,13 +11,35 @@ let initialStorageError = ''
 try { savedRecords = loadSubscriptionRecords(localStorage) }
 catch { initialStorageError = '无法读取本机订阅记录，请先检查本机存储；未确认的账号不会重复提交。' }
 
+const USAGE_THRESHOLD_KEY = 'kiroluker-free-usage-threshold-v1'
+const DEFAULT_USAGE_THRESHOLD_PERCENT = 15
+
+/** 阈值随本机保存；null 表示不按用量过滤，读取失败回落默认值。 */
+function loadUsageThreshold(): number | null {
+  try {
+    const raw = localStorage.getItem(USAGE_THRESHOLD_KEY)
+    if (raw == null) return DEFAULT_USAGE_THRESHOLD_PERCENT
+    const value: unknown = JSON.parse(raw)
+    if (value === null) return null
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100
+      ? value
+      : DEFAULT_USAGE_THRESHOLD_PERCENT
+  } catch {
+    return DEFAULT_USAGE_THRESHOLD_PERCENT
+  }
+}
+
 const freeSession = {
   working: sessionRef(false),
   operation: sessionRef<Operation>('switch'),
   completed: sessionRef(0),
   total: sessionRef(0),
   results: sessionRef<SubscriptionRecords>(savedRecords),
-  storageError: sessionRef(initialStorageError)
+  storageError: sessionRef(initialStorageError),
+  /** 已用百分比阈值（0-100），null 为不过滤；默认 15。 */
+  usageThreshold: sessionRef<number | null>(loadUsageThreshold()),
+  /** 本次会话内已提交切换并拿到门户响应的账号，留在清单里展示结果；重启应用自然清空。 */
+  switchedIds: sessionRef<Set<string>>(new Set())
 }
 </script>
 
@@ -37,10 +59,13 @@ const settingsStore = useSettingsStore()
 const precision = computed(() => settingsStore.settings.usagePrecision)
 const selectedIds = ref<string[]>([])
 const search = ref('')
-const { working, operation, completed, total, results, storageError } = freeSession
+const { working, operation, completed, total, results, storageError, usageThreshold, switchedIds } = freeSession
 let disposed = false
 
 const availableAccounts = computed(() => [...new Map(props.accounts.map((a) => [a.id, a])).values()])
+function usagePercentOf(account: Account): number {
+  return Math.round(Math.min(100, Math.max(0, (account.usage.percentUsed || 0) * 100)))
+}
 function isFreeTier(account: Account): boolean {
   const type = account.subscription.type.toUpperCase()
   const title = (account.subscription.title || '').toUpperCase()
@@ -56,13 +81,23 @@ function isPendingCandidate(account: Account): boolean {
   const state = record?.renewal?.state
   return state !== 'free' && state !== 'scheduled-free' && state !== 'canceling'
 }
-const pendingAccounts = computed(() => {
+function matchesSearch(account: Account): boolean {
   const query = search.value.trim().toLowerCase()
-  return availableAccounts.value.filter((account) => isPendingCandidate(account)).filter((account) => {
-    if (!query) return true
-    return [account.email, account.nickname, account.id].some((value) => value?.toLowerCase().includes(query))
-  })
-})
+  if (!query) return true
+  return [account.email, account.nickname, account.id].some((value) => value?.toLowerCase().includes(query))
+}
+const pendingAccounts = computed(() =>
+  availableAccounts.value.filter((account) => {
+    const threshold = usageThreshold.value
+    return isPendingCandidate(account) && (threshold == null || usagePercentOf(account) >= threshold)
+  }).filter(matchesSearch)
+)
+const switchedAccounts = computed(() =>
+  availableAccounts.value
+    .filter((account) => switchedIds.value.has(account.id) && !isPendingCandidate(account))
+    .filter(matchesSearch)
+)
+const switchedCount = computed(() => switchedAccounts.value.length)
 const selectedSet = computed(() => new Set(selectedIds.value))
 const selectedAccounts = computed(() => pendingAccounts.value.filter((a) => selectedSet.value.has(a.id)))
 const allSelected = computed(() => pendingAccounts.value.length > 0 && selectedAccounts.value.length === pendingAccounts.value.length)
@@ -82,6 +117,24 @@ const switchLabels: Record<SwitchSubscriptionToFreeResult['status'], string> = {
 }
 const rowColors: Record<RowStatus, string> = { pending: 'default', running: 'processing', success: 'green', warning: 'orange', error: 'red' }
 const rowLabels: Record<RowStatus, string> = { pending: '等待', running: '执行中', success: '完成', warning: '需关注', error: '失败' }
+
+/** a-input-number 清空时给 null，统一收敛并夹到 0-100。 */
+const usageThresholdPercent = computed<number | null>({
+  get: () => usageThreshold.value,
+  set: (value) => {
+    usageThreshold.value = value == null ? null : Math.max(0, Math.min(100, Math.round(value)))
+  }
+})
+watch(usageThreshold, (value) => {
+  try { localStorage.setItem(USAGE_THRESHOLD_KEY, JSON.stringify(value)) } catch { /* 筛选偏好保存失败不阻断功能 */ }
+})
+/** 留在清单里的已切换账号：成功给绿色「切换成功」，结果不确定给橙色「需关注」。 */
+function retainedTagColor(id: string): string {
+  return results.value[id]?.needsCheck ? 'orange' : 'green'
+}
+function retainedTagText(id: string): string {
+  return results.value[id]?.needsCheck ? '需关注' : '切换成功'
+}
 
 watch(() => availableAccounts.value.map((a) => a.id), (ids) => {
   const allowed = new Set(ids)
@@ -173,6 +226,8 @@ async function switchOne(id: string): Promise<void> {
       return
     }
     const data = result.data
+    // 已提交并拿到门户响应（含结果不确定）：留在清单展示结果，避免「点完就消失」。
+    switchedIds.value = new Set(switchedIds.value).add(id)
     row.previousPlan = data.previousPlan
     row.renewal = data.renewal
     row.message = switchLabels[data.status]
@@ -229,12 +284,23 @@ function resultText(id: string): string {
       <div class="panel-title">
         <div>
           <h2 class="section-title">切Free</h2>
-          <p class="muted header-hint">仅显示当前非 Free 且尚未切换的账号；已降级 Free 的账号不再显示。勾选后点击按钮，系统会先核验再提交。</p>
+          <p class="muted header-hint">仅显示已用达到阈值且尚未切换的账号；切换成功的账号会保留在清单并标注结果，重启应用后不再显示。勾选后点击按钮，系统会先核验再提交。</p>
         </div>
         <a-tag color="orange">待切Free {{ pendingAccounts.length }}</a-tag>
       </div>
       <div class="toolbar account-toolbar">
-        <a-input v-model:value="search" allow-clear placeholder="搜索邮箱 / 昵称 / 账号 ID" class="search-input" />
+        <span class="muted no-wrap">已用 ≥</span>
+        <a-input-number
+          v-model:value="usageThresholdPercent"
+          :min="0"
+          :max="100"
+          size="small"
+          class="threshold-input"
+          data-testid="usage-threshold"
+          placeholder="不限"
+        />
+        <span class="muted no-wrap">%</span>
+        <a-input v-model:value="search" allow-clear data-testid="free-search" placeholder="搜索邮箱 / 昵称 / 账号 ID" class="search-input" />
         <a-button danger :loading="working" data-testid="switch-selected" :disabled="locked || !selectedAccounts.length" @click="requestSwitch">切Free（{{ selectedAccounts.length }}）</a-button>
       </div>
     </header>
@@ -246,21 +312,38 @@ function resultText(id: string): string {
       </a-checkbox>
       <span class="count-text">显示 {{ pendingAccounts.length }} 个待切Free账号</span>
       <span v-if="selectedAccounts.length" class="count-text">已选 {{ selectedAccounts.length }}</span>
+      <span v-if="switchedCount" class="count-text">已切换 {{ switchedCount }}（本次会话）</span>
       <a-button v-if="selectedIds.length" type="link" size="small" :disabled="locked" @click="selectedIds = []">清空</a-button>
       <span class="toolbar-spacer" />
-      <span class="muted">排除：已降级 Free、已确认切换及结果不确定的账号</span>
+      <span class="muted">排除：已为 Free、已安排切换、结果待复核或已用不足阈值的账号</span>
     </div>
 
-    <div v-if="pendingAccounts.length" class="account-list">
+    <div v-if="pendingAccounts.length || switchedAccounts.length" class="account-list">
       <div v-for="account in pendingAccounts" :key="account.id" class="account-row" :data-account-id="account.id">
         <a-checkbox :checked="selectedSet.has(account.id)" :disabled="locked" @change="(event: any) => toggleAccount(account.id, event.target.checked)" />
         <div class="account-main">
           <strong>{{ account.email || account.nickname || '未命名账号' }}</strong>
           <span class="muted">{{ account.nickname || account.subscription.title || account.subscription.type }}</span>
-          <span class="account-usage">总额度 {{ formatCredits(account.usage.limit, precision) }} · 已用 {{ formatCredits(account.usage.current, precision) }}</span>
+          <span class="account-usage">总额度 {{ formatCredits(account.usage.limit, precision) }} · 已用 {{ formatCredits(account.usage.current, precision) }} · {{ usagePercentOf(account) }}%</span>
         </div>
         <span class="muted">{{ resultText(account.id) }}</span>
         <a-tag v-if="results[account.id]" :color="rowColors[results[account.id].status]">{{ rowLabels[results[account.id].status] }}</a-tag>
+      </div>
+      <div
+        v-for="account in switchedAccounts"
+        :key="account.id"
+        class="account-row switched-row"
+        :class="{ 'switched-row-attention': results[account.id]?.needsCheck }"
+        :data-account-id="account.id"
+      >
+        <a-checkbox :checked="false" disabled />
+        <div class="account-main">
+          <strong>{{ account.email || account.nickname || '未命名账号' }}</strong>
+          <span class="muted">{{ account.nickname || account.subscription.title || account.subscription.type }}</span>
+          <span class="account-usage">总额度 {{ formatCredits(account.usage.limit, precision) }} · 已用 {{ formatCredits(account.usage.current, precision) }} · {{ usagePercentOf(account) }}%</span>
+        </div>
+        <span class="muted">{{ resultText(account.id) }}</span>
+        <a-tag :color="retainedTagColor(account.id)">{{ retainedTagText(account.id) }}</a-tag>
       </div>
     </div>
     <a-empty v-else description="没有待切Free账号" />
@@ -283,6 +366,10 @@ function resultText(id: string): string {
 .toolbar-spacer { flex: 1 1 auto; }
 .account-list { display: flex; flex-direction: column; gap: 6px; overflow: auto; }
 .account-row { padding: 10px 12px; border: 1px solid var(--kal-border); border-radius: 8px; }
+.switched-row { border-left: 3px solid #52c41a; }
+.switched-row-attention { border-left-color: #fa8c16; }
+.no-wrap { white-space: nowrap; }
+.threshold-input { width: 76px; }
 .account-main { display: flex; flex: 1 1 240px; flex-direction: column; gap: 3px; min-width: 0; }
 .account-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-usage { color: var(--kal-text); font-size: 12px; }
