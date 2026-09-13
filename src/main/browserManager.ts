@@ -147,7 +147,8 @@ export class BrowserManager {
     if (request.accountId && !account) throw new Error('账号不存在，请刷新账户列表')
     const config = this.config()
     let resource: BrowserSessionResource | undefined
-    for (let attempt = 0; attempt < 3; attempt++) {
+    const duplicateExitIpAttempts = config.proxy.duplicateExitIpAttempts ?? 3
+    for (let attempt = 0; attempt < duplicateExitIpAttempts; attempt++) {
       resource = await this.createSession(config)
       if (this.stopping) { await resource.close(); throw new Error('应用正在退出') }
       const ip = resource.check?.ip
@@ -156,7 +157,7 @@ export class BrowserManager {
       await resource.close()
       resource = undefined
     }
-    if (!resource) throw new Error('[代理检测] 连续 3 次取得重复出口 IP，未打开窗口；请检查服务商轮换规则后重试')
+    if (!resource) throw new Error(`[代理检测] 连续 ${duplicateExitIpAttempts} 次取得重复出口 IP，未打开窗口；请检查服务商轮换规则后重试`)
     let record: WindowRecord | undefined
     try {
       if (account) {

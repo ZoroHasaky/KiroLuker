@@ -121,7 +121,8 @@ export function validateBrowserProxy(value: unknown): BrowserResolvedConfig['pro
     password,
     apiUrl: validateBrowserProxyApiUrl(proxy.apiUrl === undefined ? '' : proxy.apiUrl, proxy.enabled && dynamic),
     apiProxyHost: validateBrowserProxyHost(proxy.apiProxyHost === undefined ? '' : proxy.apiProxyHost, proxy.enabled && dynamic),
-    apiProxyPort: integer(proxy.apiProxyPort === undefined ? 7897 : proxy.apiProxyPort, 1, 65535, '本机 HTTP 代理端口')
+    apiProxyPort: integer(proxy.apiProxyPort === undefined ? 7897 : proxy.apiProxyPort, 1, 65535, '本机 HTTP 代理端口'),
+    duplicateExitIpAttempts: integer(proxy.duplicateExitIpAttempts === undefined ? 3 : proxy.duplicateExitIpAttempts, 1, 20, '重复出口 IP 尝试次数')
   }
 }
 
@@ -141,14 +142,14 @@ export function defaultBrowserConfig(portalLocale: unknown = 'zh-CN'): BrowserRe
   return {
     proxy: {
       enabled: false, mode: 'socks5', host: '', port: 1080, username: '', password: '',
-      apiUrl: '', apiProxyHost: '', apiProxyPort: 7897
+      apiUrl: '', apiProxyHost: '', apiProxyPort: 7897, duplicateExitIpAttempts: 3
     },
     fingerprint: { userAgent: '', language, timezone: '', width: 1280, height: 900 }
   }
 }
 
 interface StoredBrowserConfig {
-  version: 2
+  version: 3
   proxy: {
     enabled: boolean
     mode: BrowserProxyMode
@@ -157,6 +158,7 @@ interface StoredBrowserConfig {
     apiUrl: string
     apiProxyHost: string
     apiProxyPort: number
+    duplicateExitIpAttempts: number
     encryptedCredentials: string
   }
   fingerprint: BrowserFingerprint
@@ -183,7 +185,7 @@ function secureStorageRequired(): void {
 }
 
 function encodeConfig(config: BrowserResolvedConfig): StoredBrowserConfig {
-  const { enabled, mode, host, port, username, password, apiUrl, apiProxyHost, apiProxyPort } = config.proxy
+  const { enabled, mode, host, port, username, password, apiUrl, apiProxyHost, apiProxyPort, duplicateExitIpAttempts } = config.proxy
   let encryptedCredentials = ''
   if ((mode === 'socks5' || mode === 'http') && (username || password)) {
     secureStorageRequired()
@@ -195,8 +197,8 @@ function encodeConfig(config: BrowserResolvedConfig): StoredBrowserConfig {
     }
   }
   return {
-    version: 2,
-    proxy: { enabled, mode, host, port, apiUrl, apiProxyHost, apiProxyPort, encryptedCredentials },
+    version: 3,
+    proxy: { enabled, mode, host, port, apiUrl, apiProxyHost, apiProxyPort, duplicateExitIpAttempts, encryptedCredentials },
     fingerprint: { ...config.fingerprint }
   }
 }
@@ -218,7 +220,8 @@ function readConfig(): BrowserResolvedConfig {
   const config = object(stored, '已保存的浏览器配置')
   const proxy = object(config.proxy, '已保存的代理配置')
   const legacy = config.version === 1
-  if ((!legacy && config.version !== 2) || typeof proxy.encryptedCredentials !== 'string') {
+  const legacyWithoutDuplicateThreshold = config.version === 1 || config.version === 2
+  if ((!legacy && config.version !== 2 && config.version !== 3) || typeof proxy.encryptedCredentials !== 'string') {
     throw new Error('浏览器配置存储格式无效')
   }
   let credentials = { username: '', password: '' }
@@ -244,6 +247,7 @@ function readConfig(): BrowserResolvedConfig {
       apiUrl: legacy ? '' : proxy.apiUrl,
       apiProxyHost: legacy ? '' : proxy.apiProxyHost,
       apiProxyPort: legacy ? 7897 : proxy.apiProxyPort,
+      duplicateExitIpAttempts: legacyWithoutDuplicateThreshold ? 3 : proxy.duplicateExitIpAttempts,
       ...credentials
     },
     fingerprint: config.fingerprint
@@ -259,9 +263,9 @@ function writeConfig(config: StoredBrowserConfig): void {
 }
 
 function publicConfig(config: BrowserResolvedConfig): BrowserConfig {
-  const { enabled, mode, host, port, username, password, apiUrl, apiProxyHost, apiProxyPort } = config.proxy
+  const { enabled, mode, host, port, username, password, apiUrl, apiProxyHost, apiProxyPort, duplicateExitIpAttempts } = config.proxy
   return {
-    proxy: { enabled, mode, host, port, username, passwordSet: password.length > 0, apiUrl, apiProxyHost, apiProxyPort },
+    proxy: { enabled, mode, host, port, username, passwordSet: password.length > 0, apiUrl, apiProxyHost, apiProxyPort, duplicateExitIpAttempts },
     fingerprint: { ...config.fingerprint }
   }
 }

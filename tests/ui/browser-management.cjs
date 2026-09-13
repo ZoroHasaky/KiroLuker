@@ -23,7 +23,7 @@ let fixtureAccounts = [{
 }]
 let settings = { autoRefresh: false, autoRefreshUsage: false, darkMode: false, privacyMode: true, trayEnabled: false, proactiveRenewalEnabled: false }
 let config = {
-  proxy: { enabled: true, host: 'proxy.example.invalid', port: 1080, username: '', passwordSet: true },
+  proxy: { enabled: true, mode: 'socks5', host: 'proxy.example.invalid', port: 1080, username: '', passwordSet: true, apiUrl: '', apiProxyHost: '', apiProxyPort: 7897, duplicateExitIpAttempts: 3 },
   fingerprint: { language: 'zh-CN', timezone: 'Asia/Shanghai', userAgent: '', width: 1280, height: 900 }
 }
 let windows = [{ id: 'fixture-window', accountId: 'fixture-account', label: '主进程隐私标签', createdAt: 1, tabCount: 2, activeOrigin: 'https://example.invalid', proxyEnabled: true, exitIp: '203.0.113.5', country: '测试地区' }]

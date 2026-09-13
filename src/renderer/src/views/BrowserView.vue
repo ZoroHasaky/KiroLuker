@@ -21,7 +21,7 @@ const savedConfig = ref<BrowserConfig | null>(null)
 const draft = reactive<BrowserConfig>({
   proxy: {
     enabled: false, mode: 'socks5', host: '', port: 1080, username: '', passwordSet: false,
-    apiUrl: '', apiProxyHost: '', apiProxyPort: 7897
+    apiUrl: '', apiProxyHost: '', apiProxyPort: 7897, duplicateExitIpAttempts: 3
   },
   fingerprint: { language: navigator.language, timezone: '', userAgent: '', width: 1280, height: 900 }
 })
@@ -56,8 +56,9 @@ const accountOptions = computed(() => accountsStore.accounts.map((account) => ({
 const selectedAccountExists = computed(() => accountsStore.accounts.some((account) => account.id === selectedAccountId.value))
 
 function applyConfig(config: BrowserConfig): void {
-  savedConfig.value = { proxy: { ...config.proxy }, fingerprint: { ...config.fingerprint } }
-  draft.proxy = { ...config.proxy }
+  const normalizedProxy = { ...config.proxy, duplicateExitIpAttempts: config.proxy.duplicateExitIpAttempts ?? 3 }
+  savedConfig.value = { proxy: normalizedProxy, fingerprint: { ...config.fingerprint } }
+  draft.proxy = normalizedProxy
   draft.fingerprint = { ...config.fingerprint }
   password.value = ''
   clearPassword.value = false
@@ -82,11 +83,11 @@ async function loadConfig(): Promise<void> {
 }
 
 function createPatch(): BrowserConfigPatch {
-  const { enabled, mode, host, port, username, apiUrl, apiProxyHost, apiProxyPort } = draft.proxy
+  const { enabled, mode, host, port, username, apiUrl, apiProxyHost, apiProxyPort, duplicateExitIpAttempts } = draft.proxy
   return {
     proxy: {
       enabled, mode, host: host.trim(), port, username,
-      apiUrl: apiUrl.trim(), apiProxyHost: apiProxyHost.trim(), apiProxyPort,
+      apiUrl: apiUrl.trim(), apiProxyHost: apiProxyHost.trim(), apiProxyPort, duplicateExitIpAttempts,
       // Never send an empty secret accidentally: blank means preserve, explicit clear means remove.
       ...((mode === 'socks5' || mode === 'http') && (clearPassword.value ? true : password.value !== '')
         ? { password: clearPassword.value ? '' : password.value }
@@ -127,6 +128,9 @@ function validate(patch: BrowserConfigPatch): string {
   if (proxy.mode !== 'socks5' && proxy.mode !== 'http' && proxy.mode !== 'dynamic-http') return '请选择有效的代理模式。'
   if (!Number.isInteger(proxy.port) || proxy.port < 1 || proxy.port > 65535 || !Number.isInteger(proxy.apiProxyPort) || proxy.apiProxyPort < 1 || proxy.apiProxyPort > 65535) {
     return '代理端口必须为 1–65535 的整数。'
+  }
+  if (!Number.isInteger(proxy.duplicateExitIpAttempts) || proxy.duplicateExitIpAttempts < 1 || proxy.duplicateExitIpAttempts > 20) {
+    return '重复出口 IP 尝试次数必须为 1–20 的整数。'
   }
   if (proxy.mode === 'socks5' || proxy.mode === 'http') {
     if ((proxy.enabled || proxy.host) && !validHost(proxy.host)) return `请填写有效的 ${proxy.mode === 'http' ? 'HTTP' : 'SOCKS5'} 代理主机名或 IP（不含协议、端口或路径）。`
@@ -355,6 +359,10 @@ onUnmounted(() => {
                   description="用于满足供应商的来源 IP 白名单；返回内容必须是单个 IP:端口。链路失败不会回退为直连。"
                 />
               </template>
+              <a-form-item label="重复出口 IP 阈值（尝试次数）" html-for="browser-duplicate-exit-ip-attempts">
+                <a-input-number id="browser-duplicate-exit-ip-attempts" v-model:value="draft.proxy.duplicateExitIpAttempts" @input="draft.proxy.duplicateExitIpAttempts = Number($event)" :min="1" :max="20" :precision="0" />
+                <p class="muted field-help">获取到与上次成功窗口或运行中窗口相同的出口 IP 时，最多重试此次数；默认 3 次。</p>
+              </a-form-item>
             </a-card>
 
             <a-card title="浏览器指纹" size="small">
@@ -380,7 +388,7 @@ onUnmounted(() => {
               <p class="muted field-help">语言、时区、UA 与尺寸是可配置的浏览环境，不代表完整的反指纹或匿名保护。</p>
             </a-card>
           </div>
-          <p class="muted field-help">新代理窗口最多尝试 3 次新连接；若出口仍与上次成功打开或正在运行的窗口重复，将拒绝打开，不会假装已更换 IP。</p>
+          <p class="muted field-help">新代理窗口最多尝试 {{ draft.proxy.duplicateExitIpAttempts }} 次新连接；若出口仍与上次成功打开或正在运行的窗口重复，将拒绝打开，不会假装已更换 IP。</p>
           <div class="config-actions">
             <a-button data-testid="save-browser-config" type="primary" html-type="submit" :loading="saving" :disabled="!savedConfig || configBusy || !dirty || !!validationError">保存配置</a-button>
             <a-button data-testid="test-browser-proxy" :loading="checking" :disabled="!savedConfig || configBusy || dirty || !!validationError" @click="testProxy">测试已保存配置</a-button>

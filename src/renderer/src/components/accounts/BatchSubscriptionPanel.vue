@@ -18,7 +18,6 @@ const batchSession = {
   selectedLinkIds: sessionRef<string[]>([]),
   availablePlans: sessionRef<KiroSubscriptionPlan[]>([]),
   selectedPlanType: sessionRef(''),
-  disclaimer: sessionRef<string[]>([]),
   accountPickIds: sessionRef<string[]>([])
 }
 </script>
@@ -57,7 +56,7 @@ const generating = ref(false)
 const concurrency = ref(2)
 const disposed = ref(false)
 
-const { links, selectedLinkIds, availablePlans, selectedPlanType, disclaimer, accountPickIds } = batchSession
+const { links, selectedLinkIds, availablePlans, selectedPlanType, accountPickIds } = batchSession
 const uniqueAccounts = computed(() => [...new Map(props.accounts.map((account) => [account.id, account])).values()])
 
 const preflightReport = computed(() => {
@@ -148,7 +147,6 @@ async function loadPlans(): Promise<void> {
     const result = await window.api.getSubscriptionPlans(toPlain(account))
     if (!result.success || !result.data?.plans?.length) throw new Error(result.error || 'Kiro 未返回可用订阅计划')
     availablePlans.value = result.data.plans
-    disclaimer.value = result.data.disclaimer || []
     selectedPlanType.value = preferredSubscriptionPlan(result.data.plans)?.qSubscriptionType || result.data.plans[0].qSubscriptionType
     message.success(`已加载 ${result.data.plans.length} 个订阅计划`)
   } catch (error) {
@@ -229,12 +227,6 @@ function statusColor(link: SubscriptionLinkRow): string {
   if (link.status === 'pending') return 'default'
   return 'red'
 }
-function formatPlanPrice(plan: KiroSubscriptionPlan): string {
-  const amount = Number(plan.pricing.amount)
-  if (!Number.isFinite(amount)) return '价格未知'
-  const interval = plan.description.billingInterval ? `/${plan.description.billingInterval}` : ''
-  return `${plan.pricing.currency} ${(amount / 100).toFixed(2)}${interval}`
-}
 </script>
 
 <template>
@@ -247,7 +239,6 @@ function formatPlanPrice(plan: KiroSubscriptionPlan): string {
       <a-tag color="purple">待提链 {{ preflightReport.eligible.length }}</a-tag>
     </div>
 
-    <a-alert v-if="disclaimer.length" class="panel-alert" type="info" show-icon :message="disclaimer.join('；')" />
 
     <a-card size="small" class="preflight-card">
       <template #title><SafetyCertificateOutlined /> 待提链账号</template>
@@ -265,17 +256,10 @@ function formatPlanPrice(plan: KiroSubscriptionPlan): string {
         </a-button>
         <a-select v-if="availablePlans.length" v-model:value="selectedPlanType" class="plan-select" :disabled="generating" placeholder="选择订阅计划">
           <a-select-option v-for="plan in availablePlans" :key="plan.qSubscriptionType" :value="plan.qSubscriptionType">
-            {{ plan.description.title || plan.name }} · {{ formatPlanPrice(plan) }}
+            {{ plan.description.title || plan.name }}
           </a-select-option>
         </a-select>
         <span v-else class="muted">先手动加载，再选择订阅计划</span>
-      </div>
-      <div v-if="availablePlans.length" class="plan-cards">
-        <button v-for="plan in availablePlans" :key="plan.qSubscriptionType" type="button" class="plan-option" :class="{ selected: selectedPlanType === plan.qSubscriptionType }" :disabled="generating" @click="selectedPlanType = plan.qSubscriptionType">
-          <strong>{{ plan.description.title || plan.name }}</strong>
-          <span>{{ formatPlanPrice(plan) }}</span>
-          <small v-if="plan.description.features.length">{{ plan.description.features.slice(0, 2).join(' · ') }}</small>
-        </button>
       </div>
     </a-card>
 
@@ -345,13 +329,9 @@ function formatPlanPrice(plan: KiroSubscriptionPlan): string {
 .panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .section-title { margin: 0 0 4px; }
 .header-hint { margin: 0; font-size: 12px; }
-.panel-alert { flex: 0 0 auto; }
 .preflight-card :deep(.ant-card-head-title), .plan-card :deep(.ant-card-head-title), .accounts-card :deep(.ant-card-head-title) { display: flex; align-items: center; gap: 6px; }
 .preflight-summary, .plan-toolbar, .account-toolbar, .operation-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .plan-select { min-width: 300px; max-width: 520px; }
-.plan-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin-top: 12px; }
-.plan-option { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 10px 12px; border: 1px solid var(--kal-border); border-radius: 8px; background: var(--kal-card-bg); color: inherit; text-align: left; cursor: pointer; }
-.plan-option:hover, .plan-option.selected { border-color: var(--kal-primary); background: color-mix(in srgb, var(--kal-primary) 7%, var(--kal-card-bg)); }
 .account-pick-list, .link-list { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto; margin-top: 12px; }
 .account-pick-item, .link-row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid var(--kal-border); border-radius: 8px; }
 .account-pick-item :deep(.ant-checkbox + span) { display: flex; flex: 1; justify-content: space-between; gap: 8px; min-width: 0; }

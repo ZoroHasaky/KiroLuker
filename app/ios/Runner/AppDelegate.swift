@@ -74,8 +74,9 @@ private final class PaymentSessionRegistry {
 
   func close(_ sessionId: String) async {
     guard let session = sessions.removeValue(forKey: sessionId) else { return }
+    // Stop callbacks before clearing the non-persistent store. Loading a blank page here can
+    // race with cleanup and is unnecessary because this WebView is about to be released.
     session.webView?.stopLoading()
-    session.webView?.loadHTMLString("", baseURL: nil)
     session.webView?.navigationDelegate = nil
     session.webView = nil
     // Completion is awaited before releasing the non-persistent store and WebView.

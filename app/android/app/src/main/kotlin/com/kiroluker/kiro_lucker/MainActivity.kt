@@ -45,6 +45,10 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 
 private const val PAYMENT_VIEW_TYPE = "com.kiroluker/payment-browser"
@@ -111,6 +115,11 @@ private class PaymentSessionRegistry(private val context: Context) {
       mediaPlaybackRequiresUserGesture = true
       mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
       safeBrowsingEnabled = true
+      // Do not retain checkout resources or credentials in the app-wide WebView cache.
+      cacheMode = WebSettings.LOAD_NO_CACHE
+      saveFormData = false
+      savePassword = false
+      setGeolocationEnabled(false)
     }
     webView.removeJavascriptInterface("searchBoxJavaBridge_")
     webView.removeJavascriptInterface("accessibility")
@@ -159,14 +168,17 @@ private class PaymentSessionRegistry(private val context: Context) {
   suspend fun close(sessionId: String) {
     val session = sessions.remove(sessionId) ?: return
     val view = session.webView
+    // Detach and destroy the page before deleting its profile data. Loading about:blank here
+    // could start another navigation while cleanup is already in progress.
     view?.stopLoading()
-    view?.loadUrl("about:blank")
+    view?.webChromeClient = null
+    view?.webViewClient = null
     view?.clearHistory()
     view?.clearCache(true)
     view?.clearFormData()
+    view?.destroy()
     session.webView = null
     if (session.isolated) clearProfileData(requireNotNull(session.profileName)) else clearLegacyWebData()
-    view?.destroy()
   }
 
   private suspend fun clearProfileData(profileName: String) {
@@ -206,6 +218,10 @@ private class PaymentSessionRegistry(private val context: Context) {
       // Cold-start cleanup touches only our prefixed profiles. Loaded profiles are left alone and retried next cold start.
       if (store.deleteProfile(name)) preferences.edit().remove(name).apply()
     }
+  }
+
+  suspend fun closeAll() {
+    sessions.keys.toList().forEach { close(it) }
   }
 
   private fun requireWebView(sessionId: String): WebView = sessions[sessionId]?.webView
@@ -494,6 +510,7 @@ private class PaymentBrowserHost(private val registry: PaymentSessionRegistry) :
 class MainActivity : FlutterActivity() {
   private lateinit var registry: PaymentSessionRegistry
   private lateinit var simNetworkIpDetector: SimNetworkIpDetector
+  private val paymentCleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
   private var pendingPhoneStatePermissionResult: MethodChannel.Result? = null
   override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
     super.configureFlutterEngine(flutterEngine)
@@ -543,6 +560,13 @@ class MainActivity : FlutterActivity() {
       }
     }
   }
+  override fun onDestroy() {
+    // Flutter normally closes the session when the payment route is disposed. This is a
+    // native safety net for back navigation, configuration changes, and other teardown paths.
+    if (::registry.isInitialized) paymentCleanupScope.launch { registry.closeAll() }
+    super.onDestroy()
+  }
+
   private fun requestPhoneStatePermission(result: MethodChannel.Result) {
     if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
       result.success(true)
