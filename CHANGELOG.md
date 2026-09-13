@@ -4,6 +4,19 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.32] - 2026-09-13
+
+### 修复
+
+- 移动端支付 WebView 启用第三方 Cookie：Stripe 风控的人机验证组件运行在跨站 iframe，WebView 默认禁用第三方 Cookie 导致组件区域空白、无法完成验证；会话关闭时数据仍随 profile 全量清除。
+- 关闭 `X-Requested-With` 请求头（androidx.webkit 空允许名单）：该头会在每个请求上暴露 app 包名、自证「内嵌 WebView」，与伪装的浏览器身份直接矛盾。
+- `navigator.userAgentData` 注入加固为与原生同构：不可构造的原型、`toStringTag`/`toJSON`、getter 与方法伪装成 `[native code]`，避免风控脚本用 `toString` 一眼识破脚本覆写。
+- 支付页新增「在外部浏览器打开」按钮（复用现有 openUrl 通道，双端实现）：内嵌页仍被风控拦截时，可直接换系统/夸克等真实浏览器完成支付。
+
+### 测试
+
+- flutter analyze 无告警、flutter test 28/29 通过（1 项为存量失败，与本次改动无关），Debug APK 构建通过。
+
 ## [1.2.31] - 2026-09-13
 
 ### 变更

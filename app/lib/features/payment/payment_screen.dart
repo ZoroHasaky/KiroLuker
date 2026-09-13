@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api_client.dart';
@@ -73,6 +74,31 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
     Navigator.of(context).pop();
   }
 
+  /// WebView 伪装无法保证通过所有风控（Stripe 可能对内嵌页面弹人机验证），
+  /// 复用 app-update 通道的 openUrl 让用户随时换系统/夸克等真实浏览器兜底。
+  Future<void> _openInBrowser() async {
+    final url = _url;
+    if (url == null) return;
+    try {
+      final opened =
+          await const MethodChannel('com.kiroluker/app-update')
+              .invokeMethod<bool>('openUrl', {'url': url}) ??
+          false;
+      if (!mounted) return;
+      if (!opened) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('系统未能打开外部浏览器')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('打开外部浏览器失败：$error')));
+      }
+    }
+  }
+
   Future<void> _fill() async {
     final session = _session;
     if (session == null || _filling) return;
@@ -115,6 +141,11 @@ class _PaymentScreenState extends ConsumerState<PaymentScreen> {
             onPressed: _session == null ? null : () => _session!.reload(),
             icon: const Icon(Icons.refresh),
             tooltip: '刷新',
+          ),
+          IconButton(
+            onPressed: _session == null ? null : _openInBrowser,
+            icon: const Icon(Icons.open_in_new),
+            tooltip: '在外部浏览器打开',
           ),
           IconButton(
             onPressed: _session == null ? null : _closePayment,

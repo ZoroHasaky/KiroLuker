@@ -27,6 +27,7 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.webkit.ProfileStore
+import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebStorageCompat
 import androidx.webkit.WebViewBuilder
 import androidx.webkit.WebViewCompat
@@ -128,6 +129,18 @@ private class PaymentSessionRegistry(private val context: Context) {
     webView.removeJavascriptInterface("searchBoxJavaBridge_")
     webView.removeJavascriptInterface("accessibility")
     webView.removeJavascriptInterface("accessibilityTraversal")
+    // Stripe 风控的「还需一步」人机验证组件运行在跨站 iframe 中，WebView 默认禁用第三方 Cookie，
+    // 会导致验证组件区域空白、连验证都无法完成。会话关闭时数据仍随 profile 全量清除。
+    CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true)
+    // X-Requested-With 请求头会把每个请求都标成「app 内嵌 WebView」（直接暴露包名），与伪装的
+    // 浏览器身份矛盾。Google 曾计划默认移除该头后又撤销（仍默认发送），空允许名单是官方关闭途径。
+    if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) {
+      try {
+        WebSettingsCompat.setRequestedWithHeaderOriginAllowList(webView.settings, emptySet())
+      } catch (_: UnsupportedOperationException) {
+        // 个别旧内核不接受空名单，退回默认行为，不影响会话可用性。
+      }
+    }
     session.identity?.let { applyBrowserIdentity(webView, it) }
     webView.webChromeClient = WebChromeClient()
     webView.webViewClient = object : WebViewClient() {
@@ -292,30 +305,69 @@ private class PaymentSessionRegistry(private val context: Context) {
     val script = """
       (function () {
         var d = $data;
-        function brandsOf(list) { return list.map(function (item) { return { brand: item.brand, version: item.version }; }); }
-        var uaData = {
-          brands: brandsOf(d.brands),
+        function brandArrayOf(list) {
+          var items = list.map(function (item) { return { brand: item.brand, version: item.version }; });
+          items.forEach(Object.freeze);
+          return Object.freeze(items);
+        }
+        // 与原生 NavigatorUAData 同构：不可构造、属性与方法都挂在原型上、带 toStringTag 与 toJSON；
+        // getter/方法用 bind 产物还原，Function.prototype.toString 会如实返回 [native code]，
+        // 避免风控脚本用 toString 一眼识破「userAgentData 是脚本覆写的」。
+        function NavigatorUAData() { throw new TypeError('Illegal constructor'); }
+        var prototype = NavigatorUAData.prototype;
+        Object.defineProperty(prototype, Symbol.toStringTag, { value: 'NavigatorUAData' });
+        var lowEntropy = {
+          brands: brandArrayOf(d.brands),
           mobile: d.mobile,
-          platform: d.platform,
-          getHighEntropyValues: function (hints) {
-            var all = {
-              brands: brandsOf(d.brands),
-              fullVersionList: brandsOf(d.fullVersionList),
-              fullVersion: d.fullVersion,
-              platform: d.platform,
-              platformVersion: d.platformVersion,
-              architecture: d.architecture,
-              model: d.model,
-              mobile: d.mobile,
-              bitness: '',
-              wow64: false
-            };
-            var out = {};
-            (hints || []).forEach(function (hint) { if (hint in all) out[hint] = all[hint]; });
-            return Promise.resolve(out);
-          }
+          platform: d.platform
         };
-        var descriptor = { get: function () { return uaData; }, configurable: true };
+        var highEntropy = {
+          brands: lowEntropy.brands,
+          fullVersionList: brandArrayOf(d.fullVersionList),
+          fullVersion: d.fullVersion,
+          platform: d.platform,
+          platformVersion: d.platformVersion,
+          architecture: d.architecture,
+          model: d.model,
+          mobile: d.mobile,
+          bitness: '',
+          wow64: false
+        };
+        function nativeBound(fn, name) {
+          var bound = fn.bind(null);
+          Object.defineProperty(bound, 'name', { value: name });
+          Object.defineProperty(bound, 'length', { value: fn.length });
+          return bound;
+        }
+        function defineAttribute(key, value) {
+          Object.defineProperty(prototype, key, {
+            get: nativeBound(function () { return value; }, 'get ' + key),
+            enumerable: true,
+            configurable: true
+          });
+        }
+        function defineMethod(name, fn) {
+          Object.defineProperty(prototype, name, {
+            value: nativeBound(fn, name),
+            writable: true,
+            enumerable: true,
+            configurable: true
+          });
+        }
+        defineAttribute('brands', lowEntropy.brands);
+        defineAttribute('mobile', lowEntropy.mobile);
+        defineAttribute('platform', lowEntropy.platform);
+        defineMethod('toJSON', function () {
+          return { brands: lowEntropy.brands, mobile: lowEntropy.mobile, platform: lowEntropy.platform };
+        });
+        defineMethod('getHighEntropyValues', function (hints) {
+          var out = {};
+          (hints || []).forEach(function (hint) { if (hint in highEntropy) out[hint] = highEntropy[hint]; });
+          return Promise.resolve(out);
+        });
+        var instance = Object.create(prototype);
+        var descriptor = { get: nativeBound(function () { return instance; }, 'get userAgentData'), enumerable: true, configurable: true };
+        try { Object.defineProperty(window, 'NavigatorUAData', { value: NavigatorUAData, writable: true, configurable: true }); } catch (error) {}
         try { Object.defineProperty(Navigator.prototype, 'userAgentData', descriptor); } catch (error) {}
         try { Object.defineProperty(navigator, 'userAgentData', descriptor); } catch (error) {}
       })();
