@@ -128,6 +128,36 @@ jobs:
         working-directory: .
         run: node scripts/sync-mobile-version.mjs ${{ github.run_number }}
       - run: flutter pub get
+      # 发布包必须用固定密钥签名：Android 覆盖安装要求新旧 APK 签名一致，
+      # 曾经的无密钥回退让每次 CI 都用 runner 随机生成的 debug 密钥，导致手机端升级报「包名冲突」。
+      - name: 校验 Android 发布签名 Secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          missing=0
+          [ -n "$ANDROID_KEYSTORE_BASE64" ] || { echo "::error::缺少 Secret: ANDROID_KEYSTORE_BASE64"; missing=1; }
+          [ -n "$ANDROID_KEYSTORE_PASSWORD" ] || { echo "::error::缺少 Secret: ANDROID_KEYSTORE_PASSWORD"; missing=1; }
+          [ -n "$ANDROID_KEY_ALIAS" ] || { echo "::error::缺少 Secret: ANDROID_KEY_ALIAS"; missing=1; }
+          [ -n "$ANDROID_KEY_PASSWORD" ] || { echo "::error::缺少 Secret: ANDROID_KEY_PASSWORD"; missing=1; }
+          [ "$missing" -eq 0 ] || echo "::error::发布 APK 禁止回退随机 debug 签名，请先在仓库 Secrets 配置以上四项（见 .signing/GITHUB-SECRETS.md 的生成说明）"
+          exit $missing
+      - name: 配置 Android 发布签名
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/kiroluker-release.jks"
+          cat > android/key.properties <<EOF
+          storeFile=$RUNNER_TEMP/kiroluker-release.jks
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          keyPassword=$ANDROID_KEY_PASSWORD
+          EOF
       - name: 构建 Android arm64 APK
         run: |
           flutter build apk --release --target-platform android-arm64 --build-number=${{ github.run_number }}
