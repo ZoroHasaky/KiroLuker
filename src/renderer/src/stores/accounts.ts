@@ -728,7 +728,8 @@ export const useAccountsStore = defineStore('accounts', () => {
         usage: raw.usage ?? emptyUsage(),
         subscription: raw.subscription ?? { type: 'Free' },
         status: raw.status ?? 'unknown',
-        createdAt: raw.createdAt ?? Date.now(),
+        // 添加时间即导入时间：每次导入重新记录，不沿用备份里的旧时间（删除后重导也要刷新）。
+        createdAt: Date.now(),
         lastUsedAt: raw.lastUsedAt ?? Date.now()
       })
       result.success++

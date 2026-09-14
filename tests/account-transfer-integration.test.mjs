@@ -79,6 +79,7 @@ test('完整备份导入重映射标签和账号 ID，并保持凭证格式隔�
     store.accounts.push(account({ id: 'shared-account-id', email: 'existing@example.com' }))
 
     // 改名前的完整备份标识必须继续可导入。
+    const beforeImport = Date.now()
     const result = store.importFullData({
       app: 'kiro-account-lite',
       version: '1.0.19',
@@ -113,8 +114,11 @@ test('完整备份导入重映射标签和账号 ID，并保持凭证格式隔�
     assert.notEqual(first.id, 'shared-account-id')
     assert.notEqual(second.id, 'shared-account-id')
     assert.notEqual(first.id, second.id)
-    assert.equal(first.createdAt, 123_456)
-    assert.equal(second.createdAt, 234_567)
+    // 导入时间必须重新记录：不沿用备份里的旧 createdAt，而是本次导入的时刻。
+    assert.notEqual(first.createdAt, 123_456)
+    assert.notEqual(second.createdAt, 234_567)
+    assert.ok(first.createdAt >= beforeImport, 'first.createdAt 应为本次导入时间')
+    assert.ok(second.createdAt >= beforeImport, 'second.createdAt 应为本次导入时间')
     assert.equal(first.paymentLink, 'https://pay.example/first')
 
     const workTags = store.tags.filter((tag) => tag.name === '工作')
