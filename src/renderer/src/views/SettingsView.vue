@@ -337,25 +337,6 @@ function clearAll(): void {
           />
           <span class="muted">并发过高容易被限流</span>
         </a-form-item>
-        <a-form-item label="高用量跳过刷新" class="field-inline">
-          <SettingSwitch field="skipHighUsageRefresh" />
-          <span class="muted">
-            用量达到指定比例后在自动刷新与全量刷新时跳过，大幅减少刷新耗时
-          </span>
-        </a-form-item>
-        <a-form-item label="跳过用量阈值" class="field-inline">
-          <a-input-number
-            :value="settings.skipHighUsageThreshold"
-            :min="1"
-            :max="100"
-            :step="5"
-            addon-after="%"
-            style="width: 180px"
-            :disabled="!settings.skipHighUsageRefresh"
-            @change="(v: unknown) => update({ skipHighUsageThreshold: Number(v) || DEFAULT_SETTINGS.skipHighUsageThreshold })"
-          />
-          <span class="muted">达到或超过此百分比时跳过（卡片单刷或勾选批量仍可手动刷新）</span>
-        </a-form-item>
         <a-form-item label="已废弃额度阈值" class="field-inline">
           <a-input-number
             :value="settings.deprecatedUsageCurrentThreshold"
@@ -384,8 +365,8 @@ function clearAll(): void {
         </a-form-item>
       </a-form>
       <ul class="tips">
-        <li>自动刷新密钥只处理 30 分钟内即将过期的账号；自动刷新用量会覆盖非封禁且未被高用量策略跳过的账号。</li>
-        <li>开启「高用量跳过刷新」可针对已用完（如 100%）或高比例账号避免频繁无效刷新，提升批量效率。</li>
+        <li>自动刷新密钥只处理 30 分钟内即将过期的账号；自动刷新用量会覆盖非封禁、非凭证失效且不在已废弃分组的账号，半个间隔内刚刷新过的账号自动跳过（手动刷新刚结束的补跑轮不会重复刷）。</li>
+        <li>高用量账号通过「已废弃额度 / 比例阈值」归入已废弃分组后即不再刷新，无需单独配置跳过策略。</li>
         <li>账号达到“已废弃额度阈值”或“已废弃比例阈值”，或已确认降级为 Free 后，会进入“已废弃”分组并跳过所有自动刷新。</li>
         <li>两个间隔各自独立计时，撞在一起时按「密钥 → 用量」先后串行执行，不会丢轮。</li>
         <li>账号很多时建议把用量刷新间隔调大一些，全量拉取用量的请求量随账号数线性增长。</li>

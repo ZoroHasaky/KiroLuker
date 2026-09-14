@@ -1,6 +1,6 @@
 {
   "name": "kiroluker",
-  "version": "1.2.40",
+  "version": "1.2.41",
   "description": "KiroLuker - Kiro 多账号管理工具",
   "main": "./out/main/index.js",
   "author": "KiroLuker",

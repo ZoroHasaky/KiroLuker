@@ -138,3 +138,18 @@ test('订阅链接超过 15 分钟需要重新生成', () => {
   assert.equal(isSubscriptionLinkStale(now - 15 * 60 * 1000 - 1, now), true)
   assert.equal(isSubscriptionLinkStale(undefined, now), true)
 })
+
+test('isKiroRejection 只认 Kiro 的 4xx 拒绝（限流除外）', async () => {
+  const { isKiroRejection } = await import('../src/shared/subscriptionBatch.ts')
+  // Kiro 明确拒绝
+  assert.equal(isKiroRejection('HTTP 403: profile not found'), true)
+  assert.equal(isKiroRejection('HTTP 401: unauthorized'), true)
+  assert.equal(isKiroRejection('HTTP 400: bad request'), true)
+  // 基础设施与服务端故障不删号
+  assert.equal(isKiroRejection('HTTP 429: too many requests'), false)
+  assert.equal(isKiroRejection('HTTP 503: service unavailable'), false)
+  assert.equal(isKiroRejection('代理池获取 IP 失败：无法经可信代理访问代理池接口'), false)
+  assert.equal(isKiroRejection('fetch failed：代理池出口无法连接目标（池在隧道建立后返回了错误应答）'), false)
+  assert.equal(isKiroRejection('请求超时'), false)
+  assert.equal(isKiroRejection(undefined), false)
+})

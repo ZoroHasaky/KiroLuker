@@ -39,7 +39,8 @@ import type { Account } from '@shared/types'
 import {
   classifySubscriptionEligibility,
   preferredSubscriptionPlan,
-  isSubscriptionAuthError
+  isSubscriptionAuthError,
+  isKiroRejection
 } from '@shared/subscriptionBatch'
 import { useAccountsStore } from '@/stores/accounts'
 import { toPlain } from '@/utils/ipc'
@@ -78,7 +79,6 @@ const filteredEligibleAccounts = computed(() => {
   )
 })
 const targetAccounts = computed(() => {
-  if (accountPickIds.value.length === 0) return preflightReport.value.eligible
   const picked = new Set(accountPickIds.value)
   return preflightReport.value.eligible.filter((account) => picked.has(account.id))
 })
@@ -133,7 +133,12 @@ async function generateOne(account: Account, planType: string): Promise<void> {
   } catch (error) {
     const detail = errorText(error)
     const reason = isSubscriptionAuthError(detail) ? `${detail}；请先刷新账号凭证` : detail
-    // 提链失败的账号直接删除，不再出现在待提链；结果行保留失败原因便于排查。
+    // 代理池不可达、网络错误、限流或服务端故障不是账号的问题：保留账号，结果行给出重试入口
+    if (!isKiroRejection(detail)) {
+      updateLink(account.id, { status: 'error', error: reason })
+      return
+    }
+    // Kiro 明确拒绝（HTTP 4xx）的账号直接删除，不再出现在待提链；结果行保留失败原因便于排查。
     const { removed, error: removeError } = await accountsStore.removeAccounts([account.id])
     updateLink(account.id, {
       status: 'error',
@@ -174,7 +179,12 @@ async function fetchLinks(): Promise<void> {
       await generateOne(account, selectedPlanType.value)
     }
     const failed = failedLinks.value.length
-    message.success(`提链完成：${successfulLinks.value.length} 成功，${failed} 失败${failed ? '（失败账号已删除）' : ''}`)
+    const deleted = failedLinks.value.filter((link) => link.error?.includes('账号已删除')).length
+    const kept = failed - deleted
+    const suffix = failed
+      ? `（${deleted ? `${deleted} 个被 Kiro 拒绝已删除` : ''}${deleted && kept ? '，' : ''}${kept ? `${kept} 个失败可重试` : ''}）`
+      : ''
+    message.success(`提链完成：${successfulLinks.value.length} 成功，${failed} 失败${suffix}`)
   } finally { generating.value = false }
 }
 
@@ -187,8 +197,7 @@ async function regenerateLink(link: SubscriptionLinkRow): Promise<void> {
 function selectAllAccounts(): void { accountPickIds.value = preflightReport.value.eligible.map((account) => account.id) }
 function clearAccountSelection(): void { accountPickIds.value = [] }
 function toggleAccount(id: string): void {
-  const allIds = preflightReport.value.eligible.map((account) => account.id)
-  const next = new Set(accountPickIds.value.length ? accountPickIds.value : allIds)
+  const next = new Set(accountPickIds.value)
   if (next.has(id)) next.delete(id); else next.add(id)
   accountPickIds.value = [...next]
 }
@@ -271,14 +280,14 @@ function statusColor(link: SubscriptionLinkRow): string {
 
     <a-card size="small" class="accounts-card">
       <template #title><SelectOutlined /> 选择账号</template>
-      <template #extra><span class="muted">{{ accountPickIds.length ? `已选 ${targetAccounts.length}` : `不选则全部 ${targetAccounts.length}` }}</span></template>
+      <template #extra><span class="muted">已选 {{ targetAccounts.length }} / {{ preflightReport.eligible.length }}</span></template>
       <div class="account-toolbar">
         <a-input v-model:value="search" allow-clear placeholder="搜索邮箱 / 昵称" class="search-input" />
         <a-button size="small" :disabled="generating || !preflightReport.eligible.length" @click="selectAllAccounts">全选</a-button>
         <a-button size="small" :disabled="generating || !accountPickIds.length" @click="clearAccountSelection">清空</a-button>
       </div>
       <div v-if="filteredEligibleAccounts.length" class="account-pick-list">
-        <a-checkbox v-for="account in filteredEligibleAccounts" :key="account.id" :data-account-id="account.id" :checked="accountPickIds.length ? accountPickIds.includes(account.id) : true" :disabled="generating" class="account-pick-item" @change="toggleAccount(account.id)">
+        <a-checkbox v-for="account in filteredEligibleAccounts" :key="account.id" :data-account-id="account.id" :checked="accountPickIds.includes(account.id)" :disabled="generating" class="account-pick-item" @change="toggleAccount(account.id)">
           <span class="account-email">{{ account.email || account.nickname || account.id }}</span>
           <span class="muted account-plan">{{ account.subscription.title || account.subscription.type }}</span>
         </a-checkbox>

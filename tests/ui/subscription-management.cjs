@@ -12,15 +12,15 @@ app.setPath('userData', profile)
 app.disableHardwareAcceleration()
 const restoring = process.argv[3] === 'restore'
 const KEY = 'kiroluker-subscription-records-v1'
-const ids = ['paid-high', 'paid-mid', 'paid-low', 'paid-fresh', 'free-tier', 'expired', 'link-ok', 'link-bad', 'link-paid']
+const ids = ['paid-high', 'paid-mid', 'paid-low', 'paid-fresh', 'free-tier', 'expired', 'link-ok', 'link-bad', 'link-net', 'link-paid']
 // percentUsed: 42% / 30% / 2% / 0% — threshold 15 keeps only the first two switchable.
-const percents = { 'paid-high': 0.42, 'paid-mid': 0.3, 'paid-low': 0.02, 'paid-fresh': 0, 'free-tier': 0.1, expired: 0.5, 'link-ok': 0, 'link-bad': 0, 'link-paid': 0 }
+const percents = { 'paid-high': 0.42, 'paid-mid': 0.3, 'paid-low': 0.02, 'paid-fresh': 0, 'free-tier': 0.1, expired: 0.5, 'link-ok': 0, 'link-bad': 0, 'link-net': 0, 'link-paid': 0 }
 const states = { 'paid-high': 'paid', 'paid-mid': 'paid', 'paid-low': 'paid', 'paid-fresh': 'paid' }
 let accounts = ids.map((id) => ({
   id, email: `${id}@example.invalid`, idp: 'BuilderId', status: id === 'expired' ? 'expired' : 'active',
   credentials: { accessToken: 'fixture-only-access', refreshToken: 'fixture-only-refresh', expiresAt: Date.now() + 86400000 },
-  subscription: { type: ['free-tier', 'link-ok', 'link-bad', 'link-paid'].includes(id) ? 'Free' : 'Pro', title: ['free-tier', 'link-ok', 'link-bad', 'link-paid'].includes(id) ? 'Kiro Free' : 'Kiro Pro' },
-  usage: { current: ['link-ok', 'link-bad', 'link-paid'].includes(id) ? 0 : Math.round(percents[id] * 100), limit: 100, percentUsed: percents[id], lastUpdated: Date.now() },
+  subscription: { type: ['free-tier', 'link-ok', 'link-bad', 'link-net', 'link-paid'].includes(id) ? 'Free' : 'Pro', title: ['free-tier', 'link-ok', 'link-bad', 'link-net', 'link-paid'].includes(id) ? 'Kiro Free' : 'Kiro Pro' },
+  usage: { current: ['link-ok', 'link-bad', 'link-net', 'link-paid'].includes(id) ? 0 : Math.round(percents[id] * 100), limit: 100, percentUsed: percents[id], lastUpdated: Date.now() },
   tagIds: [], paymentLink: id === 'link-paid' ? 'https://checkout.stripe.com/c/pay_fixture_existing' : '', isActive: false, createdAt: Date.now(), lastUsedAt: 0
 }))
 const deletions = []
@@ -114,10 +114,11 @@ ipcMain.handle('subscription-ui-fixture', async (_event, method, args) => {
   }
   if (method === 'createSubscriptionLink') {
     const id = args[0].id
-    assert.ok(['link-ok', 'link-bad'].includes(id))
+    assert.ok(['link-ok', 'link-bad', 'link-net'].includes(id))
     linkWrites.push(id)
     await new Promise((resolve) => setTimeout(resolve, 35))
-    if (id === 'link-bad') return { success: false, error: 'Kiro 上游拒绝：profile not found（测试样本）' }
+    if (id === 'link-bad') return { success: false, error: 'HTTP 403: profile not found（测试样本）' }
+      if (id === 'link-net') return { success: false, error: '代理池获取 IP 失败：无法经可信代理访问代理池接口' }
     return ok({ url: 'https://checkout.stripe.com/c/pay_fixture_link_ok' })
   }
   unexpected.push(method)
@@ -141,23 +142,30 @@ async function run() {
   await idle()
   if (!restoring) {
     // 提链 tab（默认）：已生成支付链接的账号不再出现在待提链；提链失败的账号被直接删除。
-    await waitFor(`(() => { const t = Array.from(document.querySelectorAll('.account-pick-item'), el => el.innerText).join('|'); return t.includes('link-ok@') && t.includes('link-bad@') && !t.includes('link-paid@') })()`, 'eligible link accounts only')
-    assert.match(await evaluate('document.body.innerText'), /待提链 2/)
+    await waitFor(`(() => { const t = Array.from(document.querySelectorAll('.account-pick-item'), el => el.innerText).join('|'); return t.includes('link-ok@') && t.includes('link-bad@') && t.includes('link-net@') && !t.includes('link-paid@') })()`, 'eligible link accounts only')
+    assert.match(await evaluate('document.body.innerText'), /待提链 3/)
     assert.match(await evaluate('document.body.innerText'), /待支付（已生成链接）1/)
-    await evaluate(`Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('手动加载计划')).click()`)
+        await evaluate(`Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('手动加载计划')).click()`)
     await waitFor(`!!document.querySelector('.plan-select')`, 'plans loaded')
+    // 显式选择语义：不选任何账号时提取按钮禁用，点「全选」后可提取
+        assert.equal(await evaluate(`document.querySelector('[data-testid=fetch-links]').disabled`), true, 'fetch button disabled without selection')
+        await evaluate(`Array.from(document.querySelectorAll('.accounts-card button')).find(b => b.textContent.replace(' ', '') === '全选').click()`)
+    await waitFor(`document.body.innerText.includes('已选 3 /')`, 'selection counted')
     await click('[data-testid=fetch-links]')
-    await waitFor(`document.querySelectorAll('.link-row').length === 2 && !document.body.innerText.includes('提取中') && !document.body.innerText.includes('正在等待提链')`, 'link batch settled')
+    await waitFor(`document.querySelectorAll('.link-row').length === 3 && !document.body.innerText.includes('提取中') && !document.body.innerText.includes('正在等待提链')`, 'link batch settled')
     assert.match(await evaluate(`document.querySelector('.link-row[data-account-id=link-ok]').innerText`), /成功/)
     assert.match(await evaluate(`document.querySelector('.link-row[data-account-id=link-ok]').innerText`), /pay_fixture_link_ok/)
     assert.match(await evaluate(`document.querySelector('.link-row[data-account-id=link-bad]').innerText`), /账号已删除/)
-    assert.deepEqual([...linkWrites].sort(), ['link-bad', 'link-ok'])
+    assert.deepEqual([...linkWrites].sort(), ['link-bad', 'link-net', 'link-ok'])
     assert.deepEqual(deletions, ['link-bad'])
     assert.equal(await evaluate(`!!document.querySelector('.link-row[data-account-id=link-bad] button')`), false, 'Deleted account must not offer a retry button')
+    assert.match(await evaluate(`document.querySelector('.link-row[data-account-id=link-net]').innerText`), /无法经可信代理访问代理池接口/)
+    assert.equal(await evaluate(`!!document.querySelector('.link-row[data-account-id=link-net] button')`), true, 'Network failure must keep account and retry button')
+    assert.equal(deletions.includes('link-net'), false, 'Network failure must not delete the account')
     // 成功写入支付链接（待支付）+ 失败删除后，待提链清零。
-    await waitFor(`document.body.innerText.includes('待提链 0')`, 'eligible drained')
-    assert.match(await evaluate('document.body.innerText'), /没有待提链账号/)
-    await waitFor(`document.querySelectorAll('.account-pick-item').length === 0`, 'pick list drained')
+    await waitFor(`document.body.innerText.includes('待提链 1')`, 'only network-failed account remains')
+    assert.match(await evaluate(`document.querySelector('.account-pick-item').innerText`), /link-net@/)
+    await waitFor(`document.querySelectorAll('.account-pick-item').length === 1`, 'pick list keeps network-failed account')
   }
   await showFreeTab()
   if (restoring) {

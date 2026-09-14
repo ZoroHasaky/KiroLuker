@@ -641,10 +641,6 @@ export interface AppSettings {
   usageRefreshInterval: number
   /** 批量并发 */
   concurrency: number
-  /** 用量达标时跳过刷新（旧版兼容设置） */
-  skipHighUsageRefresh: boolean
-  /** 跳过用量刷新的比例阈值（1-100 整数，默认 100；旧版兼容设置） */
-  skipHighUsageThreshold: number
   /** 已用绝对额度达到该值后归入已废弃；0 表示关闭。 */
   deprecatedUsageCurrentThreshold: number
   /** 已用比例达到该百分比后归入已废弃；默认 100。 */
@@ -713,8 +709,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   keyRefreshInterval: 5,
   usageRefreshInterval: 5,
   concurrency: 5,
-  skipHighUsageRefresh: false,
-  skipHighUsageThreshold: 100,
   deprecatedUsageCurrentThreshold: 0,
   deprecatedUsagePercentThreshold: 100,
   usageApiType: 'rest',

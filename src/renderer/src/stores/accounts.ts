@@ -30,10 +30,7 @@ import {
   tagNameKey
 } from '@shared/accountData'
 import { errorMessage, isCredentialRejected } from '@shared/errors'
-import {
-  shouldSkipAccountUsageRefresh,
-  shouldSkipAccountUsageByPercent
-} from '@shared/refreshPolicy'
+import { shouldSkipAccountUsageRefresh } from '@shared/refreshPolicy'
 import { DEFAULT_REGION } from '@shared/regions'
 import { runPool } from '@/utils/format'
 import { isAccountDeprecated } from '@/utils/accountGrouping'
@@ -1045,13 +1042,16 @@ export const useAccountsStore = defineStore('accounts', () => {
    * 跳过封禁与凭证失效的账号：自动刷新是每隔一段时间就跑一轮的，
    * 把必然 401 / 403 的账号一直带着刷，只会白耗时间并在日志里堆无效告警。
    * 临时故障（网络、限流、5xx）不在跳过范围内，下一轮照常重试。
+   *
+   * 还会跳过「刚刷新过」的账号（半个间隔内检查过的）：手动批量结束后，
+   * 挂起的自动轮会立刻补跑，不看时间戳就会把用户刚刷过的账号再刷一遍。
+   * 窗口取间隔的一半，保证正常节奏下每轮到期时上一轮的账号都已重新合格。
    */
   async function refreshAllUsage(): Promise<void> {
-    const skipHighUsage = settingsStore.settings.skipHighUsageRefresh
-    const threshold = settingsStore.settings.skipHighUsageThreshold
-    let skippedHighUsageCount = 0
+    const recentMs = Math.floor(usageIntervalMs() / 2)
     let skippedPermanentCount = 0
     let skippedDeprecatedCount = 0
+    let skippedRecentCount = 0
 
     const runnable = accounts.value.filter((a) => {
       if (isAccountDeprecated(a, {
@@ -1065,8 +1065,8 @@ export const useAccountsStore = defineStore('accounts', () => {
         skippedPermanentCount++
         return false
       }
-      if (shouldSkipAccountUsageByPercent(a, skipHighUsage, threshold)) {
-        skippedHighUsageCount++
+      if (a.lastCheckedAt && Date.now() - a.lastCheckedAt < recentMs) {
+        skippedRecentCount++
         return false
       }
       return true
@@ -1075,7 +1075,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     const skipReasons: string[] = []
     if (skippedDeprecatedCount) skipReasons.push(`${skippedDeprecatedCount} 个已废弃账号`)
     if (skippedPermanentCount) skipReasons.push(`${skippedPermanentCount} 个封禁或凭证失效账号`)
-    if (skippedHighUsageCount) skipReasons.push(`${skippedHighUsageCount} 个用量已达 ${threshold}% 账号`)
+    if (skippedRecentCount) skipReasons.push(`${skippedRecentCount} 个刚刷新过（${Math.round(recentMs / 60_000)} 分钟内）`)
     if (!ids.length) {
       console.info(`[AutoRefresh] 本轮没有可刷新的账号${skipReasons.length ? `（${skipReasons.join('，')}）` : ''}`)
       return

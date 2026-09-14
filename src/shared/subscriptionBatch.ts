@@ -178,6 +178,18 @@ export function isSubscriptionAuthError(error?: string): boolean {
   return !!error && /\b401\b|invalid\s+(?:bearer\s+)?token|token\s+(?:is\s+)?expired/i.test(error)
 }
 
+/**
+ * 提链失败是否为 Kiro 对账号本身的明确拒绝（HTTP 4xx，限流除外）。
+ * 只有这类失败才允许「失败即删」；代理池不可达、网络错误、5xx、429 都不是账号的问题，
+ * 删号会把好账号陪葬。
+ */
+export function isKiroRejection(error?: string): boolean {
+  const statusPrefix = /^HTTP (\d{3})/.exec(error || '')
+  if (!statusPrefix) return false
+  const status = Number(statusPrefix[1])
+  return status >= 400 && status <= 499 && status !== 429
+}
+
 /** 解析批量导入的订阅链接文本；每行支持纯 URL 或「邮箱 + URL」混排。 */
 export function parseImportedSubscriptionLinks(
   input: string
