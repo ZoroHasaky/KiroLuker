@@ -67,12 +67,11 @@ jobs:
       - id: release-signing
         name: Check Android release signing
         env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+          if [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ] && [ -f "$GITHUB_WORKSPACE/.signing/kiroluker-release.jks.enc" ]; then
             echo "configured=true" >> "$GITHUB_OUTPUT"
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
@@ -80,12 +79,11 @@ jobs:
       - name: Configure Android release signing
         if: ${{ steps.release-signing.outputs.configured == 'true' }}
         env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/kiroluker-release.jks"
+          openssl enc -d -aes-256-cbc -pbkdf2 -in "$GITHUB_WORKSPACE/.signing/kiroluker-release.jks.enc" -pass pass:"$ANDROID_KEYSTORE_PASSWORD" > "$RUNNER_TEMP/kiroluker-release.jks"
           cat > android/key.properties <<EOF
           storeFile=$RUNNER_TEMP/kiroluker-release.jks
           storePassword=$ANDROID_KEYSTORE_PASSWORD

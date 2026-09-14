@@ -132,42 +132,30 @@ jobs:
       # 曾经的无密钥回退让每次 CI 都用 runner 随机生成的 debug 密钥，导致手机端升级报「包名冲突」。
       - name: 校验 Android 发布签名 Secrets
         env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           missing=0
-          [ -n "$ANDROID_KEYSTORE_BASE64" ] || { echo "::error::缺少 Secret: ANDROID_KEYSTORE_BASE64"; missing=1; }
           [ -n "$ANDROID_KEYSTORE_PASSWORD" ] || { echo "::error::缺少 Secret: ANDROID_KEYSTORE_PASSWORD"; missing=1; }
           [ -n "$ANDROID_KEY_ALIAS" ] || { echo "::error::缺少 Secret: ANDROID_KEY_ALIAS"; missing=1; }
           [ -n "$ANDROID_KEY_PASSWORD" ] || { echo "::error::缺少 Secret: ANDROID_KEY_PASSWORD"; missing=1; }
-          if [ "$missing" -eq 0 ] && [ "${#ANDROID_KEYSTORE_BASE64}" -lt 5000 ]; then
-            echo "::error::ANDROID_KEYSTORE_BASE64 长度 ${#ANDROID_KEYSTORE_BASE64} 异常（应约 5788），请重新粘贴 .signing/keystore-base64.txt 的完整单行内容"
-            exit 1
-          fi
+          [ -f "$GITHUB_WORKSPACE/.signing/kiroluker-release.jks.enc" ] || { echo "::error::仓库缺少加密签名密钥 .signing/kiroluker-release.jks.enc"; missing=1; }
           exit $missing
       - name: 配置 Android 发布签名
         env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          # 网页表单录入可能把 '+' 转成空格、丢失结尾 '=' 填充；统一修复后解码，再以证书指纹兜底校验。
-          RAW="$ANDROID_KEYSTORE_BASE64"
-          echo "::warning::stored stats len=${#RAW} spaces=$(printf '%s' "$RAW" | tr -dc ' ' | wc -c) plus=$(printf '%s' "$RAW" | tr -dc '+' | wc -c) slash=$(printf '%s' "$RAW" | tr -dc '/' | wc -c) eq=$(printf '%s' "$RAW" | tr -dc '=' | wc -c)"
-          B64=$(printf '%s' "$RAW" | tr -d '\r\n\t' | tr ' ' '+')
-          case $(( ${#B64} % 4 )) in 2) B64="$B64==";; 3) B64="$B64=";; esac
-          if ! printf '%s' "$B64" | base64 --decode > "$RUNNER_TEMP/kiroluker-release.jks" 2>/dev/null; then
-            echo "::error::密钥库 base64 解码失败（规范化后长度 ${#B64}），ANDROID_KEYSTORE_BASE64 已损坏，请重新粘贴 .signing/keystore-base64.txt"
-            exit 1
-          fi
+          # 密钥库以 AES-256(PBKDF2) 加密件随仓库分发，密码在 Secrets。
+          # 曾尝试把整段 base64 存进 Secret，但 Web 表单录入 5.7KB 字符串发生了丢字符，已弃用该方案。
+          openssl enc -d -aes-256-cbc -pbkdf2 -in "$GITHUB_WORKSPACE/.signing/kiroluker-release.jks.enc" -pass pass:"$ANDROID_KEYSTORE_PASSWORD" > "$RUNNER_TEMP/kiroluker-release.jks"
           EXPECTED="SHA256:86:4C:EA:E9:0A:1D:0E:5F:21:3F:9B:51:8D:35:3E:F9:AF:B9:46:68:CE:1A:E0:CC:73:47:71:D5:7D:63:2A:84"
           ACTUAL=$(keytool -list -v -keystore "$RUNNER_TEMP/kiroluker-release.jks" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" 2>/dev/null | grep -m1 'SHA256:' | tr -d ' \t\r\n' || true)
           echo "签名密钥证书指纹: ${ACTUAL:-读取失败}"
           if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "::error::密钥库解码后证书指纹与预期不符（实际 ${ACTUAL:-空}），ANDROID_KEYSTORE_BASE64 可能损坏，请重新粘贴完整内容"
+            echo "::error::密钥库解密后证书指纹与预期不符（实际 ${ACTUAL:-空}）：密码 Secret 或加密件有误"
             exit 1
           fi
           cat > android/key.properties <<EOF

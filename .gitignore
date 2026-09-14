@@ -14,8 +14,10 @@ Kiro */
 .tooling/
 .zcode/
 
-# Android 发布签名密钥（值在 .signing/，仅本机与 GitHub Secrets）
-.signing/
+# Android 发布签名密钥（明文材料仅本机；加密件随仓库分发，CI 用 Secrets 里的密码解密）
+.signing/*
+!.signing/kiroluker-release.jks.enc
+!.signing/GITHUB-SECRETS.md
 
 # Flutter/Dart generated state
 app/.dart_tool/
