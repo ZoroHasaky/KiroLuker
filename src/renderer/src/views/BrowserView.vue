@@ -58,7 +58,9 @@ const selectedAccountExists = computed(() => accountsStore.accounts.some((accoun
 function applyConfig(config: BrowserConfig): void {
   const normalizedProxy = { ...config.proxy, duplicateExitIpAttempts: config.proxy.duplicateExitIpAttempts ?? 3 }
   savedConfig.value = { proxy: normalizedProxy, fingerprint: { ...config.fingerprint } }
-  draft.proxy = normalizedProxy
+  // 草稿必须用副本：与 savedConfig 共享引用时，表单编辑会同步改动 savedConfig，
+  // dirty 永远为 false，「保存配置」按钮永远禁用（保存流程等于失效）
+  draft.proxy = { ...normalizedProxy }
   draft.fingerprint = { ...config.fingerprint }
   password.value = ''
   clearPassword.value = false
