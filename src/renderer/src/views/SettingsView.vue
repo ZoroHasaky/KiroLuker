@@ -202,14 +202,15 @@ function clampPoolHistorySize(value: unknown): number {
 
 const poolTesting = ref(false)
 
-/** 真实取一次池 IP，验证可信代理与池接口的连通性（会占用一个去重历史位） */
+/** 真实取一次池 IP 并验证完整出口链路（会占用一个去重历史位） */
 async function testPool(): Promise<void> {
   poolTesting.value = true
   try {
     const result = await window.api.testProxyPool()
     if (result.success && result.data) {
-      const via = result.data.viaUrl ? `（经 ${result.data.viaUrl} 中转）` : ''
-      message.success(`获取成功：${result.data.proxyUrl}${via}`)
+      const via = result.data.viaUrl ? `，经 ${result.data.viaUrl} 中转` : ''
+      const egress = result.data.egress ? `，出口链路正常（探测 HTTP ${result.data.egress.status}）` : ''
+      message.success(`获取成功：${result.data.proxyUrl}${via}${egress}`)
     } else if (!result.success) message.error(result.error || '获取失败')
   } finally {
     poolTesting.value = false

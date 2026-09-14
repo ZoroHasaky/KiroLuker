@@ -109,3 +109,43 @@ test('httpRequest surfaces a rejected hop instead of falling back to direct', as
     await closeServer(pool)
   }
 })
+
+test('pool pushing an error after CONNECT 200 surfaces a readable cause', async () => {
+  const trusted = connectProxy([])
+  // 模拟池出口连不上目标：CONNECT 回 200 后立刻推送明文 403，
+  // TLS 会把这段文本当握手包（生产里表现为 ERR_SSL_WRONG_VERSION_NUMBER / fetch failed）
+  const pool = net.createServer((client) => {
+    let header = Buffer.alloc(0)
+    const onData = (chunk) => {
+      header = Buffer.concat([header, chunk])
+      const end = header.indexOf('\r\n\r\n')
+      if (end === -1) return
+      client.removeListener('data', onData)
+      client.write('HTTP/1.1 200 Connection established\r\n\r\n')
+      client.write('HTTP/1.1 403 Forbidden \nContent-Type: text/plain; charset=utf-8\n\nmsg: connect proxy error')
+    }
+    client.on('data', onData)
+  })
+  await listen(trusted)
+  await listen(pool)
+  try {
+    await assert.rejects(
+      httpRequest('https://example.invalid/never', {
+        proxyUrl: `http://127.0.0.1:${pool.address().port}`,
+        proxyViaUrl: `http://127.0.0.1:${trusted.address().port}`,
+        timeoutMs: 8_000
+      }),
+      (err) => {
+        let cause = err?.cause
+        while (cause) {
+          if (/代理池出口无法连接目标/.test(cause.message)) return true
+          cause = cause.cause
+        }
+        return false
+      }
+    )
+  } finally {
+    await closeServer(trusted)
+    await closeServer(pool)
+  }
+})

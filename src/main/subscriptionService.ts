@@ -56,12 +56,24 @@ async function postSubscription(
   payload: Record<string, string>,
   route?: PoolProxyRoute
 ): Promise<unknown> {
-  const response = await httpRequest(`${qEndpoint(account.credentials.region)}/${operation}`, {
-    method: 'POST',
-    headers: requestHeaders(account),
-    body: JSON.stringify(payload),
-    ...(route ? { proxyUrl: route.proxyUrl, proxyViaUrl: route.viaUrl || undefined } : {})
-  })
+  let response: Awaited<ReturnType<typeof httpRequest>>
+  try {
+    response = await httpRequest(`${qEndpoint(account.credentials.region)}/${operation}`, {
+      method: 'POST',
+      headers: requestHeaders(account),
+      body: JSON.stringify(payload),
+      ...(route ? { proxyUrl: route.proxyUrl, proxyViaUrl: route.viaUrl || undefined } : {})
+    })
+  } catch (e) {
+    // undici 把底层错误包成 "fetch failed"，真实原因在 cause 链里；摊平让账号错误可读
+    const cause = (e as { cause?: unknown }).cause
+    const detail = cause instanceof Error ? cause.message : ''
+    throw new Error(
+      `${e instanceof Error ? e.message : String(e)}${detail ? `：${detail}` : ''}${
+        route ? '（经提链代理池出口）' : ''
+      }`
+    )
+  }
   const data = await response.json<unknown>().catch(() => null)
   console.debug(`[Subscription] ${operation} → ${response.status}`)
   if (!response.ok) {

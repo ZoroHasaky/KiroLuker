@@ -34,7 +34,7 @@ import {
 import { setTraySnapshot, setTrayEnabled } from './tray'
 import { setUsageApiType } from './kiroApi'
 import { setInAppLocale } from './kiroPortal'
-import { setProxyConfig } from './net'
+import { httpRequest, setProxyConfig } from './net'
 import { acquirePoolProxy, setProxyPoolConfig } from './proxyPool'
 import {
   applyDownloadedUpdate,
@@ -421,8 +421,26 @@ export function registerIpc(
     return ok(merged)
   })
 
-  // 真实取一次池 IP：既验证可信代理与池接口连通性，也占用一个去重历史位
-  handle('settings:proxy-pool-test', async () => ok({ proxy: await acquirePoolProxy() }))
+  // 真实取一次池 IP 并完整验证出口链路（占用一个去重历史位）：
+  // 对 Q 端点根路径发一个轻量 https 请求，能拿到任意 HTTP 状态码即说明两跳链路可用
+  handle('settings:proxy-pool-test', async () => {
+    const route = await acquirePoolProxy()
+    let egress: { status: number } | null = null
+    try {
+      const probe = await httpRequest('https://q.us-east-1.amazonaws.com/', {
+        ...(route.viaUrl ? { proxyViaUrl: route.viaUrl } : {}),
+        proxyUrl: route.proxyUrl,
+        timeoutMs: 15_000
+      })
+      await probe.text().catch(() => undefined)
+      egress = { status: probe.status }
+    } catch (e) {
+      const cause = (e as { cause?: unknown }).cause
+      const detail = cause instanceof Error ? cause.message : e instanceof Error ? e.message : ''
+      throw new Error(`出口链路不通：${detail || '未知原因'}；请尝试更换池接口的区域参数（如 region=US）或稍后重试`)
+    }
+    return ok({ ...route, egress })
+  })
 
   // ============ 账单信息 ============
   handle('billing:get-config', () => ok(billingService.getConfig()))

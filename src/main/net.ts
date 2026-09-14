@@ -185,6 +185,17 @@ function tunneledPoolConnector(viaUrl: string, poolHost: string, poolPort: numbe
           tlsSocket.on('error', (err3) => {
             if (tlsSettled) return
             tlsSettled = true
+            // 池代理会在 CONNECT 回 200 后、出口连不上目标时再推送一段明文 HTTP 错误
+            // （msg: connect proxy error）并断开：TLS 把它当握手包解析就报 wrong version
+            // number。这里归因成可读的中文，别让用户看到莫名其妙的 fetch failed。
+            const code = (err3 as NodeJS.ErrnoException).code
+            if (code === 'ERR_SSL_WRONG_VERSION_NUMBER' || /disconnected before secure TLS/i.test(err3.message)) {
+              callback(
+                new Error('代理池出口无法连接目标（池在隧道建立后返回了错误应答）；请尝试更换池接口的区域参数（如 region=US）或稍后重试'),
+                undefined
+              )
+              return
+            }
             callback(err3, undefined)
           })
         })
