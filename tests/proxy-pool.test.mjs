@@ -202,12 +202,27 @@ test('acquirePoolProxy retries duplicate endpoints and records both distinct IPs
   assert.ok(logs.some((line) => line.includes('最近用过的 IP')))
 })
 
-test('acquirePoolProxy fails loudly when the pool keeps returning recent IPs', async () => {
-  const { pool } = loadProxyPool(async () => fakeResponse(200, ['9.9.9.9:99']))
+test('acquirePoolProxy reuses the sticky session IP when the pool keeps returning it', async () => {
+  const { pool, logs } = loadProxyPool(async () => fakeResponse(200, ['9.9.9.9:99']))
   pool.setProxyPoolConfig(enabledSettings())
-  // 第一次入历史，之后每次取到的都是它 → 重试耗尽后明确报错
-  await pool.acquirePoolProxy()
-  await assert.rejects(pool.acquirePoolProxy(), /连续 5 次返回最近用过的 IP/)
+  // 第一次入历史；会话有效期内池一直返回它 → 重试耗尽后复用而非硬失败
+  assert.equal((await pool.acquirePoolProxy()).proxyUrl, 'http://9.9.9.9:99')
+  assert.equal((await pool.acquirePoolProxy()).proxyUrl, 'http://9.9.9.9:99')
+  const store = FakeStore.instances.at(-1)
+  assert.deepEqual(store.get('history'), ['9.9.9.9:99'])
+  assert.ok(logs.some((line) => line.includes('复用该会话 IP')))
+})
+
+test('acquirePoolProxy re-record a sticky older IP at the front of history', async () => {
+  const bodies = ['1.1.1.1:10', '2.2.2.2:20', '1.1.1.1:10', '1.1.1.1:10', '1.1.1.1:10', '1.1.1.1:10', '1.1.1.1:10']
+  const { pool } = loadProxyPool(async () => fakeResponse(200, [bodies.shift()]))
+  pool.setProxyPoolConfig(enabledSettings({ proxyPoolHistorySize: 3 }))
+  assert.equal((await pool.acquirePoolProxy()).proxyUrl, 'http://1.1.1.1:10')
+  assert.equal((await pool.acquirePoolProxy()).proxyUrl, 'http://2.2.2.2:20')
+  // 池退回旧 IP 且不再轮换 → 复用并把该键挪到历史最前，不产生重复条目
+  assert.equal((await pool.acquirePoolProxy()).proxyUrl, 'http://1.1.1.1:10')
+  const store = FakeStore.instances.at(-1)
+  assert.deepEqual(store.get('history'), ['1.1.1.1:10', '2.2.2.2:20'])
 })
 
 test('acquirePoolProxy maps pool transport failures to generic errors without leaking details', async () => {

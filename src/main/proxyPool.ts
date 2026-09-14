@@ -38,6 +38,11 @@ export function poolProxyUrl(endpoint: PoolEndpoint): string {
   return `http://${host}:${endpoint.port}`
 }
 
+/** 历史记录里端点的键（与代理 URL 的 host:port 表示一致）。 */
+function poolEndpointKey(endpoint: PoolEndpoint): string {
+  return poolProxyUrl(endpoint).replace('http://', '')
+}
+
 /** 一次提链出口的完整路由：请求经可信代理中转后从池 IP 发出。 */
 export interface PoolProxyRoute {
   /** 池 IP 出口代理（请求最终经它发出） */
@@ -55,7 +60,7 @@ export function acceptPoolEndpoint(
   endpoint: PoolEndpoint,
   size: number
 ): { key: string; history: string[] } | null {
-  const key = poolProxyUrl(endpoint).replace('http://', '')
+  const key = poolEndpointKey(endpoint)
   if (historyList.includes(key)) return null
   return { key, history: [key, ...historyList].slice(0, Math.max(1, size)) }
 }
@@ -156,17 +161,31 @@ export type PoolFetcher = () => Promise<PoolEndpoint>
 
 async function acquireOnce(fetcher: PoolFetcher): Promise<PoolProxyRoute> {
   const used = loadHistory()
+  let sticky: PoolEndpoint | null = null
   for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt++) {
     const endpoint = await fetcher()
     const accepted = acceptPoolEndpoint(used, endpoint, historySize)
     if (!accepted) {
-      console.warn(`[ProxyPool] 第 ${attempt}/${MAX_FETCH_ATTEMPTS} 次取到最近用过的 IP，重试`)
+      sticky = endpoint
+      console.warn(
+        `[ProxyPool] 第 ${attempt}/${MAX_FETCH_ATTEMPTS} 次取到最近用过的 IP ${poolEndpointKey(endpoint)}，重试`
+      )
       continue
     }
     persistHistory(accepted.history)
+    console.info(`[ProxyPool] 取得出口 ${accepted.key}${apiProxy ? `（经 ${apiProxy} 中转）` : ''}`)
     return { proxyUrl: poolProxyUrl(endpoint), viaUrl: apiProxy }
   }
-  throw new Error(`代理池连续 ${MAX_FETCH_ATTEMPTS} 次返回最近用过的 IP，请稍后重试或调大去重窗口`)
+  // 池在会话有效期内会粘滞返回同一个 IP（如 time=10 的 10 分钟窗口内取到的一直是它）。
+  // 重试耗尽仍重复时复用该 IP：它仍在有效期内，硬失败会让整个会话窗口内的批量提链全部失败；
+  // 池轮换出新的 IP 后，去重窗口照常生效。
+  if (sticky) {
+    const key = poolEndpointKey(sticky)
+    console.warn(`[ProxyPool] 连续 ${MAX_FETCH_ATTEMPTS} 次取到最近用过的 IP ${key}，复用该会话 IP 继续提链`)
+    persistHistory([key, ...used.filter((item) => item !== key)].slice(0, Math.max(1, historySize)))
+    return { proxyUrl: poolProxyUrl(sticky), viaUrl: apiProxy }
+  }
+  throw new Error('代理池未能返回可用的 IP，请稍后重试')
 }
 
 let queue: Promise<unknown> = Promise.resolve()
