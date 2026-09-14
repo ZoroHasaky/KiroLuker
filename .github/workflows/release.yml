@@ -142,13 +142,9 @@ jobs:
           [ -n "$ANDROID_KEYSTORE_PASSWORD" ] || { echo "::error::缺少 Secret: ANDROID_KEYSTORE_PASSWORD"; missing=1; }
           [ -n "$ANDROID_KEY_ALIAS" ] || { echo "::error::缺少 Secret: ANDROID_KEY_ALIAS"; missing=1; }
           [ -n "$ANDROID_KEY_PASSWORD" ] || { echo "::error::缺少 Secret: ANDROID_KEY_PASSWORD"; missing=1; }
-          if [ "$missing" -eq 0 ]; then
-            length=${#ANDROID_KEYSTORE_BASE64}
-            echo "keystore base64 length: $length"
-            if [ "$length" -ne 5136 ] || ! printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > /dev/null 2>&1; then
-              echo "::error::ANDROID_KEYSTORE_BASE64 长度为 $length（期望 5136）或解码失败：请重新粘贴 .signing/keystore-base64.txt 的完整单行内容"
-              exit 1
-            fi
+          if [ "$missing" -eq 0 ] && [ "${#ANDROID_KEYSTORE_BASE64}" -lt 5000 ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 长度 ${#ANDROID_KEYSTORE_BASE64} 异常（应约 5788），请重新粘贴 .signing/keystore-base64.txt 的完整单行内容"
+            exit 1
           fi
           exit $missing
       - name: 配置 Android 发布签名
@@ -158,7 +154,14 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/kiroluker-release.jks"
+          # Web 表单录入可能丢失 base64 结尾的 = 填充；按长度补齐后再解码，并用证书指纹兜底校验。
+          B64=$(printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr '_-' '/+' | tr -d ' \t\r\n')
+          case $(( ${#B64} % 4 )) in 2) B64="$B64==";; 3) B64="$B64=";; esac
+          printf '%s' "$B64" | base64 --decode > "$RUNNER_TEMP/kiroluker-release.jks"
+          EXPECTED="SHA256:86:4C:EA:E9:0A:1D:0E:5F:21:3F:9B:51:8D:35:3E:F9:AF:B9:46:68:CE:1A:E0:CC:73:47:71:D5:7D:63:2A:84"
+          ACTUAL=$(keytool -list -v -keystore "$RUNNER_TEMP/kiroluker-release.jks" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" 2>/dev/null | grep -m1 'SHA256:' | tr -d ' \t\r\n')
+          echo "签名密钥证书指纹: $ACTUAL"
+          [ "$ACTUAL" = "$EXPECTED" ] || { echo "::error::密钥库解码后证书指纹与预期不符，ANDROID_KEYSTORE_BASE64 可能损坏，请重新粘贴 .signing/keystore-base64.txt 的完整内容"; exit 1; }
           cat > android/key.properties <<EOF
           storeFile=$RUNNER_TEMP/kiroluker-release.jks
           storePassword=$ANDROID_KEYSTORE_PASSWORD
