@@ -142,7 +142,14 @@ jobs:
           [ -n "$ANDROID_KEYSTORE_PASSWORD" ] || { echo "::error::缺少 Secret: ANDROID_KEYSTORE_PASSWORD"; missing=1; }
           [ -n "$ANDROID_KEY_ALIAS" ] || { echo "::error::缺少 Secret: ANDROID_KEY_ALIAS"; missing=1; }
           [ -n "$ANDROID_KEY_PASSWORD" ] || { echo "::error::缺少 Secret: ANDROID_KEY_PASSWORD"; missing=1; }
-          [ "$missing" -eq 0 ] || echo "::error::发布 APK 禁止回退随机 debug 签名，请先在仓库 Secrets 配置以上四项（见 .signing/GITHUB-SECRETS.md 的生成说明）"
+          if [ "$missing" -eq 0 ]; then
+            length=${#ANDROID_KEYSTORE_BASE64}
+            echo "keystore base64 length: $length"
+            if [ "$length" -ne 5136 ] || ! printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > /dev/null 2>&1; then
+              echo "::error::ANDROID_KEYSTORE_BASE64 长度为 $length（期望 5136）或解码失败：请重新粘贴 .signing/keystore-base64.txt 的完整单行内容"
+              exit 1
+            fi
+          fi
           exit $missing
       - name: 配置 Android 发布签名
         env:
