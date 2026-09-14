@@ -570,10 +570,12 @@ export const useAccountsStore = defineStore('accounts', () => {
   ): Promise<{ removed: number; error?: string }> {
     const uniqueIds = [...new Set(ids.filter(Boolean))]
     if (!uniqueIds.length) return { removed: 0 }
-    // 删除必须以主进程最新快照为准；同时取消尚未发出的旧快照保存，避免删后回写复活。
+    // 删除必须以主进程最新快照为准；先冲刷尚未落盘的本地修改（如提链成功写入的支付链接），
+    // 否则删除响应会用旧快照回填，把其他账号未保存的编辑一并回滚。同时取消旧快照保存，避免删后回写复活。
     if (saveTimer) {
       clearTimeout(saveTimer)
       saveTimer = null
+      await flushPersist()
     }
     const res = await window.api.deleteAccounts(uniqueIds)
     if (!res.success || !res.data) {

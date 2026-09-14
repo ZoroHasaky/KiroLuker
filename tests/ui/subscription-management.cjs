@@ -12,18 +12,19 @@ app.setPath('userData', profile)
 app.disableHardwareAcceleration()
 const restoring = process.argv[3] === 'restore'
 const KEY = 'kiroluker-subscription-records-v1'
-const ids = ['paid-high', 'paid-mid', 'paid-low', 'paid-fresh', 'free-tier', 'expired']
+const ids = ['paid-high', 'paid-mid', 'paid-low', 'paid-fresh', 'free-tier', 'expired', 'link-ok', 'link-bad', 'link-paid']
 // percentUsed: 42% / 30% / 2% / 0% — threshold 15 keeps only the first two switchable.
-const percents = { 'paid-high': 0.42, 'paid-mid': 0.3, 'paid-low': 0.02, 'paid-fresh': 0, 'free-tier': 0.1, expired: 0.5 }
+const percents = { 'paid-high': 0.42, 'paid-mid': 0.3, 'paid-low': 0.02, 'paid-fresh': 0, 'free-tier': 0.1, expired: 0.5, 'link-ok': 0, 'link-bad': 0, 'link-paid': 0 }
 const states = { 'paid-high': 'paid', 'paid-mid': 'paid', 'paid-low': 'paid', 'paid-fresh': 'paid' }
-const accounts = ids.map((id) => ({
+let accounts = ids.map((id) => ({
   id, email: `${id}@example.invalid`, idp: 'BuilderId', status: id === 'expired' ? 'expired' : 'active',
   credentials: { accessToken: 'fixture-only-access', refreshToken: 'fixture-only-refresh', expiresAt: Date.now() + 86400000 },
-  subscription: { type: id === 'free-tier' ? 'Free' : 'Pro', title: id === 'free-tier' ? 'Kiro Free' : 'Kiro Pro' },
-  usage: { current: Math.round(percents[id] * 100), limit: 100, percentUsed: percents[id], lastUpdated: Date.now() },
-  tagIds: [], paymentLink: '', isActive: false, createdAt: Date.now(), lastUsedAt: 0
+  subscription: { type: ['free-tier', 'link-ok', 'link-bad', 'link-paid'].includes(id) ? 'Free' : 'Pro', title: ['free-tier', 'link-ok', 'link-bad', 'link-paid'].includes(id) ? 'Kiro Free' : 'Kiro Pro' },
+  usage: { current: ['link-ok', 'link-bad', 'link-paid'].includes(id) ? 0 : Math.round(percents[id] * 100), limit: 100, percentUsed: percents[id], lastUpdated: Date.now() },
+  tagIds: [], paymentLink: id === 'link-paid' ? 'https://checkout.stripe.com/c/pay_fixture_existing' : '', isActive: false, createdAt: Date.now(), lastUsedAt: 0
 }))
-const calls = [], writes = [], unexpected = [], blockedNetwork = [], rendererErrors = []
+const deletions = []
+const calls = [], linkWrites = [], switchWrites = [], unexpected = [], blockedNetwork = [], rendererErrors = []
 let active = 0, maxActive = 0, win
 const ok = (data) => ({ success: true, data })
 const renewal = (id) => ({
@@ -90,10 +91,34 @@ ipcMain.handle('subscription-ui-fixture', async (_event, method, args) => {
     const id = args[0].id
     assert.ok(['paid-high', 'paid-mid', 'paid-low', 'paid-fresh'].includes(id))
     assert.equal((await records())[id].needsCheck, true, 'Write guard must be durable before IPC')
-    writes.push(id)
+    switchWrites.push(id)
     if (id === 'paid-mid') return ok({ status: 'unverified', previousPlan: 'Kiro Pro', warning: 'fixture: verification unavailable' })
     states[id] = 'scheduled-free'
     return ok({ status: 'scheduled', previousPlan: 'Kiro Pro', renewal: renewal(id) })
+  }
+  if (method === 'saveAccounts') {
+    // 渲染层的保存是“快照对快照”；fixture 直接采纳提交快照并回显。
+    const submitted = args[1]
+    if (submitted && Array.isArray(submitted.accounts)) accounts = submitted.accounts
+    return ok({ version: 2, accounts, tags: [], activeAccountId: null })
+  }
+  if (method === 'deleteAccounts') {
+    const removedIds = new Set(args[0])
+    accounts = accounts.filter((a) => !removedIds.has(a.id))
+    for (const id of args[0]) deletions.push(id)
+    return ok({ removed: args[0].length, accounts: { version: 2, accounts, tags: [], activeAccountId: null } })
+  }
+  if (method === 'getSubscriptionPlans') {
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    return ok({ plans: [{ qSubscriptionType: 'PRO', name: 'Pro', description: { title: 'Kiro Pro（测试样本）' } }] })
+  }
+  if (method === 'createSubscriptionLink') {
+    const id = args[0].id
+    assert.ok(['link-ok', 'link-bad'].includes(id))
+    linkWrites.push(id)
+    await new Promise((resolve) => setTimeout(resolve, 35))
+    if (id === 'link-bad') return { success: false, error: 'Kiro 上游拒绝：profile not found（测试样本）' }
+    return ok({ url: 'https://checkout.stripe.com/c/pay_fixture_link_ok' })
   }
   unexpected.push(method)
   return { success: false, error: `Forbidden fixture API: ${method}` }
@@ -114,6 +139,26 @@ async function run() {
   })
   await win.loadFile(path.join(root, 'out/renderer/index.html'), { hash: '/subscription' })
   await idle()
+  if (!restoring) {
+    // 提链 tab（默认）：已生成支付链接的账号不再出现在待提链；提链失败的账号被直接删除。
+    await waitFor(`(() => { const t = Array.from(document.querySelectorAll('.account-pick-item'), el => el.innerText).join('|'); return t.includes('link-ok@') && t.includes('link-bad@') && !t.includes('link-paid@') })()`, 'eligible link accounts only')
+    assert.match(await evaluate('document.body.innerText'), /待提链 2/)
+    assert.match(await evaluate('document.body.innerText'), /待支付（已生成链接）1/)
+    await evaluate(`Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes('手动加载计划')).click()`)
+    await waitFor(`!!document.querySelector('.plan-select')`, 'plans loaded')
+    await click('[data-testid=fetch-links]')
+    await waitFor(`document.querySelectorAll('.link-row').length === 2 && !document.body.innerText.includes('提取中') && !document.body.innerText.includes('正在等待提链')`, 'link batch settled')
+    assert.match(await evaluate(`document.querySelector('.link-row[data-account-id=link-ok]').innerText`), /成功/)
+    assert.match(await evaluate(`document.querySelector('.link-row[data-account-id=link-ok]').innerText`), /pay_fixture_link_ok/)
+    assert.match(await evaluate(`document.querySelector('.link-row[data-account-id=link-bad]').innerText`), /账号已删除/)
+    assert.deepEqual([...linkWrites].sort(), ['link-bad', 'link-ok'])
+    assert.deepEqual(deletions, ['link-bad'])
+    assert.equal(await evaluate(`!!document.querySelector('.link-row[data-account-id=link-bad] button')`), false, 'Deleted account must not offer a retry button')
+    // 成功写入支付链接（待支付）+ 失败删除后，待提链清零。
+    await waitFor(`document.body.innerText.includes('待提链 0')`, 'eligible drained')
+    assert.match(await evaluate('document.body.innerText'), /没有待提链账号/)
+    await waitFor(`document.querySelectorAll('.account-pick-item').length === 0`, 'pick list drained')
+  }
   await showFreeTab()
   if (restoring) {
     // Fresh process: session retention is gone, persisted records still exclude switched accounts.
@@ -150,7 +195,7 @@ async function run() {
     await click('input[data-testid=select-all], [data-testid=select-all] input')
     await click('[data-testid=switch-selected]')
     await idle()
-    assert.equal(writes.length, 0, 'Failed durable guard must prevent the write IPC')
+    assert.equal(switchWrites.length, 0, 'Failed durable guard must prevent the write IPC')
     assert.match(await evaluate('document.body.innerText'), /记录保存失败/)
     assert.equal(await evaluate(`document.querySelector('[data-testid=switch-selected]').disabled`), true)
     await evaluate('Storage.prototype.setItem = window.__setItem; void 0')
@@ -164,7 +209,7 @@ async function run() {
     await waitFor(`!document.querySelector('[data-testid=switch-selected]').disabled`, 'switch button enabled')
     await click('[data-testid=switch-selected]')
     await idle()
-    assert.deepEqual(writes, ['paid-high', 'paid-mid'])
+    assert.deepEqual(switchWrites, ['paid-high', 'paid-mid'])
     assert.equal(maxActive, 1, 'Checks must stay sequential')
     await visibleIds(['paid-high', 'paid-mid']) // Retained rows keep the same IDs listed.
     assert.match(await evaluate('document.body.innerText'), /待切Free 0/)
@@ -214,7 +259,7 @@ async function run() {
   assert.deepEqual(blockedNetwork, [], 'No external network should be requested')
   assert.deepEqual(rendererErrors, [])
   win.webContents.session.flushStorageData()
-  console.log(JSON.stringify({ phase: restoring ? 'process-restart' : 'ui-interactions', readCalls: calls.length, fixtureWrites: writes.length, realRequests: 0, result: 'PASS' }))
+  console.log(JSON.stringify({ phase: restoring ? 'process-restart' : 'ui-interactions', readCalls: calls.length, linkWrites: linkWrites.length, switchWrites: switchWrites.length, realRequests: 0, result: 'PASS' }))
   win.destroy()
   app.exit(0)
 }

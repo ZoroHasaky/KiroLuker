@@ -61,11 +61,14 @@ const uniqueAccounts = computed(() => [...new Map(props.accounts.map((account) =
 
 const preflightReport = computed(() => {
   const eligible: Account[] = []
+  let linked = 0
   for (const account of uniqueAccounts.value) {
+    // 已生成支付链接（待支付）的账号不再进入待提链；支付生效后由套餐判定继续排除。
+    if (account.paymentLink) { linked++; continue }
     const result = classifySubscriptionEligibility(account)
     if (result.eligible) eligible.push(account)
   }
-  return { eligible, total: uniqueAccounts.value.length }
+  return { eligible, linked, total: uniqueAccounts.value.length }
 })
 const eligibleIds = computed(() => new Set(preflightReport.value.eligible.map((account) => account.id)))
 const filteredEligibleAccounts = computed(() => {
@@ -130,9 +133,12 @@ async function generateOne(account: Account, planType: string): Promise<void> {
     updateLink(account.id, { status: 'success', url, error: undefined, generatedAt: Date.now() })
   } catch (error) {
     const detail = errorText(error)
+    const reason = isSubscriptionAuthError(detail) ? `${detail}；请先刷新账号凭证` : detail
+    // 提链失败的账号直接删除，不再出现在待提链；结果行保留失败原因便于排查。
+    const { removed, error: removeError } = await accountsStore.removeAccounts([account.id])
     updateLink(account.id, {
       status: 'error',
-      error: isSubscriptionAuthError(detail) ? `${detail}；请先刷新账号凭证` : detail
+      error: removed ? `${reason}；账号已删除` : `${reason}；账号删除失败：${removeError || '未知原因'}`
     })
   }
 }
@@ -169,7 +175,8 @@ async function fetchLinks(): Promise<void> {
   try {
     const workerCount = Math.min(Math.max(1, Number(concurrency.value) || 1), targets.length)
     await Promise.all(Array.from({ length: workerCount }, () => worker()))
-    message.success(`提链完成：${successfulLinks.value.length} 成功，${failedLinks.value.length} 失败`)
+    const failed = failedLinks.value.length
+    message.success(`提链完成：${successfulLinks.value.length} 成功，${failed} 失败${failed ? '（失败账号已删除）' : ''}`)
   } finally { generating.value = false }
 }
 
@@ -234,7 +241,7 @@ function statusColor(link: SubscriptionLinkRow): string {
     <div class="panel-header">
       <div>
         <h2 class="section-title">提链</h2>
-        <p class="muted header-hint">仅显示 Free 且未使用额度、未降级的账号；成功提取后会自动写入账号的“支付链接”。</p>
+        <p class="muted header-hint">仅显示 Free、未使用额度且尚未生成支付链接的账号；成功提取后自动写入“支付链接”，提链失败的账号会被直接删除。</p>
       </div>
       <a-tag color="purple">待提链 {{ preflightReport.eligible.length }}</a-tag>
     </div>
@@ -244,6 +251,7 @@ function statusColor(link: SubscriptionLinkRow): string {
       <template #title><SafetyCertificateOutlined /> 待提链账号</template>
       <div class="preflight-summary">
         <a-tag color="green">可提链 {{ preflightReport.eligible.length }}</a-tag>
+        <a-tag v-if="preflightReport.linked" color="blue">待支付（已生成链接）{{ preflightReport.linked }}</a-tag>
         <span class="muted">扫描 {{ preflightReport.total }} 个账号</span>
       </div>
     </a-card>
@@ -272,7 +280,7 @@ function statusColor(link: SubscriptionLinkRow): string {
         <a-button size="small" :disabled="generating || !accountPickIds.length" @click="clearAccountSelection">清空</a-button>
       </div>
       <div v-if="filteredEligibleAccounts.length" class="account-pick-list">
-        <a-checkbox v-for="account in filteredEligibleAccounts" :key="account.id" :checked="accountPickIds.length ? accountPickIds.includes(account.id) : true" :disabled="generating" class="account-pick-item" @change="toggleAccount(account.id)">
+        <a-checkbox v-for="account in filteredEligibleAccounts" :key="account.id" :data-account-id="account.id" :checked="accountPickIds.length ? accountPickIds.includes(account.id) : true" :disabled="generating" class="account-pick-item" @change="toggleAccount(account.id)">
           <span class="account-email">{{ account.email || account.nickname || account.id }}</span>
           <span class="muted account-plan">{{ account.subscription.title || account.subscription.type }}</span>
         </a-checkbox>
@@ -282,7 +290,7 @@ function statusColor(link: SubscriptionLinkRow): string {
 
     <a-card size="small" class="operation-card">
       <div class="operation-toolbar">
-        <a-button type="primary" :loading="generating" :disabled="props.disabled || !targetAccounts.length || !selectedPlanType" @click="fetchLinks">
+        <a-button type="primary" :loading="generating" :disabled="props.disabled || !targetAccounts.length || !selectedPlanType" data-testid="fetch-links" @click="fetchLinks">
           <LinkOutlined /> 提取订阅链接（{{ targetAccounts.length }}）
         </a-button>
         <span class="muted">并发</span>
@@ -305,7 +313,7 @@ function statusColor(link: SubscriptionLinkRow): string {
         </a-space>
       </template>
       <div class="link-list">
-        <div v-for="link in links" :key="link.accountId" class="link-row" :class="{ selected: selectedLinkIds.includes(link.accountId) }">
+        <div v-for="link in links" :key="link.accountId" class="link-row" :class="{ selected: selectedLinkIds.includes(link.accountId) }" :data-account-id="link.accountId">
           <a-checkbox :checked="selectedLinkIds.includes(link.accountId)" @change="toggleLink(link.accountId)" />
           <div class="link-main">
             <strong :title="link.email">{{ link.email }}</strong>
@@ -317,7 +325,7 @@ function statusColor(link: SubscriptionLinkRow): string {
             <a-button size="small" type="link" @click="copyText(link.url!, '链接已复制')"><CopyOutlined /></a-button>
             <a-button size="small" type="link" @click="openLinks([link])">打开</a-button>
           </a-space>
-          <a-button v-else-if="link.status === 'error'" size="small" type="link" @click="regenerateLink(link)"><ReloadOutlined /> 重试</a-button>
+          <a-button v-else-if="link.status === 'error' && getAccount(link.accountId)" size="small" type="link" @click="regenerateLink(link)"><ReloadOutlined /> 重试</a-button>
         </div>
       </div>
     </a-card>
