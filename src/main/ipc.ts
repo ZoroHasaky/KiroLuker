@@ -35,6 +35,7 @@ import { setTraySnapshot, setTrayEnabled } from './tray'
 import { setUsageApiType } from './kiroApi'
 import { setInAppLocale } from './kiroPortal'
 import { setProxyConfig } from './net'
+import { acquirePoolProxy, setProxyPoolConfig } from './proxyPool'
 import {
   applyDownloadedUpdate,
   cancelUpdateDownload,
@@ -116,6 +117,7 @@ function handle(
 export function applyRuntimeSettings(settings: AppSettings): void {
   setUsageApiType(settings.usageApiType)
   setProxyConfig(settings.proxyEnabled, settings.proxyUrl)
+  setProxyPoolConfig(settings)
   void configureUpdaterProxy()
   setInAppLocale(settings.portalLocale)
 }
@@ -418,6 +420,9 @@ export function registerIpc(
     if (patch.trayEnabled !== undefined) setTrayEnabled(patch.trayEnabled)
     return ok(merged)
   })
+
+  // 真实取一次池 IP：既验证可信代理与池接口连通性，也占用一个去重历史位
+  handle('settings:proxy-pool-test', async () => ok({ proxy: await acquirePoolProxy() }))
 
   // ============ 账单信息 ============
   handle('billing:get-config', () => ok(billingService.getConfig()))

@@ -1,5 +1,7 @@
 // 网络层：统一 fetch + 可选代理
-import { ProxyAgent, fetch as undiciFetch, type Dispatcher, type RequestInit as UndiciRequestInit } from 'undici'
+import { isIPv6, Socket } from 'node:net'
+import tls from 'node:tls'
+import { Agent, ProxyAgent, fetch as undiciFetch, type Dispatcher, type RequestInit as UndiciRequestInit } from 'undici'
 
 let proxyEnabled = false
 let proxyUrl = ''
@@ -17,7 +19,7 @@ const agentCache = new Map<string, Dispatcher | null>()
  *   http:127.0.0.1:7890   → http://127.0.0.1:7890
  *   http:/127.0.0.1:7890  → http://127.0.0.1:7890
  */
-function normalizeProxyUrl(url: string): string {
+export function normalizeProxyUrl(url: string): string {
   const trimmed = (url || '').trim()
   if (!trimmed) return ''
   if (/^[a-z][a-z0-9+\-.]*:\/\//i.test(trimmed)) return trimmed
@@ -75,12 +77,168 @@ function currentAgent(): Dispatcher | undefined {
   return agentFor(getEffectiveProxyUrl())
 }
 
-/** 组装 undici 请求参数，并挂上当前生效的代理 */
+/**
+ * 单请求指定代理（提链代理池）的 agent 缓存。
+ * 池 IP 是几分钟级的一次性端点，不能像全局代理那样随用随缓存不清理，
+ * 用有界 FIFO：超出上限就关掉最旧条目，只保留少量以支持同 IP 重试的 keep-alive。
+ */
+const POOL_AGENT_CACHE_LIMIT = 8
+const poolAgentCache = new Map<string, Dispatcher | null>()
+
+/** 链式 CONNECT 的握手上限与超时，与 browserProxy 的桥接参数一致 */
+const CHAIN_CONNECT_TIMEOUT_MS = 15_000
+const CHAIN_HEADER_LIMIT = 16_384
+
+/**
+ * 在已连出的 socket 上发一次 CONNECT 并等 200（暂停模式读应答）。
+ * 应答后的多余字节塞回流头，交给下一层（第二个 CONNECT 或 TLS）继续读。
+ */
+function connectThrough(
+  socket: Socket,
+  target: string,
+  timeoutMs: number,
+  onDone: (err: Error | null) => void
+): void {
+  let header = Buffer.alloc(0)
+  let settled = false
+  const finish = (err: Error | null): void => {
+    if (settled) return
+    settled = true
+    clearTimeout(timer)
+    socket.removeListener('readable', onReadable)
+    socket.removeListener('error', onError)
+    if (err) socket.destroy()
+    onDone(err)
+  }
+  const timer = setTimeout(() => finish(new Error('chained connect timeout')), timeoutMs)
+  const onReadable = (): void => {
+    while (true) {
+      const chunk = socket.read()
+      if (chunk === null) return
+      header = Buffer.concat([header, chunk])
+      const end = header.indexOf('\r\n\r\n')
+      if (end === -1) {
+        if (header.length > CHAIN_HEADER_LIMIT) finish(new Error('chained connect header too large'))
+        return
+      }
+      const firstLine = header.subarray(0, end).toString('latin1').split('\r\n', 1)[0]
+      if (!/^HTTP\/1\.[01]\s+200(?:\s|$)/i.test(firstLine)) {
+        finish(new Error(`代理拒绝 CONNECT（${target}）：${firstLine.slice(0, 120)}`))
+        return
+      }
+      const remainder = header.subarray(end + 4)
+      if (remainder.length) socket.unshift(remainder)
+      finish(null)
+      return
+    }
+  }
+  const onError = (err: Error): void => finish(err)
+  socket.on('readable', onReadable)
+  socket.on('error', onError)
+  socket.write(`CONNECT ${target} HTTP/1.1\r\nHost: ${target}\r\nProxy-Connection: keep-alive\r\n\r\n`)
+}
+
+/**
+ * 池代理的链式 connector：socket 层自己完成「可信代理 → 池 IP → 目标」两跳 CONNECT，
+ * https 目标再自行 TLS 包装后交还。整条流程与手工验证过的链路完全一致，
+ * 不经过 undici ProxyAgent 的内层 Client（其对注入 socket 的消费存在不可靠的移交窗口）。
+ */
+function tunneledPoolConnector(viaUrl: string, poolHost: string, poolPort: number) {
+  const via = new URL(viaUrl)
+  const viaPort = Number(via.port) || (via.protocol === 'https:' ? 443 : 80)
+  return (
+    options: { hostname: string; port: string | number; protocol: string; servername?: string | null },
+    callback: (err: Error | null, socket?: unknown) => void
+  ): void => {
+    const targetHost = isIPv6(options.hostname) ? `[${options.hostname}]` : options.hostname
+    const target = `${targetHost}:${options.port || (options.protocol === 'https:' ? 443 : 80)}`
+    const socket = new Socket()
+    const fail = (err: Error): void => {
+      socket.destroy()
+      callback(err, undefined)
+    }
+    socket.once('connect', () => {
+      // 第一跳：可信代理 → 池 IP（池端点按来源 IP 白名单鉴权，必须经可信代理中转）
+      connectThrough(socket, `${isIPv6(poolHost) ? `[${poolHost}]` : poolHost}:${poolPort}`, CHAIN_CONNECT_TIMEOUT_MS, (err1) => {
+        if (err1) return fail(err1)
+        // 第二跳：池 IP → 目标
+        connectThrough(socket, target, CHAIN_CONNECT_TIMEOUT_MS, (err2) => {
+          if (err2) return fail(err2)
+          if (options.protocol !== 'https:') {
+            callback(null, socket)
+            return
+          }
+          const tlsSocket = tls.connect({
+            socket,
+            host: options.hostname,
+            port: Number(options.port) || 443,
+            servername: options.servername || options.hostname,
+            ALPNProtocols: ['http/1.1']
+          })
+          // 与 buildConnector 一致：回调只结一次，之后到达的 error 交给 undici 自己的挂接处理
+          let tlsSettled = false
+          tlsSocket.once('secureConnect', () => {
+            if (tlsSettled) return
+            tlsSettled = true
+            callback(null, tlsSocket)
+          })
+          tlsSocket.on('error', (err3) => {
+            if (tlsSettled) return
+            tlsSettled = true
+            callback(err3, undefined)
+          })
+        })
+      })
+    })
+    socket.once('error', (err) => fail(err as Error))
+    socket.connect(viaPort, via.hostname)
+  }
+}
+
+/** 造一个「经可信代理到池 IP」两跳出口的 Agent；每个池 IP 一个，由有界缓存管理生命周期 */
+function tunneledPoolAgent(poolUrl: string, viaUrl: string): Dispatcher {
+  const pool = new URL(poolUrl)
+  return new Agent({
+    connect: tunneledPoolConnector(viaUrl, pool.hostname, Number(pool.port) || 80) as never
+  })
+}
+
+function poolAgentFor(target: string, viaUrl?: string): Dispatcher | undefined {
+  const normalized = normalizeProxyUrl(target)
+  if (!normalized) return undefined
+  const via = viaUrl ? normalizeProxyUrl(viaUrl) : ''
+  const cacheKey = via ? `${normalized}|${via}` : normalized
+
+  const cached = poolAgentCache.get(cacheKey)
+  if (cached !== undefined) return cached ?? undefined
+
+  try {
+    const agent = via ? tunneledPoolAgent(normalized, via) : new ProxyAgent(normalized)
+    poolAgentCache.set(cacheKey, agent)
+    if (poolAgentCache.size > POOL_AGENT_CACHE_LIMIT) {
+      const oldest = poolAgentCache.keys().next().value
+      if (oldest !== undefined && oldest !== cacheKey) {
+        const dropped = poolAgentCache.get(oldest)
+        poolAgentCache.delete(oldest)
+        void dropped?.close?.()
+      }
+    }
+    return agent
+  } catch (e) {
+    console.warn('[Net] invalid proxy url:', normalized, e)
+    poolAgentCache.set(cacheKey, null)
+    return undefined
+  }
+}
+
+/** 组装 undici 请求参数：指定 proxyUrl 时强制走该代理（可再经 proxyViaUrl 中转），否则用全局代理 */
 function buildInit(
   method: string,
   headers: Record<string, string> | undefined,
   body: string | Buffer | undefined,
-  signal: AbortSignal
+  signal: AbortSignal,
+  proxyUrl?: string,
+  proxyViaUrl?: string
 ): UndiciRequestInit {
   const init: UndiciRequestInit = {
     method,
@@ -88,7 +246,7 @@ function buildInit(
     body: body as UndiciRequestInit['body'],
     signal
   }
-  const agent = currentAgent()
+  const agent = proxyUrl ? poolAgentFor(proxyUrl, proxyViaUrl) : currentAgent()
   if (agent) init.dispatcher = agent
   return init
 }
@@ -214,14 +372,26 @@ export async function httpRequest(
     timeoutMs?: number
     /** 敏感门户请求禁止自动重定向，避免临时凭证流向其他地址。 */
     redirect?: 'follow' | 'error' | 'manual'
+    /** 强制本请求走指定代理（如提链代理池取到的池 IP），不回退全局代理。 */
+    proxyUrl?: string
+    /** 到指定代理需先经过的可信代理（池端点按来源 IP 白名单鉴权时的中转跳）。 */
+    proxyViaUrl?: string
   } = {}
 ): Promise<HttpResponse> {
-  const { method = 'GET', headers, body, timeoutMs = 30_000, redirect = 'follow' } = options
+  const {
+    method = 'GET',
+    headers,
+    body,
+    timeoutMs = 30_000,
+    redirect = 'follow',
+    proxyUrl,
+    proxyViaUrl
+  } = options
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   try {
     const res = await undiciFetch(url, {
-      ...buildInit(method, headers, body, controller.signal),
+      ...buildInit(method, headers, body, controller.signal, proxyUrl, proxyViaUrl),
       redirect
     })
     return {

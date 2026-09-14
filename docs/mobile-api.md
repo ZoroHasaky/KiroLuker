@@ -25,15 +25,17 @@
 
 所有接口使用 `Authorization: Bearer <API Key>`。移动 App 默认 Key 始终拥有当前全部移动权限；重新创建后旧 Key 会立即失效。
 
-### 手机直连提链
+### 提链
 
-「提链」由手机本机直接请求 Kiro 的 `CreateSubscriptionToken`，桌面只提供材料与存储，不代发请求：
+「提链」由桌面执行（桌面可配置提链代理池，逐链接轮换出口 IP），手机只发起 job 并轮询：
 
-1. `GET /api/v1/accounts/:id/subscription-material` 取回 `{ accessToken, serviceRegion, profileArn, tokenExpiresAt }`（profileArn 与 serviceRegion 已在桌面 resolve）；该接口下发 accessToken，与 OIDC 导出同级敏感，`no-store`，绝不写日志。
-2. 手机用材料直连 `https://q.<serviceRegion>.amazonaws.com/CreateSubscriptionToken` 生成链接；token 临期时手机先调用桌面现有刷新任务再重新取材料。
-3. `PUT /api/v1/accounts/:id/payment-link` 把生成的 URL 回传桌面存储。
+1. `POST /api/v1/subscriptions/link`（`{ accountIds, subscriptionType }` → `jobId`，需要 `accounts:payment`）。
+2. `GET /api/v1/jobs/:id` 轮询至完成；生成的支付链接由桌面直接写入账号。
 
-`POST /api/v1/subscriptions/link`（桌面代跑提链的旧接口）保留供旧版本 App 使用，新版本应使用上述直连流程。
+以下端点是 v1.2.31–v1.2.36「手机直连提链」流程的组成部分，仅保留给旧版本 App 兼容，新版本不再使用：
+
+- `GET /api/v1/accounts/:id/subscription-material`（下发 accessToken，与 OIDC 导出同级敏感，`no-store`）
+- `PUT /api/v1/accounts/:id/payment-link`（空字符串清除链接）
 
 ### 账号列表筛选
 

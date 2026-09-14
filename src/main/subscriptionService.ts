@@ -8,6 +8,7 @@ import {
   qEndpoint
 } from './kiroEndpoints'
 import { httpRequest } from './net'
+import { acquirePoolProxy, isProxyPoolEnabled, type PoolProxyRoute } from './proxyPool'
 import {
   normalizeSubscriptionLink,
   normalizeSubscriptionPlans
@@ -52,12 +53,14 @@ function upstreamMessage(input: unknown): string {
 async function postSubscription(
   account: Account,
   operation: 'listAvailableSubscriptions' | 'CreateSubscriptionToken',
-  payload: Record<string, string>
+  payload: Record<string, string>,
+  route?: PoolProxyRoute
 ): Promise<unknown> {
   const response = await httpRequest(`${qEndpoint(account.credentials.region)}/${operation}`, {
     method: 'POST',
     headers: requestHeaders(account),
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    ...(route ? { proxyUrl: route.proxyUrl, proxyViaUrl: route.viaUrl || undefined } : {})
   })
   const data = await response.json<unknown>().catch(() => null)
   console.debug(`[Subscription] ${operation} → ${response.status}`)
@@ -92,13 +95,29 @@ export async function createSubscriptionLink(
   if (!/^[A-Za-z0-9_+.-]{2,100}$/.test(normalizedType)) {
     throw new Error('订阅计划参数无效')
   }
+  // 缺 token / 参数无效时直接失败，别浪费一次池 IP 配额
+  if (!account.credentials.accessToken) throw new Error('账号缺少 Access Token，请先刷新密钥')
 
-  const raw = await postSubscription(account, 'CreateSubscriptionToken', {
-    clientToken: randomUUID(),
-    provider: 'STRIPE',
-    profileArn: subscriptionProfileArn(account),
-    subscriptionType: normalizedType
-  })
+  let poolRoute: PoolProxyRoute | undefined
+  if (isProxyPoolEnabled()) {
+    try {
+      poolRoute = await acquirePoolProxy()
+    } catch (e) {
+      throw new Error(`代理池获取 IP 失败：${e instanceof Error ? e.message : '未知错误'}`)
+    }
+  }
+
+  const raw = await postSubscription(
+    account,
+    'CreateSubscriptionToken',
+    {
+      clientToken: randomUUID(),
+      provider: 'STRIPE',
+      profileArn: subscriptionProfileArn(account),
+      subscriptionType: normalizedType
+    },
+    poolRoute
+  )
   const result = normalizeSubscriptionLink(raw)
   if (!result) throw new Error(upstreamMessage(raw) || 'Kiro 未返回有效的订阅链接')
   return result

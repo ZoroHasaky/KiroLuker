@@ -173,6 +173,49 @@ async function saveProxy(): Promise<void> {
   message.success('代理地址已保存')
 }
 
+// 代理池两个地址类字段走本地草稿，保存才提交（同 proxyUrl 范式）
+const poolApiUrlDraft = ref(settingsStore.settings.proxyPoolApiUrl)
+const poolApiProxyDraft = ref(settingsStore.settings.proxyPoolApiProxy)
+
+watch(
+  () => [settingsStore.settings.proxyPoolApiUrl, settingsStore.settings.proxyPoolApiProxy] as const,
+  ([url, proxy]) => {
+    if (url !== poolApiUrlDraft.value) poolApiUrlDraft.value = url
+    if (proxy !== poolApiProxyDraft.value) poolApiProxyDraft.value = proxy
+  }
+)
+
+async function savePool(): Promise<void> {
+  await settingsStore.update({
+    proxyPoolApiUrl: poolApiUrlDraft.value.trim(),
+    proxyPoolApiProxy: poolApiProxyDraft.value.trim()
+  })
+  message.success('代理池配置已保存')
+}
+
+/** 输入框可能给出 null 或越界值，统一夹到 1-100 */
+function clampPoolHistorySize(value: unknown): number {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return DEFAULT_SETTINGS.proxyPoolHistorySize
+  return Math.max(1, Math.min(Math.round(num), 100))
+}
+
+const poolTesting = ref(false)
+
+/** 真实取一次池 IP，验证可信代理与池接口的连通性（会占用一个去重历史位） */
+async function testPool(): Promise<void> {
+  poolTesting.value = true
+  try {
+    const result = await window.api.testProxyPool()
+    if (result.success && result.data) {
+      const via = result.data.viaUrl ? `（经 ${result.data.viaUrl} 中转）` : ''
+      message.success(`获取成功：${result.data.proxyUrl}${via}`)
+    } else if (!result.success) message.error(result.error || '获取失败')
+  } finally {
+    poolTesting.value = false
+  }
+}
+
 function openPath(target: 'store' | 'backup'): void {
   void window.api.showPath(target)
 }
@@ -203,6 +246,8 @@ function resetSettings(): void {
         await settingsStore.update({ ...DEFAULT_SETTINGS })
         // 代理输入框是本地草稿，重置后同步回默认值
         proxyDraft.value = settingsStore.settings.proxyUrl
+        poolApiUrlDraft.value = settingsStore.settings.proxyPoolApiUrl
+        poolApiProxyDraft.value = settingsStore.settings.proxyPoolApiProxy
         message.success('设置已恢复默认')
       } finally {
         resetting.value = false
@@ -367,6 +412,51 @@ function clearAll(): void {
           <div class="muted" style="font-size: 12px">
             留空则回退到系统环境变量 HTTPS_PROXY / HTTP_PROXY
           </div>
+        </a-form-item>
+        <a-form-item label="提链代理池">
+          <SettingSwitch field="proxyPoolEnabled" />
+          <div class="muted" style="font-size: 12px">
+            开启后每次生成订阅支付链接都会先从池里取一个新 IP 作为出口
+          </div>
+        </a-form-item>
+        <a-form-item label="池接口地址">
+          <a-input-group compact>
+            <a-input
+              v-model:value="poolApiUrlDraft"
+              placeholder="https://white.novproxy.com/white/api?..."
+              style="width: 420px"
+              @press-enter="savePool"
+            />
+            <a-button type="primary" @click="savePool">保存</a-button>
+          </a-input-group>
+        </a-form-item>
+        <a-form-item label="可信代理">
+          <a-input-group compact>
+            <a-input
+              v-model:value="poolApiProxyDraft"
+              placeholder="http://127.0.0.1:7899"
+              style="width: 300px"
+              @press-enter="savePool"
+            />
+            <a-button type="primary" @click="savePool">保存</a-button>
+          </a-input-group>
+          <div class="muted" style="font-size: 12px">
+            访问池接口用的 HTTP 代理（池接口按来源 IP 白名单鉴权），留空则直连
+          </div>
+        </a-form-item>
+        <a-form-item label="去重窗口">
+          <a-input-number
+            :value="settings.proxyPoolHistorySize"
+            :min="1"
+            :max="100"
+            @change="(v: unknown) => update({ proxyPoolHistorySize: clampPoolHistorySize(v) })"
+          />
+          <span class="muted" style="margin-left: 8px">
+            不重复使用最近用过的 N 个 IP，取到重复会自动重试
+          </span>
+        </a-form-item>
+        <a-form-item label="池连通测试">
+          <a-button :loading="poolTesting" @click="testPool">测试获取一个池 IP</a-button>
         </a-form-item>
       </a-form>
     </a-card>

@@ -175,22 +175,6 @@ class KiroApi {
     },
   );
 
-  /// 手机端直连提链所需的材料；与 OIDC 导出同级敏感，响应不落缓存。
-  Future<SubscriptionMaterial> subscriptionMaterial(String id) => _request(
-    'GET',
-    '/api/v1/accounts/$id/subscription-material',
-    decode: (data) =>
-        SubscriptionMaterial.fromJson((data as Map).cast<String, dynamic>()),
-  );
-
-  /// 手机端直连生成链接后回传桌面存储；空字符串清除链接。
-  Future<void> setPaymentLink(String id, String url) => _request(
-    'PUT',
-    '/api/v1/accounts/$id/payment-link',
-    data: {'url': url},
-    decode: (_) {},
-  );
-
   Future<String> refreshToken(String id) => _request(
     'POST',
     '/api/v1/accounts/$id/refresh-token',
@@ -214,6 +198,17 @@ class KiroApi {
           (data as Map).cast<String, dynamic>(),
         ),
       );
+
+  /// 提链由桌面执行（桌面可配置提链代理池轮换出口 IP），手机只发起 job 并轮询。
+  Future<String> createSubscriptionLinks(
+    List<String> accountIds,
+    String subscriptionType,
+  ) => _request(
+    'POST',
+    '/api/v1/subscriptions/link',
+    data: {'accountIds': accountIds, 'subscriptionType': subscriptionType},
+    decode: (data) => ((data as Map)['jobId'] as String),
+  );
 
   Future<String> switchSubscriptionsToFree(List<String> accountIds) => _request(
     'POST',

@@ -120,6 +120,7 @@ const api = {
   // 设置 / 应用
   getSettings: () => invoke('settings:get'),
   saveSettings: (patch: unknown) => invoke('settings:save', patch),
+  testProxyPool: () => invoke('settings:proxy-pool-test'),
   getBillingConfig: () => invoke('billing:get-config'),
   saveBillingConfig: (patch: unknown) => invoke('billing:save-config', patch),
   replaceBillingSecrets: (patch: unknown) => invoke('billing:replace-secrets', patch),

@@ -176,6 +176,7 @@ export interface Api extends BillingRendererApi, BrowserRendererApi {
 
   getSettings: () => Promise<IpcResult<AppSettings>>
   saveSettings: (patch: Partial<AppSettings>) => Promise<IpcResult<AppSettings>>
+  testProxyPool: () => Promise<IpcResult<{ proxyUrl: string; viaUrl: string }>>
   getAppInfo: () => Promise<IpcResult<AppInfo>>
   getWebControlConfig: () => Promise<IpcResult<WebControlPublicConfig>>
   saveWebControlSettings: (patch: Partial<WebControlSettings>) => Promise<IpcResult<WebControlPublicConfig>>

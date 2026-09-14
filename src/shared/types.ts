@@ -659,6 +659,14 @@ export interface AppSettings {
   /** 网络代理 */
   proxyEnabled: boolean
   proxyUrl: string
+  /** 提链代理池：开启后每次生成订阅支付链接前先从池里取一个新 IP 作为出口 */
+  proxyPoolEnabled: boolean
+  /** 提链代理池的取 IP 接口地址（返回单个 IP:port 文本） */
+  proxyPoolApiUrl: string
+  /** 访问池接口所需的可信 HTTP 代理（池接口按来源 IP 鉴权）；留空则直连 */
+  proxyPoolApiProxy: string
+  /** 池 IP 去重窗口：不重复使用最近 N 个已用过的 IP */
+  proxyPoolHistorySize: number
   /** 删除前二次确认 */
   confirmBeforeDelete: boolean
   /**
@@ -711,6 +719,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   importConcurrency: 50,
   proxyEnabled: false,
   proxyUrl: '',
+  proxyPoolEnabled: false,
+  proxyPoolApiUrl: 'https://white.novproxy.com/white/api?region=US&num=1&time=10&format=1&type=txt',
+  proxyPoolApiProxy: '',
+  proxyPoolHistorySize: 10,
   confirmBeforeDelete: true,
   revealExportedFile: true,
   trayEnabled: true,
