@@ -53,7 +53,6 @@ const accountsStore = useAccountsStore()
 const search = ref('')
 const loadingPlans = ref(false)
 const generating = ref(false)
-const concurrency = ref(2)
 const disposed = ref(false)
 
 const { links, selectedLinkIds, availablePlans, selectedPlanType, accountPickIds } = batchSession
@@ -168,13 +167,12 @@ async function fetchLinks(): Promise<void> {
   generating.value = true
   links.value = targets.map((account) => ({ accountId: account.id, email: account.email || account.nickname || account.id, status: 'pending' }))
   selectedLinkIds.value = []
-  let cursor = 0
-  const worker = async (): Promise<void> => {
-    while (cursor < targets.length && !disposed.value) await generateOne(targets[cursor++], selectedPlanType.value)
-  }
   try {
-    const workerCount = Math.min(Math.max(1, Number(concurrency.value) || 1), targets.length)
-    await Promise.all(Array.from({ length: workerCount }, () => worker()))
+    // 固定串行：提链逐账号执行，代理池按次取 IP 的节奏与账号一一对应
+    for (const account of targets) {
+      if (disposed.value) break
+      await generateOne(account, selectedPlanType.value)
+    }
     const failed = failedLinks.value.length
     message.success(`提链完成：${successfulLinks.value.length} 成功，${failed} 失败${failed ? '（失败账号已删除）' : ''}`)
   } finally { generating.value = false }
@@ -293,8 +291,6 @@ function statusColor(link: SubscriptionLinkRow): string {
         <a-button type="primary" :loading="generating" :disabled="props.disabled || !targetAccounts.length || !selectedPlanType" data-testid="fetch-links" @click="fetchLinks">
           <LinkOutlined /> 提取订阅链接（{{ targetAccounts.length }}）
         </a-button>
-        <span class="muted">并发</span>
-        <a-input-number v-model:value="concurrency" :min="1" :max="10" :disabled="generating" size="small" />
         <a-button danger type="text" :disabled="generating || !links.length" @click="clearLinks"><DeleteOutlined /> 清空结果</a-button>
       </div>
       <a-progress v-if="generating || links.length" :percent="progressPercent" :status="generating ? 'active' : undefined" :format="() => `${completedCount}/${links.length}`" />

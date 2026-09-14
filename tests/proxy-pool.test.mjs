@@ -65,6 +65,7 @@ function loadProxyPool(requestImpl) {
   vm.runInNewContext(source, {
     exports,
     Buffer,
+    URL,
     AbortController,
     setTimeout,
     clearTimeout,
@@ -95,14 +96,15 @@ function enabledSettings(overrides = {}) {
 
 // ============ parsePoolEndpoint ============
 
-test('parsePoolEndpoint accepts exactly one ipv4 or ipv6 endpoint', () => {
+test('parsePoolEndpoints accepts CRLF-separated endpoints and rejects any bad line', () => {
   const { pool } = loadProxyPool(async () => fakeResponse(200, ['unused']))
-  const ipv4 = pool.parsePoolEndpoint('107.150.11.23:23402')
-  assert.equal(ipv4.host, '107.150.11.23')
-  assert.equal(ipv4.port, 23402)
-  const ipv6 = pool.parsePoolEndpoint('  [2001:db8::1]:8080\n')
-  assert.equal(ipv6.host, '2001:db8::1')
-  assert.equal(ipv6.port, 8080)
+  const list = pool.parsePoolEndpoints('1.2.3.4:80\r\n[2001:db8::1]:90\r\n')
+  assert.deepEqual(
+    [...list.map((item) => `${item.host}:${item.port}`)],
+    ['1.2.3.4:80', '2001:db8::1:90']
+  )
+  assert.throws(() => pool.parsePoolEndpoints('1.2.3.4:80\r\ngarbage'), { message: 'invalid endpoint' })
+  assert.throws(() => pool.parsePoolEndpoints(''), { message: 'invalid endpoint' })
 })
 
 test('parsePoolEndpoint rejects error pages, multi-line results and bad ports', () => {
@@ -181,13 +183,42 @@ test('acquirePoolProxy fetches through the trusted proxy and persists the endpoi
   assert.equal(route.proxyUrl, 'http://107.150.11.23:23402')
   assert.equal(route.viaUrl, 'http://127.0.0.1:7899')
   assert.equal(calls.length, 1)
-  assert.equal(calls[0].url, 'https://pool.example/api?num=1')
+  // 批量提取会重写 num 参数（默认 5）；传给 request 的是 URL 对象
+  assert.equal(String(calls[0].url), 'https://pool.example/api?num=5')
   // 池接口请求必须经可信代理发出（一次性 agent，不进全局缓存）
   assert.equal(calls[0].dispatcher, FakeProxyAgent.created[0])
   assert.equal(FakeProxyAgent.created[0].uri, 'http://127.0.0.1:7899')
   assert.equal(FakeProxyAgent.created[0].closed, true)
   const store = FakeStore.instances.at(-1)
   assert.deepEqual(store.get('history'), ['107.150.11.23:23402'])
+})
+
+test('one batch acquisition serves multiple link requests without refetching', async () => {
+  let fetched = 0
+  const { pool } = loadProxyPool(async () => {
+    fetched++
+    return fakeResponse(200, ['1.1.1.1:10\r\n2.2.2.2:20\r\n3.3.3.3:30'])
+  })
+  pool.setProxyPoolConfig(enabledSettings())
+  assert.equal((await pool.acquirePoolProxy()).proxyUrl, 'http://1.1.1.1:10')
+  assert.equal((await pool.acquirePoolProxy()).proxyUrl, 'http://2.2.2.2:20')
+  assert.equal((await pool.acquirePoolProxy()).proxyUrl, 'http://3.3.3.3:30')
+  assert.equal(fetched, 1, '一批端点应被逐链接消费，不该每条都打池接口')
+})
+
+test('queued endpoints expire after the time window', async () => {
+  let fetched = 0
+  const { pool } = loadProxyPool(async () => {
+    fetched++
+    return fakeResponse(200, ['1.1.1.1:10\r\n2.2.2.2:20'])
+  })
+  // time=0.05 分钟 → TTL 落到 1 秒下限
+  pool.setProxyPoolConfig(enabledSettings({ proxyPoolApiUrl: 'https://pool.example/api?time=0.05' }))
+  await pool.acquirePoolProxy()
+  assert.equal(fetched, 1)
+  await new Promise((resolve) => setTimeout(resolve, 1_200))
+  await pool.acquirePoolProxy()
+  assert.equal(fetched, 2, '队列里的端点过期后应重新批量提取')
 })
 
 test('acquirePoolProxy retries duplicate endpoints and records both distinct IPs', async () => {
@@ -202,27 +233,13 @@ test('acquirePoolProxy retries duplicate endpoints and records both distinct IPs
   assert.ok(logs.some((line) => line.includes('最近用过的 IP')))
 })
 
-test('acquirePoolProxy reuses the sticky session IP when the pool keeps returning it', async () => {
+test('duplicate-only batches fail instead of reusing a recent IP', async () => {
   const { pool, logs } = loadProxyPool(async () => fakeResponse(200, ['9.9.9.9:99']))
   pool.setProxyPoolConfig(enabledSettings())
-  // 第一次入历史；会话有效期内池一直返回它 → 重试耗尽后复用而非硬失败
-  assert.equal((await pool.acquirePoolProxy()).proxyUrl, 'http://9.9.9.9:99')
-  assert.equal((await pool.acquirePoolProxy()).proxyUrl, 'http://9.9.9.9:99')
-  const store = FakeStore.instances.at(-1)
-  assert.deepEqual(store.get('history'), ['9.9.9.9:99'])
-  assert.ok(logs.some((line) => line.includes('复用该会话 IP')))
-})
-
-test('acquirePoolProxy re-record a sticky older IP at the front of history', async () => {
-  const bodies = ['1.1.1.1:10', '2.2.2.2:20', '1.1.1.1:10', '1.1.1.1:10', '1.1.1.1:10', '1.1.1.1:10', '1.1.1.1:10']
-  const { pool } = loadProxyPool(async () => fakeResponse(200, [bodies.shift()]))
-  pool.setProxyPoolConfig(enabledSettings({ proxyPoolHistorySize: 3 }))
-  assert.equal((await pool.acquirePoolProxy()).proxyUrl, 'http://1.1.1.1:10')
-  assert.equal((await pool.acquirePoolProxy()).proxyUrl, 'http://2.2.2.2:20')
-  // 池退回旧 IP 且不再轮换 → 复用并把该键挪到历史最前，不产生重复条目
-  assert.equal((await pool.acquirePoolProxy()).proxyUrl, 'http://1.1.1.1:10')
-  const store = FakeStore.instances.at(-1)
-  assert.deepEqual(store.get('history'), ['1.1.1.1:10', '2.2.2.2:20'])
+  await pool.acquirePoolProxy()
+  // 会话粘滞时池只会重复给同一个 IP：宁可失败也不复用（同一出口连续提链会被 Kiro 403）
+  await assert.rejects(pool.acquirePoolProxy(), /未能提供未用过的 IP/)
+  assert.ok(logs.some((line) => line.includes('全部是最近用过')))
 })
 
 test('acquirePoolProxy maps pool transport failures to generic errors without leaking details', async () => {

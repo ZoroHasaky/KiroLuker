@@ -1,7 +1,9 @@
-// 提链代理池：生成订阅支付链接前，从池接口取一个一次性出口 IP
+// 提链代理池：生成订阅支付链接前，从池接口批量取一次性出口 IP，逐链接消费
 //
 // 池接口按来源 IP 做白名单鉴权，拉取动作本身必须经用户配置的可信 HTTP 代理发出；
-// 取到的 IP:port 是短期有效的一次性代理端点，只用于单次 Kiro 请求。
+// 取到的 IP:port 是短期有效的一次性代理端点。会话粘滞的池在同一窗口内反复单取
+// 会一直返回同一个 IP（实测同一出口连续提链会被 Kiro 403），所以改为批量提取
+// （num=N 一次返回 N 个互不相同的端点）+ 队列逐链接消费，绝不复用最近用过的 IP。
 // 获取与去重历史全程串行：并发提链时依次取 IP，既避免撞到重复 IP，也避免触发池方限流。
 import { isIP } from 'node:net'
 import { ProxyAgent, request } from 'undici'
@@ -11,9 +13,8 @@ import type { AppSettings } from '../shared/types'
 
 const API_RESPONSE_LIMIT = 4096
 const API_TIMEOUT_MS = 20_000
-/** 单次获取能容忍的连续重复次数，超过即视为最近 N 个 IP 已耗尽 */
-const MAX_FETCH_ATTEMPTS = 5
 const HISTORY_SIZE_MAX = 100
+const BATCH_SIZE_MAX = 20
 
 export interface PoolEndpoint {
   host: string
@@ -71,6 +72,7 @@ let enabled = false
 let apiUrl = ''
 let apiProxy = ''
 let historySize = 10
+let batchSize = 5
 
 export function setProxyPoolConfig(settings: AppSettings): void {
   apiUrl = (settings.proxyPoolApiUrl || '').trim()
@@ -78,10 +80,12 @@ export function setProxyPoolConfig(settings: AppSettings): void {
   apiProxy = normalizeProxyUrl(settings.proxyPoolApiProxy || '')
   const size = Number(settings.proxyPoolHistorySize)
   historySize = Number.isFinite(size) ? Math.min(HISTORY_SIZE_MAX, Math.max(1, Math.round(size))) : 10
+  const batch = Number(settings.proxyPoolBatchSize)
+  batchSize = Number.isFinite(batch) ? Math.min(BATCH_SIZE_MAX, Math.max(1, Math.round(batch))) : 5
   // 窗口改小时立即收紧内存里的历史，下次落盘就是裁剪后的
   if (historyCache) historyCache = historyCache.slice(0, historySize)
   console.log(
-    `[ProxyPool] ${enabled ? `enabled → ${apiUrl} via ${apiProxy || 'direct'} (history ${historySize})` : 'disabled'}`
+    `[ProxyPool] ${enabled ? `enabled → ${apiUrl} via ${apiProxy || 'direct'} (history ${historySize}, batch ${batchSize})` : 'disabled'}`
   )
 }
 
@@ -119,15 +123,28 @@ function persistHistory(next: string[]): void {
   poolStoreRef().set('history', next)
 }
 
-// ============ 池接口请求 ============
+// ============ 池接口请求（批量提取） ============
 
-async function fetchPoolEndpoint(): Promise<PoolEndpoint> {
+/**
+ * 严格解析批量响应：每行恰好一个 IP:port，任何一行非法（错误页、空行以外
+ * 的垃圾内容）都整体拒绝，避免把半截结果当可用端点。
+ */
+export function parsePoolEndpoints(body: string): PoolEndpoint[] {
+  const lines = body.trim().split(/\r?\n/).filter(Boolean)
+  if (!lines.length) throw new Error('invalid endpoint')
+  return lines.map((line) => parsePoolEndpoint(line))
+}
+
+async function fetchPoolEndpoints(): Promise<PoolEndpoint[]> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS)
   // 一次性 agent：池接口按来源 IP 鉴权，必须强制经可信代理；用完即关，不进全局连接缓存
   const dispatcher = apiProxy ? new ProxyAgent(apiProxy) : undefined
   try {
-    const response = await request(apiUrl, {
+    // 批量提取：一次拿一批互不相同的端点，逐链接消费，避免每条链接都撞上会话粘滞
+    const url = new URL(apiUrl)
+    url.searchParams.set('num', String(batchSize))
+    const response = await request(url, {
       ...(dispatcher ? { dispatcher } : {}),
       method: 'GET',
       headersTimeout: API_TIMEOUT_MS,
@@ -144,7 +161,7 @@ async function fetchPoolEndpoint(): Promise<PoolEndpoint> {
       if (size > API_RESPONSE_LIMIT) throw new Error('response too large')
       chunks.push(next)
     }
-    return parsePoolEndpoint(Buffer.concat(chunks).toString('utf8'))
+    return parsePoolEndpoints(Buffer.concat(chunks).toString('utf8'))
   } catch (e) {
     // 不把 URL、响应体或代理细节带进用户可见的错误信息
     console.warn('[ProxyPool] 池接口请求失败:', e instanceof Error ? e.message : e)
@@ -157,47 +174,86 @@ async function fetchPoolEndpoint(): Promise<PoolEndpoint> {
 
 // ============ 获取入口 ============
 
-export type PoolFetcher = () => Promise<PoolEndpoint>
+export type PoolFetcher = () => Promise<PoolEndpoint[]>
+
+/** 队列里缓存的批量端点；time 参数决定有效期，过期弃用 */
+interface QueuedEndpoint {
+  endpoint: PoolEndpoint
+  fetchedAt: number
+}
+
+let endpointQueue: QueuedEndpoint[] = []
+
+/** 池 URL 里 time 参数（分钟）决定的端点有效期；留 1 分钟安全余量 */
+function endpointTtlMs(): number {
+  let minutes = 10
+  try {
+    const parsed = Number(new URL(apiUrl).searchParams.get('time'))
+    if (Number.isFinite(parsed) && parsed > 0) minutes = parsed
+  } catch {
+    // URL 无效时真正的请求会失败，这里先按默认估
+  }
+  return Math.max(1_000, minutes * 60_000 - 60_000)
+}
+
+/** 从队列头部取一个未用过且未过期的端点；顺手清掉过期条目 */
+function popFreshEndpoint(used: readonly string[]): PoolEndpoint | null {
+  const now = Date.now()
+  const ttl = endpointTtlMs()
+  endpointQueue = endpointQueue.filter((item) => now - item.fetchedAt < ttl)
+  while (endpointQueue.length) {
+    const item = endpointQueue.shift()!
+    if (!used.includes(poolEndpointKey(item.endpoint))) return item.endpoint
+  }
+  return null
+}
+
+/** 批量提取最多重试次数：每次尝试都消耗池的提取配额，见好就收 */
+const MAX_BATCH_ATTEMPTS = 2
 
 async function acquireOnce(fetcher: PoolFetcher): Promise<PoolProxyRoute> {
   const used = loadHistory()
-  let sticky: PoolEndpoint | null = null
-  for (let attempt = 1; attempt <= MAX_FETCH_ATTEMPTS; attempt++) {
-    const endpoint = await fetcher()
-    const accepted = acceptPoolEndpoint(used, endpoint, historySize)
-    if (!accepted) {
-      sticky = endpoint
-      console.warn(
-        `[ProxyPool] 第 ${attempt}/${MAX_FETCH_ATTEMPTS} 次取到最近用过的 IP ${poolEndpointKey(endpoint)}，重试`
-      )
-      continue
+
+  const queued = popFreshEndpoint(used)
+  if (queued) return recordAndRoute(used, queued)
+
+  for (let attempt = 1; attempt <= MAX_BATCH_ATTEMPTS; attempt++) {
+    const endpoints = await fetcher()
+    let fresh = 0
+    for (const endpoint of endpoints) {
+      if (used.includes(poolEndpointKey(endpoint))) continue
+      endpointQueue.push({ endpoint, fetchedAt: Date.now() })
+      fresh++
     }
-    persistHistory(accepted.history)
-    console.info(`[ProxyPool] 取得出口 ${accepted.key}${apiProxy ? `（经 ${apiProxy} 中转）` : ''}`)
-    return { proxyUrl: poolProxyUrl(endpoint), viaUrl: apiProxy }
+    console.info(
+      `[ProxyPool] 批量取得 ${endpoints.length} 个端点，其中 ${fresh} 个未用过${apiProxy ? `（经 ${apiProxy} 中转）` : ''}`
+    )
+    const picked = popFreshEndpoint(used)
+    if (picked) return recordAndRoute(used, picked)
+    console.warn(`[ProxyPool] 第 ${attempt}/${MAX_BATCH_ATTEMPTS} 次批量提取全部是最近用过的 IP，重试`)
   }
-  // 池在会话有效期内会粘滞返回同一个 IP（如 time=10 的 10 分钟窗口内取到的一直是它）。
-  // 重试耗尽仍重复时复用该 IP：它仍在有效期内，硬失败会让整个会话窗口内的批量提链全部失败；
-  // 池轮换出新的 IP 后，去重窗口照常生效。
-  if (sticky) {
-    const key = poolEndpointKey(sticky)
-    console.warn(`[ProxyPool] 连续 ${MAX_FETCH_ATTEMPTS} 次取到最近用过的 IP ${key}，复用该会话 IP 继续提链`)
-    persistHistory([key, ...used.filter((item) => item !== key)].slice(0, Math.max(1, historySize)))
-    return { proxyUrl: poolProxyUrl(sticky), viaUrl: apiProxy }
-  }
-  throw new Error('代理池未能返回可用的 IP，请稍后重试')
+  // 不复用最近用过的 IP：实测同一出口连续提链会被 Kiro 403，宁可失败也不撞
+  throw new Error('代理池未能提供未用过的 IP（会话未轮换），请稍后重试或调大每次提取数量')
 }
 
-let queue: Promise<unknown> = Promise.resolve()
+function recordAndRoute(used: readonly string[], endpoint: PoolEndpoint): PoolProxyRoute {
+  const accepted = acceptPoolEndpoint(used, endpoint, historySize)
+  if (!accepted) throw new Error('代理池未能提供未用过的 IP，请稍后重试')
+  persistHistory(accepted.history)
+  console.info(`[ProxyPool] 取得出口 ${accepted.key}${apiProxy ? `（经 ${apiProxy} 中转）` : ''}`)
+  return { proxyUrl: poolProxyUrl(endpoint), viaUrl: apiProxy }
+}
+
+let acquireChain: Promise<unknown> = Promise.resolve()
 
 /**
  * 取一个池出口路由。全程串行，任何失败直接抛错——
  * 池不可用时提链明确报错，绝不静默回退直连暴露本机出口。
  */
-export function acquirePoolProxy(fetcher: PoolFetcher = fetchPoolEndpoint): Promise<PoolProxyRoute> {
+export function acquirePoolProxy(fetcher: PoolFetcher = fetchPoolEndpoints): Promise<PoolProxyRoute> {
   if (!enabled) return Promise.reject(new Error('代理池未启用'))
-  const run = queue.then(() => acquireOnce(fetcher))
-  queue = run.then(
+  const run = acquireChain.then(() => acquireOnce(fetcher))
+  acquireChain = run.then(
     () => undefined,
     () => undefined
   )

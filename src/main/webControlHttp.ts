@@ -218,9 +218,9 @@ export async function createWebControlHttpApp(deps: WebControlHttpDependencies):
     }
   }
 
-  async function runItems<T>(job: WebJob, items: T[], action: (item: T) => Promise<'success' | 'skipped'>): Promise<void> {
+  async function runItems<T>(job: WebJob, items: T[], action: (item: T) => Promise<'success' | 'skipped'>, concurrency = 3): Promise<void> {
     let cursor = 0
-    const workers = Array.from({ length: Math.min(3, items.length) }, async () => {
+    const workers = Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, async () => {
       while (true) {
         const index = cursor++
         if (index >= items.length) return
@@ -391,13 +391,14 @@ export async function createWebControlHttpApp(deps: WebControlHttpDependencies):
     const subscriptionType = readString(body.subscriptionType, 'subscriptionType', { required: true, max: 100 })!
     if (!ids.length || ids.length > MAX_BATCH_ITEMS) throw new HttpError(400, 'INVALID_BODY', 'accountIds数量无效')
     const job = jobs.enqueue(request.webAuth!.owner, 'subscription-link', ids.length, async (state) => {
+      // 提链固定串行：与桌面面板一致，逐账号取代理池 IP 生成链接
       await runItems(state, ids, async (id) => {
         const account = deps.accountService.getAccount(id)
         if (!account) return 'skipped'
         const result = await createSubscriptionLink(account, subscriptionType)
         await deps.accountService.setPaymentLink(id, result.url)
         return 'success'
-      })
+      }, 1)
     })
     return reply.status(202).send(ok(request, { jobId: job.id }))
   })

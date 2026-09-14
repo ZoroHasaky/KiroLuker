@@ -667,6 +667,8 @@ export interface AppSettings {
   proxyPoolApiProxy: string
   /** 池 IP 去重窗口：不重复使用最近 N 个已用过的 IP */
   proxyPoolHistorySize: number
+  /** 每次从池接口批量提取的端点数量（num 参数），逐链接消费 */
+  proxyPoolBatchSize: number
   /** 删除前二次确认 */
   confirmBeforeDelete: boolean
   /**
@@ -723,6 +725,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   proxyPoolApiUrl: 'https://white.novproxy.com/white/api?region=US&num=1&time=10&format=1&type=txt',
   proxyPoolApiProxy: '',
   proxyPoolHistorySize: 10,
+  proxyPoolBatchSize: 5,
   confirmBeforeDelete: true,
   revealExportedFile: true,
   trayEnabled: true,

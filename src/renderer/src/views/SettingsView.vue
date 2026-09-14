@@ -200,6 +200,13 @@ function clampPoolHistorySize(value: unknown): number {
   return Math.max(1, Math.min(Math.round(num), 100))
 }
 
+/** 输入框可能给出 null 或越界值，统一夹到 1-20 */
+function clampPoolBatchSize(value: unknown): number {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return DEFAULT_SETTINGS.proxyPoolBatchSize
+  return Math.max(1, Math.min(Math.round(num), 20))
+}
+
 const poolTesting = ref(false)
 
 /** 真实取一次池 IP 并验证完整出口链路（会占用一个去重历史位） */
@@ -454,6 +461,17 @@ function clearAll(): void {
           />
           <span class="muted" style="margin-left: 8px">
             不重复使用最近用过的 N 个 IP，取到重复会自动重试
+          </span>
+        </a-form-item>
+        <a-form-item label="每次提取数量">
+          <a-input-number
+            :value="settings.proxyPoolBatchSize"
+            :min="1"
+            :max="20"
+            @change="(v: unknown) => update({ proxyPoolBatchSize: clampPoolBatchSize(v) })"
+          />
+          <span class="muted" style="margin-left: 8px">
+            一次从池里提取 N 个不同 IP 逐链接使用，建议设为单批提链的账号数
           </span>
         </a-form-item>
         <a-form-item label="池连通测试">
