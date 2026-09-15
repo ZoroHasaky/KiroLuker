@@ -4,6 +4,12 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [1.2.44] - 2026-09-15
+
+### 变更
+
+- 临时浏览器窗口工具栏的 GitHub 快捷按钮改为直达登录页 `https://github.com/login`（悬停提示同步更新）。
+
 ## [1.2.43] - 2026-09-15
 
 ### 变更

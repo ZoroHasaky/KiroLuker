@@ -183,7 +183,7 @@ btnLoginKiro.addEventListener('click', () => {
 })
 
 quickGithubButton.addEventListener('click', () => {
-  void send({ type: 'navigate', url: 'https://github.com' })
+  void send({ type: 'navigate', url: 'https://github.com/login' })
 })
 
 quickKiroButton.addEventListener('click', () => {
