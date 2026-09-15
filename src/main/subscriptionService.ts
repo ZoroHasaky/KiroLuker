@@ -9,6 +9,7 @@ import {
 } from './kiroEndpoints'
 import { httpRequest } from './net'
 import { acquirePoolProxy, isProxyPoolEnabled, type PoolProxyRoute } from './proxyPool'
+import { recordUsage } from './poolUsageStore'
 import {
   normalizeSubscriptionLink,
   normalizeSubscriptionPlans
@@ -74,6 +75,8 @@ async function postSubscription(
       }`
     )
   }
+  // 拿到 HTTP 状态码即说明请求已到达 Kiro（成功或 4xx 均算）：该出口已被服务端看到，计一次
+  if (route) recordUsage(route.exitIp)
   const data = await response.json<unknown>().catch(() => null)
   console.debug(`[Subscription] ${operation} → ${response.status}`)
   if (!response.ok) {

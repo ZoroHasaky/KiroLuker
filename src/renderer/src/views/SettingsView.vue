@@ -216,8 +216,9 @@ async function testPool(): Promise<void> {
     const result = await window.api.testProxyPool()
     if (result.success && result.data) {
       const via = result.data.viaUrl ? `，经 ${result.data.viaUrl} 中转` : ''
+      const exit = result.data.exitIp ? `，实际出口 ${result.data.exitIp}` : ''
       const egress = result.data.egress ? `，出口链路正常（探测 HTTP ${result.data.egress.status}）` : ''
-      message.success(`获取成功：${result.data.proxyUrl}${via}${egress}`)
+      message.success(`获取成功：${result.data.proxyUrl}${exit}${via}${egress}`)
     } else if (!result.success) message.error(result.error || '获取失败')
   } finally {
     poolTesting.value = false

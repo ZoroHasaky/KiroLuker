@@ -59,8 +59,16 @@ class FakeStore {
 }
 FakeStore.instances = []
 
-function loadProxyPool(requestImpl) {
+function loadProxyPool(requestImpl, opts = {}) {
   const logs = []
+  const probeCalls = []
+  // 假出口探测：默认返回固定 IP，可用 opts.probe 定制（返回 ipify 风格响应或抛错）
+  const probeImpl = opts.probe ?? (async (url, init) => {
+    probeCalls.push(String(init?.proxyUrl))
+    return { status: 200, text: async () => '203.0.113.7' }
+  })
+  // 假计次库：默认全部计 0，可用 opts.usageCounts（Map）定制
+  const usageCounts = opts.usageCounts ?? new Map()
   const exports = {}
   vm.runInNewContext(source, {
     exports,
@@ -77,11 +85,14 @@ function loadProxyPool(requestImpl) {
       if (id === 'node:net') return { isIP }
       if (id === 'undici') return { ProxyAgent: FakeProxyAgent, request: requestImpl }
       if (id === 'electron-store') return { __esModule: true, default: FakeStore }
-      if (id === './net') return { normalizeProxyUrl: fakeNormalizeProxyUrl }
+      if (id === './net') return { normalizeProxyUrl: fakeNormalizeProxyUrl, httpRequest: probeImpl }
+      if (id === './poolUsageStore') {
+        return { MAX_USES_PER_IP: 2, countRecentUsage: (ip) => usageCounts.get(ip) ?? 0 }
+      }
       throw new Error(`Unexpected real dependency: ${id}`)
     }
   }, { filename: 'proxyPool.ts' })
-  return { pool: exports, logs }
+  return { pool: exports, logs, probeCalls }
 }
 
 function enabledSettings(overrides = {}) {
@@ -230,7 +241,7 @@ test('acquirePoolProxy retries duplicate endpoints and records both distinct IPs
   assert.equal((await pool.acquirePoolProxy()).proxyUrl, 'http://2.2.2.2:20')
   const store = FakeStore.instances.at(-1)
   assert.deepEqual(store.get('history'), ['2.2.2.2:20', '1.1.1.1:10'])
-  assert.ok(logs.some((line) => line.includes('最近用过的 IP')))
+  assert.ok(logs.some((line) => line.includes('全部不可用')))
 })
 
 test('duplicate-only batches fail instead of reusing a recent IP', async () => {
@@ -239,7 +250,7 @@ test('duplicate-only batches fail instead of reusing a recent IP', async () => {
   await pool.acquirePoolProxy()
   // 会话粘滞时池只会重复给同一个 IP：宁可失败也不复用（同一出口连续提链会被 Kiro 403）
   await assert.rejects(pool.acquirePoolProxy(), /未能提供未用过的 IP/)
-  assert.ok(logs.some((line) => line.includes('全部是最近用过')))
+  assert.ok(logs.some((line) => line.includes('全部不可用')))
 })
 
 test('acquirePoolProxy maps pool transport failures to generic errors without leaking details', async () => {
@@ -290,4 +301,76 @@ test('acquirePoolProxy serializes concurrent acquisitions', async () => {
 
   await Promise.all([pool.acquirePoolProxy(), pool.acquirePoolProxy()])
   assert.equal(maxActive, 1, '并发获取必须串行执行')
+})
+
+test('探测失败的端点（如会话过期）被跳过并换下一个', async () => {
+  const { pool, logs } = loadProxyPool(async () => fakeResponse(200, ['1.1.1.1:10\r\n2.2.2.2:20']), {
+    probe: async (_url, init) => {
+      if (String(init?.proxyUrl).includes('1.1.1.1')) throw new Error('fetch failed：代理池出口无法连接目标')
+      return { status: 200, text: async () => '198.51.100.2' }
+    }
+  })
+  pool.setProxyPoolConfig(enabledSettings())
+  const route = await pool.acquirePoolProxy()
+  assert.equal(route.proxyUrl, 'http://2.2.2.2:20')
+  assert.equal(route.exitIp, '198.51.100.2')
+  assert.ok(logs.some((line) => line.includes('出口探测失败')))
+})
+
+// ============ 出口 IP 计次（同 IP 24h 内最多提链 2 次） ============
+
+test('acquirePoolProxy 探测真实出口并随路由返回', async () => {
+  const { pool, probeCalls } = loadProxyPool(async () => fakeResponse(200, ['1.1.1.1:10']))
+  pool.setProxyPoolConfig(enabledSettings())
+  const route = await pool.acquirePoolProxy()
+  assert.equal(route.exitIp, '203.0.113.7')
+  assert.deepEqual(probeCalls, ['http://1.1.1.1:10'], '探测必须经池端点发出')
+})
+
+test('出口 24 小时内用满的端点被弃用并自动换下一个', async () => {
+  const exits = ['198.51.100.1', '198.51.100.2']
+  const usageCounts = new Map([['198.51.100.1', 2]])
+  const { pool, logs } = loadProxyPool(
+    async () => fakeResponse(200, ['1.1.1.1:10\r\n2.2.2.2:20']),
+    { usageCounts, probe: async (_url, init) => ({ status: 200, text: async () => exits.shift() }) }
+  )
+  pool.setProxyPoolConfig(enabledSettings())
+  const route = await pool.acquirePoolProxy()
+  assert.equal(route.proxyUrl, 'http://2.2.2.2:20')
+  assert.equal(route.exitIp, '198.51.100.2')
+  assert.ok(logs.some((line) => line.includes('已提链 2 次')))
+})
+
+test('全部出口用满时明确报错并列出出口', async () => {
+  const usageCounts = new Map([['203.0.113.7', 2]])
+  const { pool } = loadProxyPool(async () => fakeResponse(200, ['1.1.1.1:10']), { usageCounts })
+  pool.setProxyPoolConfig(enabledSettings())
+  await assert.rejects(pool.acquirePoolProxy(), /24 小时内未超额的出口 IP.*203\.0\.113\.7/)
+})
+
+test('出口探测失败时获取失败', async () => {
+  const { pool } = loadProxyPool(async () => fakeResponse(200, ['1.1.1.1:10']), {
+    probe: async () => ({ status: 503, text: async () => 'oops' })
+  })
+  pool.setProxyPoolConfig(enabledSettings())
+  await assert.rejects(pool.acquirePoolProxy(), /均无法确认可用出口/)
+})
+
+test('同一端点的出口探测结果被缓存，重复遇到不再探测', async () => {
+  const probeCounts = new Map()
+  const bodies = ['1.1.1.1:10', '1.1.1.1:10\r\n2.2.2.2:20']
+  // e1 的出口用满：第一批只有它（弃用、不入端点历史），第二批又给出它 → 应命中缓存
+  const usageCounts = new Map([['198.51.100.9', 2]])
+  const { pool } = loadProxyPool(async () => fakeResponse(200, [bodies.shift()]), {
+    usageCounts,
+    probe: async (_url, init) => {
+      const proxy = String(init?.proxyUrl)
+      probeCounts.set(proxy, (probeCounts.get(proxy) ?? 0) + 1)
+      return { status: 200, text: async () => (proxy.includes('1.1.1.1') ? '198.51.100.9' : '198.51.100.10') }
+    }
+  })
+  pool.setProxyPoolConfig(enabledSettings({ proxyPoolHistorySize: 5 }))
+  const route = await pool.acquirePoolProxy()
+  assert.equal(route.exitIp, '198.51.100.10')
+  assert.equal(probeCounts.get('http://1.1.1.1:10'), 1, '同一端点会话期内只允许探测一次')
 })

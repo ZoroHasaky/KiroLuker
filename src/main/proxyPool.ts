@@ -8,7 +8,8 @@
 import { isIP } from 'node:net'
 import { ProxyAgent, request } from 'undici'
 import Store from 'electron-store'
-import { normalizeProxyUrl } from './net'
+import { httpRequest, normalizeProxyUrl } from './net'
+import { MAX_USES_PER_IP, countRecentUsage } from './poolUsageStore'
 import type { AppSettings } from '../shared/types'
 
 const API_RESPONSE_LIMIT = 4096
@@ -50,6 +51,8 @@ export interface PoolProxyRoute {
   proxyUrl: string
   /** 到池 IP 需先经过的可信代理（池端点按来源 IP 白名单鉴权）；空串表示池 IP 可直连 */
   viaUrl: string
+  /** 该端点的真实出口 IP（探测所得）：池端点 IP ≠ 实际出口，计次按它算 */
+  exitIp: string
 }
 
 /**
@@ -210,12 +213,71 @@ function popFreshEndpoint(used: readonly string[]): PoolEndpoint | null {
 
 /** 批量提取最多重试次数：每次尝试都消耗池的提取配额，见好就收 */
 const MAX_BATCH_ATTEMPTS = 2
+/** 出口探测超时；探测打到 ipify，不打 Kiro、不占提链计次 */
+const EXIT_PROBE_TIMEOUT_MS = 15_000
+
+/** 端点 → 真实出口缓存：同一端点会话期内只探测一次，避免重复打 ipify */
+const exitIpCache = new Map<string, { ip: string; at: number }>()
+
+/** 经池端点两跳链探测真实出口 IP */
+async function probeExitIp(proxyUrl: string): Promise<string> {
+  let body = ''
+  try {
+    const response = await httpRequest('https://api.ipify.org/', {
+      ...(apiProxy ? { proxyViaUrl: apiProxy } : {}),
+      proxyUrl,
+      timeoutMs: EXIT_PROBE_TIMEOUT_MS
+    })
+    body = (await response.text()).trim()
+    if (response.status === 200 && isIP(body)) return body
+    throw new Error(`探测服务返回异常（HTTP ${response.status}）`)
+  } catch (e) {
+    const cause = (e as { cause?: unknown }).cause
+    const detail = cause instanceof Error ? cause.message : e instanceof Error ? e.message : ''
+    throw new Error(`无法确认池出口 IP${detail ? `：${detail}` : ''}`)
+  }
+}
+
+async function resolveExitIp(endpoint: PoolEndpoint): Promise<string> {
+  const key = poolEndpointKey(endpoint)
+  const cached = exitIpCache.get(key)
+  if (cached && Date.now() - cached.at < endpointTtlMs()) return cached.ip
+  const ip = await probeExitIp(poolProxyUrl(endpoint))
+  exitIpCache.set(key, { ip, at: Date.now() })
+  return ip
+}
 
 async function acquireOnce(fetcher: PoolFetcher): Promise<PoolProxyRoute> {
   const used = loadHistory()
+  const exhaustedExits = new Set<string>()
+  let probeFailed = false
 
-  const queued = popFreshEndpoint(used)
-  if (queued) return recordAndRoute(used, queued)
+  /** 出口探测与计次检查：探测失败（端点过期/出口不稳）或出口用满都弃用该端点，换下一个 */
+  const tryEndpoint = async (endpoint: PoolEndpoint): Promise<PoolProxyRoute | null> => {
+    let exitIp: string
+    try {
+      exitIp = await resolveExitIp(endpoint)
+    } catch (e) {
+      probeFailed = true
+      console.warn(`[ProxyPool] ${poolEndpointKey(endpoint)} 出口探测失败（${e instanceof Error ? e.message : e}），换下一个端点`)
+      return null
+    }
+    if (countRecentUsage(exitIp) >= MAX_USES_PER_IP) {
+      exhaustedExits.add(exitIp)
+      console.warn(
+        `[ProxyPool] 出口 ${exitIp} 24 小时内已提链 ${MAX_USES_PER_IP} 次，弃用端点 ${poolEndpointKey(endpoint)}`
+      )
+      return null
+    }
+    return recordAndRoute(used, endpoint, exitIp)
+  }
+
+  while (true) {
+    const endpoint = popFreshEndpoint(used)
+    if (!endpoint) break
+    const route = await tryEndpoint(endpoint)
+    if (route) return route
+  }
 
   for (let attempt = 1; attempt <= MAX_BATCH_ATTEMPTS; attempt++) {
     const endpoints = await fetcher()
@@ -228,20 +290,32 @@ async function acquireOnce(fetcher: PoolFetcher): Promise<PoolProxyRoute> {
     console.info(
       `[ProxyPool] 批量取得 ${endpoints.length} 个端点，其中 ${fresh} 个未用过${apiProxy ? `（经 ${apiProxy} 中转）` : ''}`
     )
-    const picked = popFreshEndpoint(used)
-    if (picked) return recordAndRoute(used, picked)
-    console.warn(`[ProxyPool] 第 ${attempt}/${MAX_BATCH_ATTEMPTS} 次批量提取全部是最近用过的 IP，重试`)
+    while (true) {
+      const endpoint = popFreshEndpoint(used)
+      if (!endpoint) break
+      const route = await tryEndpoint(endpoint)
+      if (route) return route
+    }
+    console.warn(`[ProxyPool] 第 ${attempt}/${MAX_BATCH_ATTEMPTS} 次批量提取的端点全部不可用（重复、出口已用满或探测失败），重试`)
+  }
+  if (exhaustedExits.size) {
+    throw new Error(
+      `代理池未能提供 24 小时内未超额的出口 IP（已用满的出口：${[...exhaustedExits].join('、')}），请稍后重试`
+    )
+  }
+  if (probeFailed) {
+    throw new Error('代理池端点均无法确认可用出口（探测失败或会话过期），请稍后重试')
   }
   // 不复用最近用过的 IP：实测同一出口连续提链会被 Kiro 403，宁可失败也不撞
   throw new Error('代理池未能提供未用过的 IP（会话未轮换），请稍后重试或调大每次提取数量')
 }
 
-function recordAndRoute(used: readonly string[], endpoint: PoolEndpoint): PoolProxyRoute {
+function recordAndRoute(used: readonly string[], endpoint: PoolEndpoint, exitIp: string): PoolProxyRoute {
   const accepted = acceptPoolEndpoint(used, endpoint, historySize)
   if (!accepted) throw new Error('代理池未能提供未用过的 IP，请稍后重试')
   persistHistory(accepted.history)
-  console.info(`[ProxyPool] 取得出口 ${accepted.key}${apiProxy ? `（经 ${apiProxy} 中转）` : ''}`)
-  return { proxyUrl: poolProxyUrl(endpoint), viaUrl: apiProxy }
+  console.info(`[ProxyPool] 取得出口 ${accepted.key}（实际出口 ${exitIp}）${apiProxy ? `（经 ${apiProxy} 中转）` : ''}`)
+  return { proxyUrl: poolProxyUrl(endpoint), viaUrl: apiProxy, exitIp }
 }
 
 let acquireChain: Promise<unknown> = Promise.resolve()
