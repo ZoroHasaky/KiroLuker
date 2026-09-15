@@ -28,8 +28,6 @@ export interface BrowserConfig {
     /** Local HTTP proxy used both to request the API and reach the returned endpoint. */
     apiProxyHost: string
     apiProxyPort: number
-    /** Maximum number of new sessions to try when the sampled exit IP repeats. */
-    duplicateExitIpAttempts: number
   }
   fingerprint: BrowserFingerprint
 }

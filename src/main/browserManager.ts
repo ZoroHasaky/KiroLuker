@@ -54,7 +54,6 @@ function browserSetupTimeout<T>(operation: Promise<T>): Promise<T> {
 export class BrowserManager {
   private windows = new Map<string, WindowRecord>()
   private queue: Promise<unknown> = Promise.resolve()
-  private lastExitIp = ''
   private stopping = false
   private listeners = new Set<(windows: BrowserWindowSummary[]) => void>()
   private cleanups = new Set<Promise<void>>()
@@ -146,18 +145,8 @@ export class BrowserManager {
       : undefined
     if (request.accountId && !account) throw new Error('账号不存在，请刷新账户列表')
     const config = this.config()
-    let resource: BrowserSessionResource | undefined
-    const duplicateExitIpAttempts = config.proxy.duplicateExitIpAttempts ?? 3
-    for (let attempt = 0; attempt < duplicateExitIpAttempts; attempt++) {
-      resource = await this.createSession(config)
-      if (this.stopping) { await resource.close(); throw new Error('应用正在退出') }
-      const ip = resource.check?.ip
-      const duplicate = ip && (ip === this.lastExitIp || [...this.windows.values()].some((w) => w.resource.check?.ip === ip))
-      if (!duplicate) break
-      await resource.close()
-      resource = undefined
-    }
-    if (!resource) throw new Error(`[代理检测] 连续 ${duplicateExitIpAttempts} 次取得重复出口 IP，未打开窗口；请检查服务商轮换规则后重试`)
+    const resource = await this.createSession(config)
+    if (this.stopping) { await resource.close(); throw new Error('应用正在退出') }
     let record: WindowRecord | undefined
     try {
       if (account) {
@@ -221,7 +210,6 @@ export class BrowserManager {
       await this.newTab(current, account ? KIRO_PORTAL_ORIGIN : 'about:blank')
       if (current.closing || window.isDestroyed()) throw new Error('浏览器窗口已关闭')
       if (!this.options.hidden) { window.show(); window.focus() }
-      if (resource.check) this.lastExitIp = resource.check.ip
       this.publish(current)
       return this.summary(current)
     } catch (error) {

@@ -140,16 +140,19 @@ async function run() {
   fs.writeFileSync(path.join(root, 'out/browser-runtime.png'), (await a.window.capturePage()).toPNG())
   reports.push('real popup tab/opener, shared tab session, safe navigation, current address, tab close, keyboard focus, unprivileged pages')
 
+  // 重复出口 IP 检测已移除：相同出口也允许开窗；错误凭据仍然拦截
   const beforeDuplicate = manager.list().length
-  probeIps.push(second.exitIp, second.exitIp, second.exitIp)
-  await assert.rejects(manager.open({}), /重复出口/)
-  assert.equal(manager.list().length, beforeDuplicate)
+  probeIps.push(second.exitIp)
+  const duplicate = await manager.open({})
+  assert.equal(duplicate.exitIp, second.exitIp, 'duplicate exit IP must open normally')
+  assert.equal(manager.list().length, beforeDuplicate + 1)
   const goodPassword = config.proxy.password
   config.proxy.password = 'fixture-wrong-password'
   await assert.rejects(manager.open({}), /代理检测/)
   config.proxy.password = goodPassword
-  assert.equal(manager.list().length, beforeDuplicate)
-  reports.push('repeated exit and wrong SOCKS credentials block new windows')
+  assert.equal(manager.list().length, beforeDuplicate + 1)
+  await manager.close(duplicate.id)
+  reports.push('duplicate exits open normally; wrong SOCKS credentials still blocked')
 
   fixture.setMode('drop'); fixture.dropConnections()
   await a.resource.session.closeAllConnections()

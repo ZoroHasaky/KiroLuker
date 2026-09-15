@@ -86,7 +86,7 @@ test('defaults are isolated, seeded once from valid portalLocale, and never expo
   assert.deepEqual(plain(config), {
     proxy: {
       enabled: false, mode: 'socks5', host: '', port: 1080, username: '', passwordSet: false,
-      apiUrl: '', apiProxyHost: '', apiProxyPort: 7897, duplicateExitIpAttempts: 3
+      apiUrl: '', apiProxyHost: '', apiProxyPort: 7897
     },
     fingerprint: { userAgent: '', language: 'zh-Hant-HK', timezone: '', width: 1280, height: 900 }
   })
@@ -138,26 +138,16 @@ test('pure proxy validation enforces types, port bounds, UTF-8 SOCKS lengths and
   }
 })
 
-test('duplicate exit IP attempt threshold defaults to 3 and accepts 1-20', () => {
-  const { api } = harness()
-  const proxy = patch(api).proxy
-  assert.equal(api.validateBrowserProxy(proxy).duplicateExitIpAttempts, 3)
-  for (const value of [1, 3, 20]) assert.equal(api.validateBrowserProxy({ ...proxy, duplicateExitIpAttempts: value }).duplicateExitIpAttempts, value)
-  for (const value of [0, 21, 1.5, '3', null]) {
-    assert.throws(() => api.validateBrowserProxy({ ...proxy, duplicateExitIpAttempts: value }), /重复出口 IP 尝试次数/)
-  }
-})
-
 test('dynamic HTTP API mode requires a safe HTTPS endpoint and clears unused SOCKS credentials', () => {
   const { api, data } = harness()
   const config = patch(api, {
     mode: 'dynamic-http', host: '', username: 'stale-static-user', password: 'stale-static-password',
-    apiUrl: 'https://white.example.invalid/api?region=US&num=1', apiProxyHost: '127.0.0.1', apiProxyPort: 7897, duplicateExitIpAttempts: 3
+    apiUrl: 'https://white.example.invalid/api?region=US&num=1', apiProxyHost: '127.0.0.1', apiProxyPort: 7897
   })
   const saved = api.saveBrowserConfig(config)
   assert.deepEqual(plain(saved.proxy), {
     enabled: true, mode: 'dynamic-http', host: '', port: 1080, username: '', passwordSet: false,
-    apiUrl: 'https://white.example.invalid/api?region=US&num=1', apiProxyHost: '127.0.0.1', apiProxyPort: 7897, duplicateExitIpAttempts: 3
+    apiUrl: 'https://white.example.invalid/api?region=US&num=1', apiProxyHost: '127.0.0.1', apiProxyPort: 7897
   })
   assert.equal(data.get('config').proxy.encryptedCredentials, '')
   assert.equal(JSON.stringify(data.get('config')).includes('stale-static-password'), false)
@@ -243,7 +233,7 @@ test('entire credential pair is encrypted at rest; getters/reload mask password 
   assert.equal(disk.includes(credentials.username), false)
   assert.equal(disk.includes(credentials.password), false)
   assert.deepEqual(Object.keys(data.get('config').proxy).sort(), [
-    'apiProxyHost', 'apiProxyPort', 'apiUrl', 'duplicateExitIpAttempts', 'enabled', 'encryptedCredentials', 'host', 'mode', 'port'
+    'apiProxyHost', 'apiProxyPort', 'apiUrl', 'enabled', 'encryptedCredentials', 'host', 'mode', 'port'
   ])
   const reloaded = load()
   assert.deepEqual(plain(reloaded.getBrowserConfig()), plain(saved))

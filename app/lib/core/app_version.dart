@@ -1,1 +1,1 @@
-const appVersion = '1.2.42';
+const appVersion = '1.2.43';

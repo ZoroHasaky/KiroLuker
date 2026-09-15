@@ -13,7 +13,7 @@ if (process.argv.includes('--fixture-chrome')) {
   })
 } else {
   const api = { md5: () => '0123456789abcdef0123456789abcdef', onBrowserWindowsChanged: (callback) => subscribe('fixture-windows', callback) }
-  for (const name of ['onAppNavigate', 'onConfirmQuit', 'onProactiveRenewal', 'onTrayAction', 'onUpdateState']) api[name] = () => () => {}
+  for (const name of ['onAppNavigate', 'onAccountsChanged', 'onConfirmQuit', 'onProactiveRenewal', 'onTrayAction', 'onUpdateState']) api[name] = () => () => {}
   for (const method of ['getSettings', 'saveSettings', 'getAppInfo', 'loadAccounts', 'getActiveKiroToken', 'syncTray', 'getUpdateState', 'checkUpdate', 'getBrowserConfig', 'saveBrowserConfig', 'checkBrowserProxy', 'getBrowserWindows', 'openBrowserWindow', 'focusBrowserWindow', 'closeBrowserWindow']) {
     api[method] = (...args) => ipcRenderer.invoke('fixture-browser-api', method, args)
   }

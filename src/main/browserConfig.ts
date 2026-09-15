@@ -121,8 +121,7 @@ export function validateBrowserProxy(value: unknown): BrowserResolvedConfig['pro
     password,
     apiUrl: validateBrowserProxyApiUrl(proxy.apiUrl === undefined ? '' : proxy.apiUrl, proxy.enabled && dynamic),
     apiProxyHost: validateBrowserProxyHost(proxy.apiProxyHost === undefined ? '' : proxy.apiProxyHost, proxy.enabled && dynamic),
-    apiProxyPort: integer(proxy.apiProxyPort === undefined ? 7897 : proxy.apiProxyPort, 1, 65535, '本机 HTTP 代理端口'),
-    duplicateExitIpAttempts: integer(proxy.duplicateExitIpAttempts === undefined ? 3 : proxy.duplicateExitIpAttempts, 1, 20, '重复出口 IP 尝试次数')
+    apiProxyPort: integer(proxy.apiProxyPort === undefined ? 7897 : proxy.apiProxyPort, 1, 65535, '本机 HTTP 代理端口')
   }
 }
 
@@ -142,7 +141,7 @@ export function defaultBrowserConfig(portalLocale: unknown = 'zh-CN'): BrowserRe
   return {
     proxy: {
       enabled: false, mode: 'socks5', host: '', port: 1080, username: '', password: '',
-      apiUrl: '', apiProxyHost: '', apiProxyPort: 7897, duplicateExitIpAttempts: 3
+      apiUrl: '', apiProxyHost: '', apiProxyPort: 7897
     },
     fingerprint: { userAgent: '', language, timezone: '', width: 1280, height: 900 }
   }
@@ -158,7 +157,6 @@ interface StoredBrowserConfig {
     apiUrl: string
     apiProxyHost: string
     apiProxyPort: number
-    duplicateExitIpAttempts: number
     encryptedCredentials: string
   }
   fingerprint: BrowserFingerprint
@@ -185,7 +183,7 @@ function secureStorageRequired(): void {
 }
 
 function encodeConfig(config: BrowserResolvedConfig): StoredBrowserConfig {
-  const { enabled, mode, host, port, username, password, apiUrl, apiProxyHost, apiProxyPort, duplicateExitIpAttempts } = config.proxy
+  const { enabled, mode, host, port, username, password, apiUrl, apiProxyHost, apiProxyPort } = config.proxy
   let encryptedCredentials = ''
   if ((mode === 'socks5' || mode === 'http') && (username || password)) {
     secureStorageRequired()
@@ -198,7 +196,7 @@ function encodeConfig(config: BrowserResolvedConfig): StoredBrowserConfig {
   }
   return {
     version: 3,
-    proxy: { enabled, mode, host, port, apiUrl, apiProxyHost, apiProxyPort, duplicateExitIpAttempts, encryptedCredentials },
+    proxy: { enabled, mode, host, port, apiUrl, apiProxyHost, apiProxyPort, encryptedCredentials },
     fingerprint: { ...config.fingerprint }
   }
 }
@@ -220,7 +218,6 @@ function readConfig(): BrowserResolvedConfig {
   const config = object(stored, '已保存的浏览器配置')
   const proxy = object(config.proxy, '已保存的代理配置')
   const legacy = config.version === 1
-  const legacyWithoutDuplicateThreshold = config.version === 1 || config.version === 2
   if ((!legacy && config.version !== 2 && config.version !== 3) || typeof proxy.encryptedCredentials !== 'string') {
     throw new Error('浏览器配置存储格式无效')
   }
@@ -247,7 +244,6 @@ function readConfig(): BrowserResolvedConfig {
       apiUrl: legacy ? '' : proxy.apiUrl,
       apiProxyHost: legacy ? '' : proxy.apiProxyHost,
       apiProxyPort: legacy ? 7897 : proxy.apiProxyPort,
-      duplicateExitIpAttempts: legacyWithoutDuplicateThreshold ? 3 : proxy.duplicateExitIpAttempts,
       ...credentials
     },
     fingerprint: config.fingerprint
@@ -263,9 +259,9 @@ function writeConfig(config: StoredBrowserConfig): void {
 }
 
 function publicConfig(config: BrowserResolvedConfig): BrowserConfig {
-  const { enabled, mode, host, port, username, password, apiUrl, apiProxyHost, apiProxyPort, duplicateExitIpAttempts } = config.proxy
+  const { enabled, mode, host, port, username, password, apiUrl, apiProxyHost, apiProxyPort } = config.proxy
   return {
-    proxy: { enabled, mode, host, port, username, passwordSet: password.length > 0, apiUrl, apiProxyHost, apiProxyPort, duplicateExitIpAttempts },
+    proxy: { enabled, mode, host, port, username, passwordSet: password.length > 0, apiUrl, apiProxyHost, apiProxyPort },
     fingerprint: { ...config.fingerprint }
   }
 }

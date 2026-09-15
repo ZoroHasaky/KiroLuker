@@ -23,7 +23,7 @@ let fixtureAccounts = [{
 }]
 let settings = { autoRefresh: false, autoRefreshUsage: false, darkMode: false, privacyMode: true, trayEnabled: false, proactiveRenewalEnabled: false }
 let config = {
-  proxy: { enabled: true, mode: 'socks5', host: 'proxy.example.invalid', port: 1080, username: '', passwordSet: true, apiUrl: '', apiProxyHost: '', apiProxyPort: 7897, duplicateExitIpAttempts: 3 },
+  proxy: { enabled: true, mode: 'socks5', host: 'proxy.example.invalid', port: 1080, username: '', passwordSet: true, apiUrl: '', apiProxyHost: '', apiProxyPort: 7897 },
   fingerprint: { language: 'zh-CN', timezone: 'Asia/Shanghai', userAgent: '', width: 1280, height: 900 }
 }
 let windows = [{ id: 'fixture-window', accountId: 'fixture-account', label: '主进程隐私标签', createdAt: 1, tabCount: 2, activeOrigin: 'https://example.invalid', proxyEnabled: true, exitIp: '203.0.113.5', country: '测试地区' }]
@@ -60,7 +60,7 @@ ipcMain.handle('fixture-browser-api', async (_event, method, args) => {
     if (deferredWindows === true) return new Promise((resolve) => { deferredWindows = resolve })
     return ok(clone(windows))
   }
-  if (method === 'openBrowserWindow') return failOpen ? { success: false, error: '重复出口，三次尝试后拒绝打开' } : ok(clone(windows[0]))
+  if (method === 'openBrowserWindow') return failOpen ? { success: false, error: '代理检测失败，未打开窗口' } : ok(clone(windows[0]))
   if (method === 'focusBrowserWindow') return ok()
   if (method === 'closeBrowserWindow') {
     windows = windows.filter((item) => item.id !== args[0])
@@ -223,7 +223,7 @@ app.whenReady().then(async () => {
   assert.deepEqual(calls.filter((call) => call.method === 'openBrowserWindow').at(-1).args, [{ accountId: 'fixture-account' }], 'only account id crosses browser API')
   failOpen = true
   await click(view, '[data-testid="open-anonymous-browser"]')
-  await wait(view, 'document.querySelector("[data-testid=browser-action-error]").innerText.includes("三次尝试")', 'duplicate IP rejection is visible')
+  await wait(view, 'document.querySelector("[data-testid=browser-action-error]").innerText.includes("代理检测失败")', 'open failure is visible')
   failOpen = false
   await click(view, '[data-window-id="fixture-window"] [data-action="focus"]')
   await wait(view, '!document.querySelector("[data-action=focus]").disabled', 'focus complete')
