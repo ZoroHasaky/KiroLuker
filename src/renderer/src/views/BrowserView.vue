@@ -285,19 +285,23 @@ onUnmounted(() => {
         <a-tag color="purple">独立临时会话</a-tag>
       </header>
 
-      <a-alert type="info" show-icon class="notice" message="配置仅对新窗口生效，已有窗口不受影响。">
-        <template #description>
-          关闭窗口后清理该窗口的临时 Cookie、缓存与站点存储，不保留浏览器配置档案。
-          基础参数不等于完整防关联；原生弹出页的首轮脚本可能仍读取系统时区。
-          WebRTC 非代理 UDP 已禁用。出口 IP 仅是启动验证样本；轮换上游后续可能变化，不代表持续使用同一出口，也不保证匿名。
-        </template>
-      </a-alert>
       <a-alert v-if="configError" type="error" show-icon :message="configError">
         <template #action><a-button :loading="loading" @click="loadConfig">重试</a-button></template>
       </a-alert>
       <a-alert v-if="actionError" data-testid="browser-action-error" type="error" show-icon :message="actionError" closable @close="actionError = ''" />
 
       <a-alert v-if="validationError" data-testid="browser-validation-error" type="warning" show-icon :message="validationError" />
+
+      <a-card title="打开临时窗口" size="small">
+        <div class="open-actions">
+          <a-button data-testid="open-anonymous-browser" :disabled="!canOpen" :loading="opening === 'anonymous'" @click="openWindow()">
+            <template #icon><PlusOutlined /></template>匿名空白窗口
+          </a-button>
+          <a-select v-model:value="selectedAccountId" class="account-select" data-testid="browser-account-select" aria-label="选择已有账户" placeholder="选择已有账户" show-search allow-clear option-filter-prop="label" :options="accountOptions" :loading="accountsStore.loading" :disabled="accountsStore.loading || opening !== null" />
+          <a-button data-testid="open-account-browser" type="primary" :disabled="!canOpen || !selectedAccountExists" :loading="opening === 'account'" @click="openWindow(true)">打开所选账户</a-button>
+        </div>
+        <p class="muted field-help">{{ accountsStore.accounts.length ? '账户授权由主进程处理；网页与浏览器工具栏不接触账户管理 API。' : '暂无账户，可先在「账户管理」中添加；仍可打开匿名窗口。' }}</p>
+      </a-card>
 
       <a-spin :spinning="loading">
         <a-form layout="vertical" :model="draft" :disabled="!savedConfig || configBusy" @finish="saveConfig">
@@ -397,17 +401,6 @@ onUnmounted(() => {
         <span>{{ proxyCheck.country || '国家/地区未知' }}</span>
         <span class="muted">{{ proxyCheck.latencyMs }} ms · {{ new Date(proxyCheck.checkedAt).toLocaleString() }}（仅本次验证）</span>
       </div>
-
-      <a-card title="打开临时窗口" size="small">
-        <div class="open-actions">
-          <a-button data-testid="open-anonymous-browser" :disabled="!canOpen" :loading="opening === 'anonymous'" @click="openWindow()">
-            <template #icon><PlusOutlined /></template>匿名空白窗口
-          </a-button>
-          <a-select v-model:value="selectedAccountId" class="account-select" data-testid="browser-account-select" aria-label="选择已有账户" placeholder="选择已有账户" show-search allow-clear option-filter-prop="label" :options="accountOptions" :loading="accountsStore.loading" :disabled="accountsStore.loading || opening !== null" />
-          <a-button data-testid="open-account-browser" type="primary" :disabled="!canOpen || !selectedAccountExists" :loading="opening === 'account'" @click="openWindow(true)">打开所选账户</a-button>
-        </div>
-        <p class="muted field-help">{{ accountsStore.accounts.length ? '账户授权由主进程处理；网页与浏览器工具栏不接触账户管理 API。' : '暂无账户，可先在「账户管理」中添加；仍可打开匿名窗口。' }}</p>
-      </a-card>
 
       <a-card size="small" class="windows-card">
         <template #title>运行中的窗口 <span class="muted">{{ windows.length }}</span></template>
