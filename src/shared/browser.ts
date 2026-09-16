@@ -99,6 +99,8 @@ export interface BrowserChromeState {
   activeTabId: string
   tabs: BrowserTabState[]
   sessionAccount?: BrowserSessionAccountSummary
+  /** 窗口从账号列表打开（有关联账号），与会话账号识别相互独立。 */
+  accountLinked: boolean
 }
 
 export type BrowserChromeCommand =
@@ -115,8 +117,10 @@ export type BrowserChromeCommand =
 export interface BrowserChromeCommandResult {
   success: boolean
   error?: string
-  /** import-payment-link 成功时返回导入目标账号的邮箱。 */
+  /** import-account / import-payment-link 成功时返回导入目标账号的邮箱。 */
   email?: string
+  /** import-account 成功且当前页为 Stripe 结账页时，返回已导入的支付链接。 */
+  paymentLink?: string
 }
 
 /** Stripe 结账页唯一合法前缀；链接其余部分（含 #fid 会话片段）原样保留。 */

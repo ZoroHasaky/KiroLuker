@@ -21,7 +21,6 @@ const reloadButton = document.querySelector<HTMLButtonElement>('#reload')!
 const goButton = document.querySelector<HTMLButtonElement>('#go')!
 const btnLoginKiro = document.querySelector<HTMLButtonElement>('#btn-login-kiro')!
 const btnAddAccount = document.querySelector<HTMLButtonElement>('#btn-add-account')!
-const btnImportPayment = document.querySelector<HTMLButtonElement>('#btn-import-payment')!
 const quickGithubButton = document.querySelector<HTMLButtonElement>('#quick-github')!
 const quickKiroButton = document.querySelector<HTMLButtonElement>('#quick-kiro')!
 const proxyStatus = document.querySelector<HTMLSpanElement>('#proxy-status')!
@@ -33,8 +32,8 @@ let commandError = ''
 let commandRevision = 0
 let receivedState = false
 let disposed = false
-let importingPayment = false
-let importPaymentRestoreTimer = 0
+let accountBusy = false
+let accountFeedbackTimer = 0
 let offState: (() => void) | undefined
 let offFocusAddress: (() => void) | undefined
 const tabElements = new Map<string, { root: HTMLDivElement; select: HTMLButtonElement; close: HTMLButtonElement }>()
@@ -144,29 +143,41 @@ function render(next: BrowserChromeState): void {
   reloadButton.setAttribute('aria-label', reloadButton.title)
   quickGithubButton.disabled = !tab
   quickKiroButton.disabled = !tab
-  const paymentPageReady = Boolean(tab && isStripeCheckoutUrl(tab.url))
-  btnImportPayment.disabled = importingPayment || !paymentPageReady
-  btnImportPayment.title = paymentPageReady
-    ? '把当前页面的支付链接保存到关联账号'
-    : `仅在 ${STRIPE_CHECKOUT_URL_PREFIX} 开头的页面可用`
   proxyStatus.textContent = `${next.proxyEnabled ? 'SOCKS5 出口' : '直连出口'}：${next.exitIp || '未验证'}${next.country ? ` · ${next.country}` : ''}（启动样本）`
   document.title = next.label || '临时浏览器'
 
-  // 渲染账号检测与添加操作按钮
+  // 渲染合并的账号操作按钮：未添加→添加（结算页追加导入链接）；已添加→结算页导入链接
   const acc = next.sessionAccount
-  if (acc?.detected && acc.email) {
+  const onPayment = tab ? isStripeCheckoutUrl(tab.url) : false
+  const linkedOnly = !acc?.detected && next.accountLinked
+  if ((acc?.detected && acc.email) || linkedOnly) {
     btnLoginKiro.style.display = 'none'
     btnAddAccount.style.display = 'inline-block'
-    if (acc.alreadyAdded) {
-      btnAddAccount.textContent = `已添加 (${acc.email})`
-      btnAddAccount.className = 'btn-action added'
-      btnAddAccount.disabled = true
-      btnAddAccount.title = `该账号已在 KiroLuker 账号列表中：${acc.email}`
+    if (linkedOnly) {
+      // 窗口关联了账号但会话识别失败：仅保留支付链接导入能力
+      btnAddAccount.textContent = '导入支付链接'
+      btnAddAccount.className = 'btn-action'
+      btnAddAccount.disabled = accountBusy || !onPayment
+      btnAddAccount.title = onPayment ? '把当前页面的支付链接保存到窗口关联账号' : `仅在 ${STRIPE_CHECKOUT_URL_PREFIX} 开头的页面可用`
+    } else if (acc!.alreadyAdded) {
+      if (onPayment) {
+        btnAddAccount.textContent = '导入支付链接'
+        btnAddAccount.className = 'btn-action primary'
+        btnAddAccount.disabled = accountBusy
+        btnAddAccount.title = `将当前页面的支付链接保存到账号 ${acc!.email}`
+      } else {
+        btnAddAccount.textContent = `已添加 (${acc!.email})`
+        btnAddAccount.className = 'btn-action added'
+        btnAddAccount.disabled = true
+        btnAddAccount.title = `该账号已在 KiroLuker 账号列表中：${acc!.email}`
+      }
     } else {
-      btnAddAccount.textContent = `添加此账号 (${acc.email})`
+      btnAddAccount.textContent = onPayment ? `添加账号并导入链接 (${acc!.email})` : `添加此账号 (${acc!.email})`
       btnAddAccount.className = 'btn-action primary'
-      btnAddAccount.disabled = false
-      btnAddAccount.title = `一键将当前登录账号 (${acc.email}) 添加到 KiroLuker`
+      btnAddAccount.disabled = accountBusy
+      btnAddAccount.title = onPayment
+        ? `添加账号 ${acc!.email}，并把当前支付链接保存到该账号`
+        : `一键将当前登录账号 (${acc!.email}) 添加到 KiroLuker`
     }
   } else {
     btnAddAccount.style.display = 'none'
@@ -199,42 +210,35 @@ quickKiroButton.addEventListener('click', () => {
 })
 
 btnAddAccount.addEventListener('click', async () => {
-  if (btnAddAccount.disabled) return
+  if (btnAddAccount.disabled || !api || disposed) return
+  accountBusy = true
+  window.clearTimeout(accountFeedbackTimer)
   btnAddAccount.disabled = true
-  btnAddAccount.textContent = '正在添加…'
-  await send({ type: 'import-account' })
-})
-
-const IMPORT_PAYMENT_LABEL = '导入支付链接'
-btnImportPayment.addEventListener('click', async () => {
-  if (btnImportPayment.disabled || !api || disposed) return
-  importingPayment = true
-  btnImportPayment.disabled = true
-  btnImportPayment.textContent = '正在导入…'
+  btnAddAccount.textContent = (btnAddAccount.textContent || '').includes('添加账号') ? '正在添加…' : '正在导入…'
   commandError = ''
   renderStatus()
-  window.clearTimeout(importPaymentRestoreTimer)
+  let restoreDelay = 0
   try {
-    const result = await api.command({ type: 'import-payment-link' })
+    const result = await api.command({ type: 'import-account' })
     if (result.success) {
-      btnImportPayment.textContent = result.email ? `已导入支付链接 (${result.email})` : '已导入支付链接'
-      importPaymentRestoreTimer = window.setTimeout(() => {
-        btnImportPayment.textContent = IMPORT_PAYMENT_LABEL
-      }, 6000)
+      if (result.paymentLink) {
+        btnAddAccount.textContent = result.email ? `已添加并导入链接 (${result.email})` : '已导入支付链接'
+        restoreDelay = 6000
+      }
+      // 未导入链接的分支：状态推送会把按钮刷成「已添加」，无需额外反馈
     } else {
-      commandError = result.error || '导入支付链接失败，请重试。'
-      btnImportPayment.textContent = IMPORT_PAYMENT_LABEL
+      commandError = result.error || '操作失败，请重试。'
     }
   } catch {
     commandError = '浏览器连接失败，请重试。'
-    btnImportPayment.textContent = IMPORT_PAYMENT_LABEL
   }
-  importingPayment = false
-  if (!disposed) {
-    const ready = Boolean(activeTab() && isStripeCheckoutUrl(activeTab()!.url))
-    btnImportPayment.disabled = !ready
-    renderStatus()
+  const finish = (): void => {
+    accountBusy = false
+    if (!disposed && state) render(state)
   }
+  if (restoreDelay) accountFeedbackTimer = window.setTimeout(finish, restoreDelay)
+  else finish()
+  if (!disposed) renderStatus()
 })
 
 address.addEventListener('blur', () => { address.value = activeTab()?.url || '' })

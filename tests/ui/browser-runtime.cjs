@@ -50,7 +50,7 @@ async function listen(server) {
 async function run() {
   httpServer = http.createServer(target); httpsServer = https.createServer(tlsFixture, target)
   const httpPort = await listen(httpServer), httpsPort = await listen(httpsServer)
-  const allowedHosts = new Set(['probe.browser.invalid', 'tabs.browser.invalid', 'app.kiro.dev', 'billing.stripe.com', 'checkout.stripe.com', '127.0.0.1'])
+  const allowedHosts = new Set(['probe.browser.invalid', 'tabs.browser.invalid', 'app.kiro.dev', 'billing.stripe.com', 'checkout.stripe.com', 'github.com', '127.0.0.1'])
   fixture = await startBrowserProxyFixture({ mapDestination({ host, port }) {
     return allowedHosts.has(host) ? { host: '127.0.0.1', port: port === 443 ? httpsPort : httpPort } : null
   } })
@@ -83,6 +83,10 @@ async function run() {
   const first = await manager.open({ accountId: 'alpha' })
   const a = manager.windows.get(first.id)
   await loaded(active(a), 'app.kiro.dev')
+  assert.equal(a.tabs.size, 2, 'window opens with two startup tabs')
+  await until(() => manager.state(first.id).tabs[0].url.startsWith('https://github.com/login'), 'first startup tab is github login')
+  assert.ok(manager.state(first.id).tabs[1].url.startsWith('https://app.kiro.dev'), 'second startup tab is kiro portal')
+  assert.equal(a.activeTabId, [...a.tabs.keys()][1], 'kiro tab is active on startup')
   assert.equal(await active(a).executeJavaScript('document.querySelector("#page").textContent'), 'Local fixture')
   assert.equal(await a.window.webContents.executeJavaScript('typeof window.api'), 'undefined')
   assert.equal(await active(a).executeJavaScript('typeof window.api + ":" + typeof require + ":" + typeof window.browserChrome'), 'undefined:undefined:undefined')
@@ -105,7 +109,7 @@ async function run() {
   reports.push('distinct authenticated SOCKS exits, isolated accounts/cookies/storage, preserved background session, locale/UA/timezone applied')
   const original = active(a)
   await original.executeJavaScript('document.querySelector("#manage").click()', true)
-  await until(() => a.tabs.size === 2, 'Manage plan opens a tab')
+  await until(() => a.tabs.size === 3, 'Manage plan opens a tab')
   const popup = active(a)
   await loaded(popup, 'billing.stripe.com')
   assert.equal(popup.session, a.resource.session)
@@ -129,12 +133,12 @@ async function run() {
   assert.equal(invalid.success, false)
   await popup.executeJavaScript('window.open("kiro://fixture-forbidden")', true)
   await sleep(100)
-  assert.equal(a.tabs.size, 2)
+  assert.equal(a.tabs.size, 3)
   assert.throws(() => manager.chromeOwner({ sender: popup, senderFrame: popup.mainFrame }), /无权/)
   assert.throws(() => manager.chromeOwner({ sender: a.window.webContents, senderFrame: {} }), /无权/)
   const popupId = a.activeTabId
   await manager.command(first.id, { type: 'new-tab' })
-  assert.equal(a.tabs.size, 3)
+  assert.equal(a.tabs.size, 4)
   await manager.command(first.id, { type: 'close-tab', tabId: a.activeTabId })
   assert.equal(a.activeTabId, popupId)
   popup.sendInputEvent({ type: 'keyDown', keyCode: 'L', modifiers: ['control'] })
@@ -143,25 +147,29 @@ async function run() {
   fs.writeFileSync(path.join(root, 'out/browser-runtime.png'), (await a.window.capturePage()).toPNG())
   reports.push('real popup tab/opener, shared tab session, safe navigation, current address, tab close, keyboard focus, unprivileged pages')
 
-  // 导入支付链接：按钮仅 Stripe 结账页可用；写入窗口关联账号；主进程独立校验前缀
-  const importButton = () => a.window.webContents.executeJavaScript(
-    '(() => { const b = document.querySelector("#btn-import-payment"); return { disabled: b.disabled, text: b.textContent, title: b.title } })()')
-  const onNonStripe = await importButton()
-  assert.equal(onNonStripe.disabled, true, 'import button disabled off stripe checkout')
-  assert.ok(onNonStripe.title.includes('checkout.stripe.com/c/pay/'), 'disabled title explains prefix rule')
+  // 合并按钮（添加账号 + 导入支付链接）：窗口关联账号即可用，仅 Stripe 结账页可导入
+  const accountButton = () => a.window.webContents.executeJavaScript(
+    '(() => { const b = document.querySelector("#btn-add-account"); return { visible: b.style.display !== "none", disabled: b.disabled, text: b.textContent, title: b.title } })()')
+  await until(async () => (await accountButton()).visible, 'merged button visible for account-linked window')
+  const offStripe = await accountButton()
+  assert.equal(offStripe.text, '导入支付链接')
+  assert.equal(offStripe.disabled, true, 'merged button disabled off stripe checkout')
+  assert.ok(offStripe.title.includes('checkout.stripe.com/c/pay/'), 'disabled title explains prefix rule')
   const stripeUrl = 'https://checkout.stripe.com/c/pay/cs_live_fixture_session#fidkdWxOYHwnPyO1'
   await a.window.webContents.executeJavaScript(`window.browserChrome.command({type:"navigate",url:${JSON.stringify(stripeUrl)}})`)
   await loaded(active(a), '/c/pay/')
-  await until(async () => !(await importButton()).disabled, 'import button enabled on stripe checkout')
-  const importResult = await a.window.webContents.executeJavaScript('window.browserChrome.command({type:"import-payment-link"})')
-  assert.equal(importResult.success, true)
-  assert.equal(importResult.email, 'alpha@example.invalid')
+  await until(async () => !(await accountButton()).disabled, 'merged button enabled on stripe checkout')
+  const merged = await a.window.webContents.executeJavaScript('window.browserChrome.command({type:"import-account"})')
+  assert.equal(merged.success, true)
+  assert.equal(merged.paymentLink, stripeUrl, 'merged command returns imported link')
   assert.equal(getAccountData().accounts.find((x) => x.id === 'alpha').paymentLink, stripeUrl, 'exact URL incl. fragment stored')
+  const direct = await manager.command(first.id, { type: 'import-payment-link' })
+  assert.equal(direct.email, 'alpha@example.invalid')
   await manager.command(first.id, { type: 'navigate', url: 'http://tabs.browser.invalid/final' })
   await loaded(active(a), 'tabs.browser.invalid')
   await assert.rejects(manager.command(first.id, { type: 'import-payment-link' }), /不是 Stripe 支付链接/)
   assert.equal(getAccountData().accounts.find((x) => x.id === 'alpha').paymentLink, stripeUrl, 'rejected import keeps stored link')
-  reports.push('payment-link import: toolbar gating by URL prefix, exact link write to linked account, main-process revalidation')
+  reports.push('merged account button: linked window gating, add-then-import on stripe pages, main-process revalidation')
 
   // 重复出口 IP 检测已移除：相同出口也允许开窗；错误凭据仍然拦截
   const beforeDuplicate = manager.list().length
@@ -177,8 +185,10 @@ async function run() {
   })
   await manager.command(duplicate.id, { type: 'navigate', url: stripeUrl })
   await loaded(active(dupRecord), '/c/pay/')
+  assert.equal(await dupRecord.window.webContents.executeJavaScript('document.querySelector("#btn-add-account").style.display !== "none"'), false, 'anonymous window hides merged button')
   await assert.rejects(manager.command(duplicate.id, { type: 'import-payment-link' }), /未关联账号/)
-  reports.push('anonymous stripe page cannot import without a linked account')
+  await assert.rejects(manager.command(duplicate.id, { type: 'import-account' }), /未检测到有效的 Kiro 登录凭证/)
+  reports.push('anonymous stripe page has no import path and no credentials to add')
   const goodPassword = config.proxy.password
   config.proxy.password = 'fixture-wrong-password'
   await assert.rejects(manager.open({}), /代理检测/)

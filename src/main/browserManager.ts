@@ -52,6 +52,9 @@ function browserSetupTimeout<T>(operation: Promise<T>): Promise<T> {
     operation.then((value) => { clearTimeout(timer); resolve(value) }, (error) => { clearTimeout(timer); reject(error) })
   })
 }
+
+/** 每个临时窗口启动时固定打开的页签，按顺序创建；最后一个为活动页签。 */
+const BROWSER_START_TAB_URLS = ['https://github.com/login', KIRO_PORTAL_ORIGIN]
 export class BrowserManager {
   private windows = new Map<string, WindowRecord>()
   private queue: Promise<unknown> = Promise.resolve()
@@ -110,6 +113,7 @@ export class BrowserManager {
       exitIp: record.resource.check?.ip, country: record.resource.check?.country,
       activeTabId: record.activeTabId,
       sessionAccount: record.sessionAccount,
+      accountLinked: record.accountId !== undefined,
       tabs: [...record.tabs.values()].filter((t) => !t.view.webContents.isDestroyed()).map((tab) => {
         const contents = tab.view.webContents
         return { id: tab.id, title: contents.getTitle() || '新标签页', url: contents.getURL() || 'about:blank',
@@ -208,8 +212,10 @@ export class BrowserManager {
       } else {
         await window.loadFile(join(app.getAppPath(), 'out', 'renderer', 'src', 'browser-chrome', 'index.html'))
       }
-      await this.newTab(current, account ? KIRO_PORTAL_ORIGIN : 'about:blank')
-      if (current.closing || window.isDestroyed()) throw new Error('浏览器窗口已关闭')
+      for (const startUrl of BROWSER_START_TAB_URLS) {
+        await this.newTab(current, startUrl)
+        if (current.closing || window.isDestroyed()) throw new Error('浏览器窗口已关闭')
+      }
       if (!this.options.hidden) { window.show(); window.focus() }
       this.publish(current)
       return this.summary(current)
@@ -480,24 +486,40 @@ export class BrowserManager {
     return record.sessionAccount
   }
 
-  /** 一键将当前窗口中的 Kiro 登录身份导入为系统账号 */
-  async importSessionAccount(id: string): Promise<{ success: boolean; email?: string; error?: string }> {
+  /**
+   * 一键导入当前窗口：登录账号未添加时先添加；当前页为 Stripe 结账页时再导入支付链接。
+   * 已添加的账号（或会话识别失败但窗口关联了账号）只导入链接。
+   */
+  async importSessionAccount(id: string): Promise<{ success: boolean; email?: string; paymentLink?: string; error?: string }> {
     const record = this.requireWindow(id)
-    const cred = await this.getSessionCredentials(id)
-    if (!cred.refreshToken && !cred.accessToken) {
-      throw new Error('未检测到有效的 Kiro 登录凭证，请先在网页中完成登录')
+    const session = record.sessionAccount
+    const linkOnly = session?.alreadyAdded === true || (!session?.detected && record.accountId !== undefined)
+    if (!linkOnly) {
+      const cred = await this.getSessionCredentials(id)
+      if (!cred.refreshToken && !cred.accessToken) {
+        throw new Error('未检测到有效的 Kiro 登录凭证，请先在网页中完成登录')
+      }
+      const res = await accountApplicationService.importCredentials([{
+        refreshToken: cred.refreshToken || cred.accessToken || '',
+        provider: cred.idp as any,
+        profileArn: cred.profileArn
+      }])
+      if (res.failed > 0) {
+        throw new Error(res.messages[0] || '账号添加失败')
+      }
+      // 重新检测状态以标记 alreadyAdded
+      await this.checkSessionAccount(id)
     }
-    const res = await accountApplicationService.importCredentials([{
-      refreshToken: cred.refreshToken || cred.accessToken || '',
-      provider: cred.idp as any,
-      profileArn: cred.profileArn
-    }])
-    if (res.failed > 0) {
-      throw new Error(res.messages[0] || '账号添加失败')
+    const tab = record.tabs.get(record.activeTabId)
+    const url = tab && !tab.view.webContents.isDestroyed() ? tab.view.webContents.getURL().trim() : ''
+    if (!isStripeCheckoutUrl(url)) return { success: true, email: record.sessionAccount?.email }
+    try {
+      await this.importPaymentLink(id)
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : '未知错误'
+      throw new Error(linkOnly ? `支付链接导入失败：${reason}` : `支付链接导入失败：${reason}（账号已添加成功）`)
     }
-    // 重新检测状态以标记 alreadyAdded
-    await this.checkSessionAccount(id)
-    return { success: true, email: record.sessionAccount?.email }
+    return { success: true, email: record.sessionAccount?.email, paymentLink: url }
   }
 
   /**
@@ -550,7 +572,7 @@ export class BrowserManager {
     if (command.type === 'activate-tab') { this.activate(record, command.tabId); return }
     if (command.type === 'close-tab') { this.removeTab(record, command.tabId); return }
     if (command.type === 'check-account') { await this.checkSessionAccount(id); return }
-    if (command.type === 'import-account') { await this.importSessionAccount(id); return }
+    if (command.type === 'import-account') { return await this.importSessionAccount(id) }
     if (command.type === 'import-payment-link') { return await this.importPaymentLink(id) }
     if (command.type === 'start-login') {
       const provider = command.provider || 'Google'
