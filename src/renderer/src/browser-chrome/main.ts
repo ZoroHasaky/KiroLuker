@@ -1,10 +1,10 @@
-import { BROWSER_CHROME_HEIGHT } from '../../../shared/browser'
-import type { BrowserChromeCommand, BrowserChromeState, BrowserTabState } from '../../../shared/browser'
+import { BROWSER_CHROME_HEIGHT, isStripeCheckoutUrl, STRIPE_CHECKOUT_URL_PREFIX } from '../../../shared/browser'
+import type { BrowserChromeCommand, BrowserChromeCommandResult, BrowserChromeState, BrowserTabState } from '../../../shared/browser'
 import './style.css'
 
 interface BrowserChromeApi {
   getState(): Promise<BrowserChromeState>
-  command(command: BrowserChromeCommand): Promise<{ success: boolean; error?: string }>
+  command(command: BrowserChromeCommand): Promise<BrowserChromeCommandResult>
   onState(callback: (state: BrowserChromeState) => void): () => void
   onFocusAddress(callback: () => void): () => void
 }
@@ -21,6 +21,7 @@ const reloadButton = document.querySelector<HTMLButtonElement>('#reload')!
 const goButton = document.querySelector<HTMLButtonElement>('#go')!
 const btnLoginKiro = document.querySelector<HTMLButtonElement>('#btn-login-kiro')!
 const btnAddAccount = document.querySelector<HTMLButtonElement>('#btn-add-account')!
+const btnImportPayment = document.querySelector<HTMLButtonElement>('#btn-import-payment')!
 const quickGithubButton = document.querySelector<HTMLButtonElement>('#quick-github')!
 const quickKiroButton = document.querySelector<HTMLButtonElement>('#quick-kiro')!
 const proxyStatus = document.querySelector<HTMLSpanElement>('#proxy-status')!
@@ -32,6 +33,8 @@ let commandError = ''
 let commandRevision = 0
 let receivedState = false
 let disposed = false
+let importingPayment = false
+let importPaymentRestoreTimer = 0
 let offState: (() => void) | undefined
 let offFocusAddress: (() => void) | undefined
 const tabElements = new Map<string, { root: HTMLDivElement; select: HTMLButtonElement; close: HTMLButtonElement }>()
@@ -141,6 +144,11 @@ function render(next: BrowserChromeState): void {
   reloadButton.setAttribute('aria-label', reloadButton.title)
   quickGithubButton.disabled = !tab
   quickKiroButton.disabled = !tab
+  const paymentPageReady = Boolean(tab && isStripeCheckoutUrl(tab.url))
+  btnImportPayment.disabled = importingPayment || !paymentPageReady
+  btnImportPayment.title = paymentPageReady
+    ? '把当前页面的支付链接保存到关联账号'
+    : `仅在 ${STRIPE_CHECKOUT_URL_PREFIX} 开头的页面可用`
   proxyStatus.textContent = `${next.proxyEnabled ? 'SOCKS5 出口' : '直连出口'}：${next.exitIp || '未验证'}${next.country ? ` · ${next.country}` : ''}（启动样本）`
   document.title = next.label || '临时浏览器'
 
@@ -195,6 +203,38 @@ btnAddAccount.addEventListener('click', async () => {
   btnAddAccount.disabled = true
   btnAddAccount.textContent = '正在添加…'
   await send({ type: 'import-account' })
+})
+
+const IMPORT_PAYMENT_LABEL = '导入支付链接'
+btnImportPayment.addEventListener('click', async () => {
+  if (btnImportPayment.disabled || !api || disposed) return
+  importingPayment = true
+  btnImportPayment.disabled = true
+  btnImportPayment.textContent = '正在导入…'
+  commandError = ''
+  renderStatus()
+  window.clearTimeout(importPaymentRestoreTimer)
+  try {
+    const result = await api.command({ type: 'import-payment-link' })
+    if (result.success) {
+      btnImportPayment.textContent = result.email ? `已导入支付链接 (${result.email})` : '已导入支付链接'
+      importPaymentRestoreTimer = window.setTimeout(() => {
+        btnImportPayment.textContent = IMPORT_PAYMENT_LABEL
+      }, 6000)
+    } else {
+      commandError = result.error || '导入支付链接失败，请重试。'
+      btnImportPayment.textContent = IMPORT_PAYMENT_LABEL
+    }
+  } catch {
+    commandError = '浏览器连接失败，请重试。'
+    btnImportPayment.textContent = IMPORT_PAYMENT_LABEL
+  }
+  importingPayment = false
+  if (!disposed) {
+    const ready = Boolean(activeTab() && isStripeCheckoutUrl(activeTab()!.url))
+    btnImportPayment.disabled = !ready
+    renderStatus()
+  }
 })
 
 address.addEventListener('blur', () => { address.value = activeTab()?.url || '' })

@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { app, BrowserWindow, WebContentsView, screen, type WebContents, type WebPreferences, type IpcMainInvokeEvent } from 'electron'
 import type { Account } from '../shared/types'
-import { BROWSER_CHROME_HEIGHT, type BrowserChromeCommand, type BrowserChromeState, type BrowserFingerprint,
-  type BrowserOpenRequest, type BrowserProxyCheck, type BrowserResolvedConfig, type BrowserSessionAccountSummary, type BrowserWindowSummary } from '../shared/browser'
+import { BROWSER_CHROME_HEIGHT, isStripeCheckoutUrl, STRIPE_CHECKOUT_URL_PREFIX, type BrowserChromeCommand, type BrowserChromeState,
+  type BrowserFingerprint, type BrowserOpenRequest, type BrowserProxyCheck, type BrowserResolvedConfig,
+  type BrowserSessionAccountSummary, type BrowserWindowSummary } from '../shared/browser'
 import { acceptLanguageFor } from '../shared/portalLocale'
 import { CHROME_UA, initializePortalSession, KIRO_PORTAL_ORIGIN } from './kiroPortalSession'
 import { createBrowserSession, type BrowserSessionResource } from './browserSession'
@@ -499,7 +500,50 @@ export class BrowserManager {
     return { success: true, email: record.sessionAccount?.email }
   }
 
-  async command(id: string, command: BrowserChromeCommand): Promise<void> {
+  /**
+   * 定位支付链接的写入目标：优先窗口关联账号（从账号列表打开），否则按会话账号
+   * 的 userId / 邮箱在账号库中匹配。返回 undefined 表示无法确定目标账号。
+   */
+  private resolvePaymentLinkTarget(record: WindowRecord): Account | undefined {
+    const accounts = getAccountData().accounts
+    if (record.accountId) {
+      return accounts.find((a) => a.id === record.accountId)
+    }
+    const session = record.sessionAccount
+    if (!session?.detected) return undefined
+    if (session.userId) {
+      const byUserId = accounts.find((a) => a.userId === session.userId)
+      if (byUserId) return byUserId
+    }
+    if (session.email) {
+      const byEmail = accounts.find((a) => a.email.toLowerCase() === session.email!.toLowerCase())
+      if (byEmail) return byEmail
+    }
+    return undefined
+  }
+
+  /** 把当前标签页地址栏的 Stripe 结账链接导入为关联账号的支付链接 */
+  async importPaymentLink(id: string): Promise<{ email?: string }> {
+    const record = this.requireWindow(id)
+    const tab = record.tabs.get(record.activeTabId)
+    if (!tab || tab.view.webContents.isDestroyed()) throw new Error('标签页已关闭')
+    // 主进程读取真实提交的 URL；工具栏输入框内容不可信也不完整
+    const url = tab.view.webContents.getURL().trim()
+    if (!isStripeCheckoutUrl(url)) {
+      throw new Error(`当前页面不是 Stripe 支付链接（需以 ${STRIPE_CHECKOUT_URL_PREFIX} 开头）`)
+    }
+    if (url.length > 4096) throw new Error('支付链接过长，已拒绝导入')
+    const account = this.resolvePaymentLinkTarget(record)
+    if (!account) {
+      if (record.accountId) throw new Error('窗口关联的账号已不存在（可能已被删除）')
+      if (record.sessionAccount?.detected) throw new Error('当前登录的账号还未添加到账号列表，请先点击「添加此账号」')
+      throw new Error('当前窗口未关联账号：请从账号列表打开浏览器，或先登录 Kiro 账号')
+    }
+    await accountApplicationService.setPaymentLink(account.id, url)
+    return { email: account.email }
+  }
+
+  async command(id: string, command: BrowserChromeCommand): Promise<{ email?: string } | void> {
     const record = this.requireWindow(id)
     if (!command || typeof command !== 'object') throw new Error('无效的浏览器操作')
     if (command.type === 'new-tab') { await this.newTab(record); return }
@@ -507,6 +551,7 @@ export class BrowserManager {
     if (command.type === 'close-tab') { this.removeTab(record, command.tabId); return }
     if (command.type === 'check-account') { await this.checkSessionAccount(id); return }
     if (command.type === 'import-account') { await this.importSessionAccount(id); return }
+    if (command.type === 'import-payment-link') { return await this.importPaymentLink(id) }
     if (command.type === 'start-login') {
       const provider = command.provider || 'Google'
       const loginUrl = `https://auth.kiro.dev/login?idp=${provider}&redirect_uri=kiro://kiro.kiroAgent/authenticate-success`

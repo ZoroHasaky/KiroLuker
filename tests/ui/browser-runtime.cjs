@@ -50,12 +50,13 @@ async function listen(server) {
 async function run() {
   httpServer = http.createServer(target); httpsServer = https.createServer(tlsFixture, target)
   const httpPort = await listen(httpServer), httpsPort = await listen(httpsServer)
-  const allowedHosts = new Set(['probe.browser.invalid', 'tabs.browser.invalid', 'app.kiro.dev', 'billing.stripe.com', '127.0.0.1'])
+  const allowedHosts = new Set(['probe.browser.invalid', 'tabs.browser.invalid', 'app.kiro.dev', 'billing.stripe.com', 'checkout.stripe.com', '127.0.0.1'])
   fixture = await startBrowserProxyFixture({ mapDestination({ host, port }) {
     return allowedHosts.has(host) ? { host: '127.0.0.1', port: port === 443 ? httpsPort : httpPort } : null
   } })
   const { BrowserManager } = require(path.join(root, 'src/main/browserManager.ts'))
   const { initializePortalSession } = require(path.join(root, 'src/main/kiroPortalSession.ts'))
+  const { getAccountData, setAccountData } = require(path.join(root, 'src/main/store.ts'))
   const accounts = ['alpha', 'beta'].map((id) => ({ id, email: `${id}@example.invalid`, idp: 'Google', profileArn: 'arn:fixture:profile',
     credentials: { accessToken: `fixture-only-access-${id}`, refreshToken: `fixture-only-refresh-${id}` } }))
   let config = { proxy: { enabled: true, host: '127.0.0.1', port: fixture.port, ...fixture.credentials },
@@ -70,9 +71,11 @@ async function run() {
       await initializePortalSession(ses, account)
     }
   })
+  // 导入支付链接的写入目标走真实账号库：预置 alpha/beta 两个账号
+  await setAccountData({ ...getAccountData(), accounts: accounts.map((base) => ({ ...base, paymentLink: '', tagIds: [], isActive: true })) })
   ipcMain.handle('browser-chrome:state', (e) => manager.state(manager.chromeOwner(e)))
   ipcMain.handle('browser-chrome:command', async (e, command) => {
-    try { await manager.command(manager.chromeOwner(e), command); return { success: true } }
+    try { const data = await manager.command(manager.chromeOwner(e), command); return { success: true, ...(data || {}) } }
     catch (error) { return { success: false, error: error.message } }
   })
   const background = session.fromPartition('fixture-background-subscription')
@@ -140,12 +143,42 @@ async function run() {
   fs.writeFileSync(path.join(root, 'out/browser-runtime.png'), (await a.window.capturePage()).toPNG())
   reports.push('real popup tab/opener, shared tab session, safe navigation, current address, tab close, keyboard focus, unprivileged pages')
 
+  // 导入支付链接：按钮仅 Stripe 结账页可用；写入窗口关联账号；主进程独立校验前缀
+  const importButton = () => a.window.webContents.executeJavaScript(
+    '(() => { const b = document.querySelector("#btn-import-payment"); return { disabled: b.disabled, text: b.textContent, title: b.title } })()')
+  const onNonStripe = await importButton()
+  assert.equal(onNonStripe.disabled, true, 'import button disabled off stripe checkout')
+  assert.ok(onNonStripe.title.includes('checkout.stripe.com/c/pay/'), 'disabled title explains prefix rule')
+  const stripeUrl = 'https://checkout.stripe.com/c/pay/cs_live_fixture_session#fidkdWxOYHwnPyO1'
+  await a.window.webContents.executeJavaScript(`window.browserChrome.command({type:"navigate",url:${JSON.stringify(stripeUrl)}})`)
+  await loaded(active(a), '/c/pay/')
+  await until(async () => !(await importButton()).disabled, 'import button enabled on stripe checkout')
+  const importResult = await a.window.webContents.executeJavaScript('window.browserChrome.command({type:"import-payment-link"})')
+  assert.equal(importResult.success, true)
+  assert.equal(importResult.email, 'alpha@example.invalid')
+  assert.equal(getAccountData().accounts.find((x) => x.id === 'alpha').paymentLink, stripeUrl, 'exact URL incl. fragment stored')
+  await manager.command(first.id, { type: 'navigate', url: 'http://tabs.browser.invalid/final' })
+  await loaded(active(a), 'tabs.browser.invalid')
+  await assert.rejects(manager.command(first.id, { type: 'import-payment-link' }), /不是 Stripe 支付链接/)
+  assert.equal(getAccountData().accounts.find((x) => x.id === 'alpha').paymentLink, stripeUrl, 'rejected import keeps stored link')
+  reports.push('payment-link import: toolbar gating by URL prefix, exact link write to linked account, main-process revalidation')
+
   // 重复出口 IP 检测已移除：相同出口也允许开窗；错误凭据仍然拦截
   const beforeDuplicate = manager.list().length
   probeIps.push(second.exitIp)
   const duplicate = await manager.open({})
   assert.equal(duplicate.exitIp, second.exitIp, 'duplicate exit IP must open normally')
   assert.equal(manager.list().length, beforeDuplicate + 1)
+  // 匿名窗口在 Stripe 页也无法导入：没有可关联的账号
+  const dupRecord = manager.windows.get(duplicate.id)
+  dupRecord.resource.session.setCertificateVerifyProc((request, callback) => {
+    const actual = request.certificate.data.replace(/\s/g, '')
+    callback(allowedHosts.has(request.hostname) && actual === tlsFixture.cert.replace(/\s/g, '') ? 0 : -2)
+  })
+  await manager.command(duplicate.id, { type: 'navigate', url: stripeUrl })
+  await loaded(active(dupRecord), '/c/pay/')
+  await assert.rejects(manager.command(duplicate.id, { type: 'import-payment-link' }), /未关联账号/)
+  reports.push('anonymous stripe page cannot import without a linked account')
   const goodPassword = config.proxy.password
   config.proxy.password = 'fixture-wrong-password'
   await assert.rejects(manager.open({}), /代理检测/)

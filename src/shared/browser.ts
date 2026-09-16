@@ -109,7 +109,22 @@ export type BrowserChromeCommand =
   | { type: 'back' | 'forward' | 'reload' | 'stop' }
   | { type: 'check-account' }
   | { type: 'import-account' }
+  | { type: 'import-payment-link' }
   | { type: 'start-login'; provider?: 'Google' | 'Github' }
+
+export interface BrowserChromeCommandResult {
+  success: boolean
+  error?: string
+  /** import-payment-link 成功时返回导入目标账号的邮箱。 */
+  email?: string
+}
+
+/** Stripe 结账页唯一合法前缀；链接其余部分（含 #fid 会话片段）原样保留。 */
+export const STRIPE_CHECKOUT_URL_PREFIX = 'https://checkout.stripe.com/c/pay/'
+
+export function isStripeCheckoutUrl(url: string): boolean {
+  return typeof url === 'string' && url.startsWith(STRIPE_CHECKOUT_URL_PREFIX) && url.length > STRIPE_CHECKOUT_URL_PREFIX.length
+}
 
 export const BROWSER_CHROME_HEIGHT = 112
 

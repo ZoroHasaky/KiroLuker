@@ -34,8 +34,8 @@ export function registerBrowserIpc(getMainWindow: () => BrowserWindow | null): v
   ipcMain.handle('browser-chrome:state', (event) => browserManager.state(browserManager.chromeOwner(event)))
   ipcMain.handle('browser-chrome:command', async (event, command: BrowserChromeCommand) => {
     try {
-      await browserManager.command(browserManager.chromeOwner(event), command)
-      return { success: true }
+      const data = await browserManager.command(browserManager.chromeOwner(event), command)
+      return { success: true, ...(data || {}) }
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : '浏览器操作失败' }
     }
