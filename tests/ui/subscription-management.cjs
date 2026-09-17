@@ -48,7 +48,7 @@ async function select(selected) {
   await evaluate(`document.querySelectorAll('.account-row').forEach(row => { const el = row.querySelector('input[type=checkbox]'); if (el && !el.disabled && el.checked !== ${JSON.stringify(selected)}.includes(row.dataset.accountId)) el.click() })`)
 }
 async function visibleIds(expectedIds) {
-  await waitFor(`JSON.stringify(Array.from(document.querySelectorAll('.account-row'), el => el.dataset.accountId)) === ${JSON.stringify(JSON.stringify(expectedIds))}`, 'filtered account IDs')
+  await waitFor(`JSON.stringify(Array.from(document.querySelectorAll('.account-row')).filter(el => el.offsetParent !== null).map(el => el.dataset.accountId)) === ${JSON.stringify(JSON.stringify(expectedIds))}`, 'filtered account IDs')
 }
 async function setThreshold(value) {
   const text = value == null ? '' : String(value)
@@ -66,10 +66,16 @@ async function searchAccounts(text) {
 }
 const records = () => evaluate(`JSON.parse(localStorage.getItem('${KEY}') || '{"records":{}}').records`)
 const idle = () => waitFor(`!!document.querySelector('[data-testid=switch-selected]') && !document.querySelector('[data-testid=switch-selected]').classList.contains('ant-btn-loading')`, 'batch completion')
-/** 提链 是默认标签页；切Free 面板用 v-show 隐藏，innerText 断言前必须先切过去。 */
-async function showFreeTab() {
-  await evaluate(`(() => { const tab = Array.from(document.querySelectorAll('.subscription-tabs button')).find(b => b.textContent.includes('切Free')); if (!tab) throw new Error('切Free tab missing'); tab.click() })()`)
-  await waitFor(`(() => { const panel = document.querySelector('.free-panel'); return !!panel && panel.offsetParent !== null })()`, 'free panel visible')
+const linkPageReady = () => waitFor(`!!document.querySelector('[data-testid=fetch-links]')`, 'link page ready')
+/** 提链与切Free 是两个独立页面；断言切Free 前，先从提链页导航到 #/free-switch。 */
+async function showFreePage() {
+  await evaluate(`location.hash = '#/free-switch'`)
+  await waitFor(`(() => { const panel = document.querySelector('.free-panel'); return !!panel && panel.offsetParent !== null })()`, 'free page visible')
+}
+/** 切Free 页签分类：未切 / 已切 / 失败。 */
+async function showTab(label) {
+  await evaluate(`(() => { const tab = Array.from(document.querySelectorAll('.ant-tabs-tab')).find(t => t.textContent.includes(${JSON.stringify(label)})); if (!tab) throw new Error('tab missing: ' + ${JSON.stringify(label)}); tab.click() })()`)
+  await new Promise((resolve) => setTimeout(resolve, 80))
 }
 ipcMain.handle('subscription-ui-fixture', async (_event, method, args) => {
   if (method === 'getSettings') return ok({ autoRefresh: false, autoRefreshUsage: false, darkMode: false })
@@ -138,8 +144,8 @@ async function run() {
   win.webContents.on('console-message', (_event, level, message) => {
     if (level >= 3 && !/Electron Security Warning/.test(message)) rendererErrors.push(message)
   })
-  await win.loadFile(path.join(root, 'out/renderer/index.html'), { hash: '/subscription' })
-  await idle()
+  await win.loadFile(path.join(root, 'out/renderer/index.html'), { hash: '/link-extraction' })
+  await linkPageReady()
   if (!restoring) {
     // 提链 tab（默认）：已生成支付链接的账号不再出现在待提链；提链失败的账号被直接删除。
     await waitFor(`(() => { const t = Array.from(document.querySelectorAll('.account-pick-item'), el => el.innerText).join('|'); return t.includes('link-ok@') && t.includes('link-bad@') && t.includes('link-net@') && !t.includes('link-paid@') })()`, 'eligible link accounts only')
@@ -167,9 +173,9 @@ async function run() {
     assert.match(await evaluate(`document.querySelector('.account-pick-item').innerText`), /link-net@/)
     await waitFor(`document.querySelectorAll('.account-pick-item').length === 1`, 'pick list keeps network-failed account')
   }
-  await showFreeTab()
+  await showFreePage()
   if (restoring) {
-    // Fresh process: session retention is gone, persisted records still exclude switched accounts.
+    // Fresh process: 未切 empty; persisted records keep 已切/失败 分类。
     await visibleIds([])
     await waitFor(`document.querySelector('.free-panel .threshold-input input').value === '15'`, 'persisted threshold')
     const data = await records()
@@ -177,6 +183,13 @@ async function run() {
     assert.equal(data['paid-high'].needsCheck, false)
     assert.equal(data['paid-mid'].needsCheck, true)
     assert.equal(await evaluate(`document.querySelector('[data-testid=switch-selected]').disabled`), true)
+    await showTab('已切')
+    await visibleIds(['paid-high'])
+    assert.match(await evaluate(`document.querySelector('[data-account-id=paid-high]').innerText`), /切换成功/)
+    await showTab('失败')
+    await visibleIds(['paid-mid'])
+    assert.match(await evaluate(`document.querySelector('[data-account-id=paid-mid]').innerText`), /需关注/)
+    await showTab('未切')
     await setThreshold(null)
     await visibleIds(['paid-low', 'paid-fresh'])
     assert.equal(calls.length, 0, 'Restart must not auto-check or change any subscription')
@@ -209,19 +222,20 @@ async function run() {
     await evaluate('Storage.prototype.setItem = window.__setItem; void 0')
     await win.reload()
     await idle()
-    await showFreeTab()
+    await showFreePage()
     await visibleIds(['paid-high', 'paid-mid'])
 
-    // Batch switch: both accounts stay listed with their outcome instead of vanishing.
+    // Batch switch: rows move from 未切 to 已切 tab with their outcome.
     await click('input[data-testid=select-all], [data-testid=select-all] input')
     await waitFor(`!document.querySelector('[data-testid=switch-selected]').disabled`, 'switch button enabled')
     await click('[data-testid=switch-selected]')
     await idle()
     assert.deepEqual(switchWrites, ['paid-high', 'paid-mid'])
     assert.equal(maxActive, 1, 'Checks must stay sequential')
-    await visibleIds(['paid-high', 'paid-mid']) // Retained rows keep the same IDs listed.
     assert.match(await evaluate('document.body.innerText'), /待切Free 0/)
-    assert.match(await evaluate('document.body.innerText'), /已切换 2（本次会话）/)
+    await visibleIds([])
+    await showTab('已切')
+    await visibleIds(['paid-high', 'paid-mid'])
     assert.match(await evaluate(`document.querySelector('[data-account-id=paid-high]').innerText`), /切换成功/)
     assert.match(await evaluate(`document.querySelector('[data-account-id=paid-mid]').innerText`), /需关注/)
     assert.equal(await evaluate(`document.querySelector('[data-account-id=paid-high] input[type=checkbox]').disabled`), true)
@@ -229,20 +243,28 @@ async function run() {
     assert.equal(data['paid-high'].renewal.state, 'scheduled-free')
     assert.equal(data['paid-high'].needsCheck, false)
     assert.equal(data['paid-mid'].needsCheck, true)
+    await showTab('失败')
+    await visibleIds([], 'no failed records in this batch')
+    await showTab('已切')
     await evaluate('new Promise(resolve => setTimeout(() => requestAnimationFrame(() => resolve(true)), 350))')
     fs.writeFileSync(path.join(root, 'out/subscription-management-ui.png'), (await win.webContents.capturePage()).toPNG())
 
-    // Retention is independent of the threshold; the threshold keeps filtering only pending rows.
+    // 已切 classification is independent of the threshold; the threshold keeps filtering only 未切.
     await setThreshold(50)
     await visibleIds(['paid-high', 'paid-mid'])
     await setThreshold(15)
 
-    // Renderer reload clears session retention while records and the threshold persist.
+    // Renderer reload keeps persisted classification: settled stays 已切, unverified goes to 失败.
     const beforeReload = await records()
     await win.reload()
     await idle()
-    await showFreeTab()
+    await showFreePage()
     await visibleIds([])
+    await showTab('已切')
+    await visibleIds(['paid-high'])
+    await showTab('失败')
+    await visibleIds(['paid-mid'])
+    await showTab('未切')
     assert.deepEqual(await records(), beforeReload)
     await setThreshold(null)
     await visibleIds(['paid-low', 'paid-fresh'])
@@ -262,7 +284,7 @@ async function run() {
   win.setSize(1000, 860)
   await evaluate('new Promise(resolve => setTimeout(() => requestAnimationFrame(() => resolve(true)), 350))')
   assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true)
-  assert.equal(await evaluate("document.querySelector('.subscription-page').scrollWidth <= document.querySelector('.subscription-page').clientWidth"), true)
+  assert.equal(await evaluate("document.querySelector('.free-switch-page').scrollWidth <= document.querySelector('.free-switch-page').clientWidth"), true)
   assert.deepEqual(unexpected, [])
   assert.deepEqual(blockedNetwork, [], 'No external network should be requested')
   assert.deepEqual(rendererErrors, [])

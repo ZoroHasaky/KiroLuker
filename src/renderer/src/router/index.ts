@@ -28,18 +28,20 @@ const router = createRouter({
       redirect: '/home'
     },
     {
-      path: '/subscription',
-      name: 'subscription',
-      component: () => import('@/views/SubscriptionView.vue'),
-      meta: { title: '订阅管理' }
+      path: '/link-extraction',
+      name: 'link-extraction',
+      component: () => import('@/views/LinkExtractionView.vue'),
+      meta: { title: '提链' }
     },
-    { path: '/tools', redirect: '/home' },
     {
-      path: '/billing',
-      name: 'billing',
-      component: () => import('@/views/BillingView.vue'),
-      meta: { title: '账单信息' }
+      path: '/free-switch',
+      name: 'free-switch',
+      component: () => import('@/views/FreeSwitchView.vue'),
+      meta: { title: '切Free' }
     },
+    { path: '/subscription', redirect: '/link-extraction' },
+    { path: '/tools', redirect: '/home' },
+    { path: '/billing', redirect: '/home' },
     {
       path: '/logs',
       name: 'logs',

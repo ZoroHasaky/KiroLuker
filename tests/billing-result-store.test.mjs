@@ -17,7 +17,7 @@ test('账单结果在路由页面重新进入后仍保留，只有显式丢弃�
 
   billingStore.setResult(result)
 
-  // BillingView 卸载、再进入时会重新调用同一 Pinia store。
+  // 弹窗关闭、再打开时会重新调用同一 Pinia store。
   const reenteredStore = useBillingStore(pinia)
   assert.deepEqual(reenteredStore.result, result)
 

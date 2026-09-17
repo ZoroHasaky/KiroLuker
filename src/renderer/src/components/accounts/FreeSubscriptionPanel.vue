@@ -59,6 +59,7 @@ const settingsStore = useSettingsStore()
 const precision = computed(() => settingsStore.settings.usagePrecision)
 const selectedIds = ref<string[]>([])
 const search = ref('')
+const activeTab = ref<string>('pending')
 const { working, operation, completed, total, results, storageError, usageThreshold, switchedIds } = freeSession
 let disposed = false
 
@@ -92,12 +93,23 @@ const pendingAccounts = computed(() =>
     return isPendingCandidate(account) && (threshold == null || usagePercentOf(account) >= threshold)
   }).filter(matchesSearch)
 )
+/** 已切：本次会话提交过切换（含结果待复核），或本机持久化记录确认已转为 Free。 */
 const switchedAccounts = computed(() =>
   availableAccounts.value
-    .filter((account) => switchedIds.value.has(account.id) && !isPendingCandidate(account))
+    .filter((account) => (switchedIds.value.has(account.id) || results.value[account.id]?.settled === true) && !isPendingCandidate(account))
     .filter(matchesSearch)
 )
-const switchedCount = computed(() => switchedAccounts.value.length)
+/** 失败：切换/检查报错的记录，以及重启后恢复的「结果不确定」切换（等待人工复核）。 */
+const failedAccounts = computed(() =>
+  availableAccounts.value
+    .filter((account) => {
+      const record = results.value[account.id]
+      if (!record) return false
+      if (record.status === 'error') return true
+      return record.needsCheck === true && record.operation === 'switch' && !switchedIds.value.has(account.id)
+    })
+    .filter(matchesSearch)
+)
 const selectedSet = computed(() => new Set(selectedIds.value))
 const selectedAccounts = computed(() => pendingAccounts.value.filter((a) => selectedSet.value.has(a.id)))
 const allSelected = computed(() => pendingAccounts.value.length > 0 && selectedAccounts.value.length === pendingAccounts.value.length)
@@ -134,6 +146,12 @@ function retainedTagColor(id: string): string {
 }
 function retainedTagText(id: string): string {
   return results.value[id]?.needsCheck ? '需关注' : '切换成功'
+}
+function failedTagColor(id: string): string {
+  return results.value[id]?.needsCheck ? 'orange' : 'red'
+}
+function failedTagText(id: string): string {
+  return results.value[id]?.needsCheck ? '需关注' : '失败'
 }
 
 watch(() => availableAccounts.value.map((a) => a.id), (ids) => {
@@ -284,7 +302,7 @@ function resultText(id: string): string {
       <div class="panel-title">
         <div>
           <h2 class="section-title">切Free</h2>
-          <p class="muted header-hint">仅显示已用达到阈值且尚未切换的账号；切换成功的账号会保留在清单并标注结果，重启应用后不再显示。勾选后点击按钮，系统会先核验再提交。</p>
+          <p class="muted header-hint">按「未切 / 已切 / 失败」页签分类展示；未切页签仅显示已用达到阈值且可切换的账号。勾选后点击按钮，系统会先核验再提交。</p>
         </div>
         <a-tag color="orange">待切Free {{ pendingAccounts.length }}</a-tag>
       </div>
@@ -306,47 +324,75 @@ function resultText(id: string): string {
     </header>
 
     <a-alert v-if="storageError" type="error" show-icon :message="storageError" />
-    <div class="meta-bar">
-      <a-checkbox :checked="allSelected" :indeterminate="visibleSelectedCount > 0 && !allSelected" :disabled="locked || !pendingAccounts.length" data-testid="select-all" @change="(event: any) => toggleAll(event.target.checked)">
-        全选
-      </a-checkbox>
-      <span class="count-text">显示 {{ pendingAccounts.length }} 个待切Free账号</span>
-      <span v-if="selectedAccounts.length" class="count-text">已选 {{ selectedAccounts.length }}</span>
-      <span v-if="switchedCount" class="count-text">已切换 {{ switchedCount }}（本次会话）</span>
-      <a-button v-if="selectedIds.length" type="link" size="small" :disabled="locked" @click="selectedIds = []">清空</a-button>
-      <span class="toolbar-spacer" />
-      <span class="muted">排除：已为 Free、已安排切换、结果待复核或已用不足阈值的账号</span>
-    </div>
-
-    <div v-if="pendingAccounts.length || switchedAccounts.length" class="account-list">
-      <div v-for="account in pendingAccounts" :key="account.id" class="account-row" :data-account-id="account.id">
-        <a-checkbox :checked="selectedSet.has(account.id)" :disabled="locked" @change="(event: any) => toggleAccount(account.id, event.target.checked)" />
-        <div class="account-main">
-          <strong>{{ account.email || account.nickname || '未命名账号' }}</strong>
-          <span class="muted">{{ account.nickname || account.subscription.title || account.subscription.type }}</span>
-          <span class="account-usage">总额度 {{ formatCredits(account.usage.limit, precision) }} · 已用 {{ formatCredits(account.usage.current, precision) }} · {{ usagePercentOf(account) }}%</span>
+    <a-tabs v-model:activeKey="activeTab" size="small" class="free-tabs" data-testid="free-tabs">
+      <a-tab-pane key="pending" :tab="`未切 (${pendingAccounts.length})`">
+        <div class="meta-bar">
+          <a-checkbox :checked="allSelected" :indeterminate="visibleSelectedCount > 0 && !allSelected" :disabled="locked || !pendingAccounts.length" data-testid="select-all" @change="(event: any) => toggleAll(event.target.checked)">
+            全选
+          </a-checkbox>
+          <span class="count-text">显示 {{ pendingAccounts.length }} 个待切Free账号</span>
+          <span v-if="selectedAccounts.length" class="count-text">已选 {{ selectedAccounts.length }}</span>
+          <a-button v-if="selectedIds.length" type="link" size="small" :disabled="locked" @click="selectedIds = []">清空</a-button>
+          <span class="toolbar-spacer" />
+          <span class="muted">排除：已为 Free、已安排切换、结果待复核或已用不足阈值的账号</span>
         </div>
-        <span class="muted">{{ resultText(account.id) }}</span>
-        <a-tag v-if="results[account.id]" :color="rowColors[results[account.id].status]">{{ rowLabels[results[account.id].status] }}</a-tag>
-      </div>
-      <div
-        v-for="account in switchedAccounts"
-        :key="account.id"
-        class="account-row switched-row"
-        :class="{ 'switched-row-attention': results[account.id]?.needsCheck }"
-        :data-account-id="account.id"
-      >
-        <a-checkbox :checked="false" disabled />
-        <div class="account-main">
-          <strong>{{ account.email || account.nickname || '未命名账号' }}</strong>
-          <span class="muted">{{ account.nickname || account.subscription.title || account.subscription.type }}</span>
-          <span class="account-usage">总额度 {{ formatCredits(account.usage.limit, precision) }} · 已用 {{ formatCredits(account.usage.current, precision) }} · {{ usagePercentOf(account) }}%</span>
+        <div v-if="pendingAccounts.length" class="account-list" data-testid="pending-list">
+          <div v-for="account in pendingAccounts" :key="account.id" class="account-row" :data-account-id="account.id">
+            <a-checkbox :checked="selectedSet.has(account.id)" :disabled="locked" @change="(event: any) => toggleAccount(account.id, event.target.checked)" />
+            <div class="account-main">
+              <strong>{{ account.email || account.nickname || '未命名账号' }}</strong>
+              <span class="muted">{{ account.nickname || account.subscription.title || account.subscription.type }}</span>
+              <span class="account-usage">总额度 {{ formatCredits(account.usage.limit, precision) }} · 已用 {{ formatCredits(account.usage.current, precision) }} · {{ usagePercentOf(account) }}%</span>
+            </div>
+            <span class="muted">{{ resultText(account.id) }}</span>
+            <a-tag v-if="results[account.id]" :color="rowColors[results[account.id].status]">{{ rowLabels[results[account.id].status] }}</a-tag>
+          </div>
         </div>
-        <span class="muted">{{ resultText(account.id) }}</span>
-        <a-tag :color="retainedTagColor(account.id)">{{ retainedTagText(account.id) }}</a-tag>
-      </div>
-    </div>
-    <a-empty v-else description="没有待切Free账号" />
+        <a-empty v-else description="没有待切Free账号" />
+      </a-tab-pane>
+      <a-tab-pane key="switched" :tab="`已切 (${switchedAccounts.length})`">
+        <div v-if="switchedAccounts.length" class="account-list" data-testid="switched-list">
+          <div
+            v-for="account in switchedAccounts"
+            :key="account.id"
+            class="account-row switched-row"
+            :class="{ 'switched-row-attention': results[account.id]?.needsCheck }"
+            :data-account-id="account.id"
+          >
+            <a-checkbox :checked="false" disabled />
+            <div class="account-main">
+              <strong>{{ account.email || account.nickname || '未命名账号' }}</strong>
+              <span class="muted">{{ account.nickname || account.subscription.title || account.subscription.type }}</span>
+              <span class="account-usage">总额度 {{ formatCredits(account.usage.limit, precision) }} · 已用 {{ formatCredits(account.usage.current, precision) }} · {{ usagePercentOf(account) }}%</span>
+            </div>
+            <span class="muted">{{ resultText(account.id) }}</span>
+            <a-tag :color="retainedTagColor(account.id)">{{ retainedTagText(account.id) }}</a-tag>
+          </div>
+        </div>
+        <a-empty v-else description="暂无已切换账号" />
+      </a-tab-pane>
+      <a-tab-pane key="failed" :tab="`失败 (${failedAccounts.length})`">
+        <div v-if="failedAccounts.length" class="account-list" data-testid="failed-list">
+          <div
+            v-for="account in failedAccounts"
+            :key="account.id"
+            class="account-row failed-row"
+            :class="{ 'failed-row-attention': results[account.id]?.needsCheck }"
+            :data-account-id="account.id"
+          >
+            <a-checkbox :checked="false" disabled />
+            <div class="account-main">
+              <strong>{{ account.email || account.nickname || '未命名账号' }}</strong>
+              <span class="muted">{{ account.nickname || account.subscription.title || account.subscription.type }}</span>
+              <span class="account-usage">总额度 {{ formatCredits(account.usage.limit, precision) }} · 已用 {{ formatCredits(account.usage.current, precision) }} · {{ usagePercentOf(account) }}%</span>
+            </div>
+            <span class="muted">{{ resultText(account.id) }}</span>
+            <a-tag :color="failedTagColor(account.id)">{{ failedTagText(account.id) }}</a-tag>
+          </div>
+        </div>
+        <a-empty v-else description="暂无失败记录" />
+      </a-tab-pane>
+    </a-tabs>
 
     <a-progress v-if="working || total" :percent="total ? Math.round(completedCount / total * 100) : 0" :status="working ? 'active' : undefined" :format="() => `${completedCount}/${total}`" />
   </section>
@@ -354,6 +400,12 @@ function resultText(id: string): string {
 
 <style scoped>
 .free-panel { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; overflow: auto; padding-bottom: 8px; }
+.free-tabs { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.free-tabs :deep(.ant-tabs-nav) { margin-bottom: 8px; }
+.free-tabs :deep(.ant-tabs-content-holder) { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.free-tabs :deep(.ant-tabs-content) { height: 100%; }
+.free-tabs :deep(.ant-tabs-tabpane) { height: 100%; display: flex; flex-direction: column; }
+.free-tabs :deep(.ant-empty-normal) { margin: 24px 0; }
 .subscription-header, .panel-title, .toolbar, .meta-bar, .account-row { display: flex; align-items: center; gap: 10px; }
 .subscription-header { justify-content: space-between; flex-wrap: wrap; }
 .panel-title { align-items: flex-start; justify-content: space-between; flex: 1 1 auto; min-width: 280px; }
@@ -368,6 +420,8 @@ function resultText(id: string): string {
 .account-row { padding: 10px 12px; border: 1px solid var(--kal-border); border-radius: 8px; }
 .switched-row { border-left: 3px solid #52c41a; }
 .switched-row-attention { border-left-color: #fa8c16; }
+.failed-row { border-left: 3px solid #ff4d4f; }
+.failed-row-attention { border-left-color: #fa8c16; }
 .no-wrap { white-space: nowrap; }
 .threshold-input { width: 76px; }
 .account-main { display: flex; flex: 1 1 240px; flex-direction: column; gap: 3px; min-width: 0; }

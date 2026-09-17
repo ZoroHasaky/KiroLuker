@@ -5,15 +5,15 @@ import {
   HomeOutlined,
   GlobalOutlined,
   TeamOutlined,
-  CreditCardOutlined,
-  DollarCircleOutlined,
   FileTextOutlined,
   SettingOutlined,
   InfoCircleOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   BulbOutlined,
-  BulbFilled
+  BulbFilled,
+  LinkOutlined,
+  SwapOutlined
 } from '@ant-design/icons-vue'
 import kirolukerLogo from '@/assets/kiroluker-logo.png'
 import { useSettingsStore } from '@/stores/settings'
@@ -39,8 +39,8 @@ const items = computed(() => [
   { key: 'home', label: '主页', icon: HomeOutlined },
   { key: 'accounts', label: '账户管理', icon: TeamOutlined },
   { key: 'browser', label: '临时浏览器', icon: GlobalOutlined },
-  { key: 'subscription', label: '订阅管理', icon: DollarCircleOutlined },
-  { key: 'billing', label: '账单信息', icon: CreditCardOutlined },
+  { key: 'link-extraction', label: '提链', icon: LinkOutlined },
+  { key: 'free-switch', label: '切Free', icon: SwapOutlined },
   { key: 'logs', label: '系统日志', icon: FileTextOutlined },
   { key: 'settings', label: '设置', icon: SettingOutlined },
   { key: 'about', label: '关于', icon: InfoCircleOutlined }
